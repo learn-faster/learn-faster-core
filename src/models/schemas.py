@@ -62,3 +62,13 @@ class LearningPath(BaseModel):
     estimated_time_minutes: int = Field(..., description="Total estimated learning time")
     target_concept: str = Field(..., description="Final concept to reach")
     pruned: bool = Field(False, description="Whether path was pruned due to time constraints")
+
+
+class DocumentMetadata(BaseModel):
+    """Metadata for an ingested document."""
+    
+    id: int = Field(..., description="Database ID")
+    filename: str = Field(..., description="Original filename")
+    upload_date: datetime = Field(..., description="Upload timestamp")
+    status: str = Field("pending", description="Processing status")
+    file_path: Optional[str] = Field(None, description="Local storage path")

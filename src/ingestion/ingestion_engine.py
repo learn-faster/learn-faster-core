@@ -340,7 +340,7 @@ Content to analyze:
             logger.error(f"Failed to store graph data: {str(e)}")
             raise ValueError(f"Graph data storage failed: {str(e)}") from e
     
-    def store_vector_data(self, doc_source: str, content_chunks: List[str], concept_tags: List[str]) -> List[int]:
+    def store_vector_data(self, doc_source: str, content_chunks: List[str], concept_tags: List[str], document_id: Optional[int] = None) -> List[int]:
         """
         Store content chunks with embeddings in PostgreSQL vector database.
         
@@ -348,6 +348,7 @@ Content to analyze:
             doc_source: Source filename or URL
             content_chunks: List of markdown text chunks
             concept_tags: List of concept names corresponding to each chunk
+            document_id: Optional ID of the parent document
             
         Returns:
             List of database IDs for stored chunks
@@ -366,7 +367,7 @@ Content to analyze:
             batch_data = []
             for chunk, concept_tag in zip(content_chunks, concept_tags):
                 if chunk.strip() and concept_tag.strip():  # Skip empty chunks
-                    batch_data.append((doc_source, chunk, concept_tag))
+                    batch_data.append((doc_source, chunk, concept_tag, document_id))
             
             if not batch_data:
                 logger.warning("No valid chunks to store after filtering empty content")
@@ -381,7 +382,7 @@ Content to analyze:
             logger.error(f"Failed to store vector data: {str(e)}")
             raise ValueError(f"Vector data storage failed: {str(e)}") from e
     
-    def process_document_complete(self, doc_source: str, markdown: str, content_chunks: List) -> Tuple[GraphSchema, List[int]]:
+    def process_document_complete(self, doc_source: str, markdown: str, content_chunks: List, document_id: Optional[int] = None) -> Tuple[GraphSchema, List[int]]:
         """
         Complete document processing: extract graph structure and store both graph and vector data.
         
@@ -389,6 +390,7 @@ Content to analyze:
             doc_source: Source filename or URL
             markdown: Full markdown content for graph extraction
             content_chunks: List of content chunks (either strings or tuples from document processor)
+            document_id: Optional ID of the parent document
             
         Returns:
             Tuple of (GraphSchema, list of chunk IDs)
@@ -426,7 +428,7 @@ Content to analyze:
                     concept_tags = ["general"] * len(chunk_contents)
             
             # Store vector data in PostgreSQL
-            chunk_ids = self.store_vector_data(doc_source, chunk_contents, concept_tags)
+            chunk_ids = self.store_vector_data(doc_source, chunk_contents, concept_tags, document_id)
             
             logger.info(f"Complete document processing finished for '{doc_source}'")
             return schema, chunk_ids
@@ -435,7 +437,7 @@ Content to analyze:
             logger.error(f"Complete document processing failed: {str(e)}")
             raise ValueError(f"Document processing failed: {str(e)}") from e
 
-    def process_document(self, file_path: str) -> Tuple[GraphSchema, List[int]]:
+    def process_document(self, file_path: str, document_id: Optional[int] = None) -> Tuple[GraphSchema, List[int]]:
         """
         Process a document file (PDF, DOCX, etc.) from start to finish.
         
@@ -446,6 +448,7 @@ Content to analyze:
         
         Args:
             file_path: Path to document file
+            document_id: Optional ID of the document (if pre-saved)
             
         Returns:
             Tuple of (GraphSchema, list of chunk IDs)
@@ -463,7 +466,8 @@ Content to analyze:
             return self.process_document_complete(
                 doc_source=os.path.basename(file_path),
                 markdown=markdown,
-                content_chunks=chunks
+                content_chunks=chunks,
+                document_id=document_id
             )
             
         except Exception as e:

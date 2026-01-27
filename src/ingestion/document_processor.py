@@ -8,7 +8,7 @@ from markitdown import MarkItDown
 class DocumentProcessor:
     """Handles document conversion and content chunking for the ingestion pipeline."""
     
-    SUPPORTED_FORMATS = {'.pdf', '.docx', '.html', '.htm'}
+    SUPPORTED_FORMATS = {'.pdf', '.docx', '.html', '.htm', '.md', '.txt'}
     DEFAULT_CHUNK_SIZE = 1000  # characters per chunk
     
     def __init__(self, chunk_size: int = DEFAULT_CHUNK_SIZE):

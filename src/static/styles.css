@@ -283,6 +283,31 @@ a:hover {
     color: inherit;
 }
 
+/* Document Table */
+.doc-table {
+    width: 100%;
+    margin-top: 1.5rem;
+    border-collapse: collapse;
+}
+
+.doc-table th {
+    text-align: left;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.doc-table td {
+    padding: 1rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.doc-table tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
 .lesson-content table {
     width: 100%;
     border-collapse: collapse;

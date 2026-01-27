@@ -14,6 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from src.storage.document_store import DocumentStore
+
 # Import core components
 from src.ingestion.ingestion_engine import IngestionEngine
 from src.navigation.navigation_engine import NavigationEngine
@@ -43,6 +45,7 @@ navigation_engine: Optional[NavigationEngine] = None
 user_tracker: Optional[UserProgressTracker] = None
 path_resolver: Optional[PathResolver] = None
 content_retriever: Optional[ContentRetriever] = None
+document_store: Optional[DocumentStore] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,22 +53,21 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for startup and shutdown events.
     Initializes databases and components.
     """
-    global ingestion_engine, navigation_engine, user_tracker, path_resolver, content_retriever
+    global ingestion_engine, navigation_engine, user_tracker, path_resolver, content_retriever, document_store
     
     logger.info("Initializing LearnFast Core Engine...")
     
     # Initialize databases
     if not initialize_databases():
         logger.error("Failed to initialize databases")
-        # In production we might raise an error, but for dev we continue
     
     # Initialize components
-    # (Note: In a real app we might use Dependency Injection)
     ingestion_engine = IngestionEngine()
     navigation_engine = NavigationEngine()
     user_tracker = UserProgressTracker()
     path_resolver = PathResolver()
     content_retriever = ContentRetriever()
+    document_store = DocumentStore()
     
     logger.info("Components initialized successfully")
     
@@ -88,42 +90,79 @@ app.mount("/static", StaticFiles(directory="src/static"), name="static")
 async def root():
     return FileResponse("src/static/index.html")
 
-
-# --- Ingestion Endpoints ---
+# --- Ingestion & Document Management Endpoints ---
 
 @app.post("/ingest",  summary="Upload and process a document")
 async def ingest_document(file: UploadFile = File(...)):
     """
     Upload a document (PDF, DOCX, HTML) for ingestion.
-    Converts to markdown, extracts graph structure, and creates embeddings.
+    Saves original file, converts to markdown, extracts graph structure, and creates embeddings.
     """
-    if not ingestion_engine:
-        raise HTTPException(status_code=503, detail="Ingestion engine not ready")
+    if not ingestion_engine or not document_store:
+        raise HTTPException(status_code=503, detail="Services not ready")
         
     try:
-        # Save temp file
-        temp_dir = "temp_uploads"
-        os.makedirs(temp_dir, exist_ok=True)
-        temp_path = os.path.join(temp_dir, file.filename)
+        # 1. Save original document and create metadata record
+        doc_metadata = document_store.save_document(file)
         
-        with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        logger.info(f"Processing uploaded file: {file.filename}")
+        logger.info(f"Processing document {doc_metadata.id}: {doc_metadata.filename}")
         
-        # Process document
-        # Note: process_document is synchronous in current implementation
-        # In production, this should be a background task
-        ingestion_engine.process_document(temp_path)
+        # 2. Process document (extract graph and vectors)
+        ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
         
-        # Clean up
-        os.remove(temp_path)
+        # 3. Update status to completed
+        document_store.update_status(doc_metadata.id, "completed")
         
-        return {"message": f"Document '{file.filename}' processed successfully"}
+        return {
+            "message": f"Document '{file.filename}' processed successfully",
+            "document_id": doc_metadata.id
+        }
         
     except Exception as e:
         logger.error(f"Ingestion failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
+
+
+@app.get("/documents", summary="List all ingested documents")
+async def list_documents():
+    """List all ingested documents with metadata."""
+    if not document_store:
+        raise HTTPException(status_code=503, detail="Document store not ready")
+    return document_store.list_documents()
+
+
+@app.get("/documents/{doc_id}", summary="Download original document")
+async def download_document(doc_id: int):
+    """Download the original ingested document file."""
+    if not document_store:
+        raise HTTPException(status_code=503, detail="Document store not ready")
+        
+    doc = document_store.get_document(doc_id)
+    if not doc or not doc.file_path or not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="Document file not found")
+        
+    return FileResponse(
+        doc.file_path, 
+        filename=doc.filename,
+        media_type="application/octet-stream"
+    )
+
+
+@app.delete("/documents/{doc_id}", summary="Delete document and associated knowledge")
+async def delete_document(doc_id: int):
+    """Delete document file, metadata, and all its knowledge chunks from the system."""
+    if not document_store:
+        raise HTTPException(status_code=503, detail="Document store not ready")
+        
+    try:
+        document_store.delete_document(doc_id)
+        return {"message": f"Document {doc_id} and associated knowledge deleted"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Deletion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # --- Navigation Endpoints ---
@@ -182,7 +221,7 @@ async def get_lesson_content(user_id: str, target_concept: str, time_budget: int
         raise HTTPException(status_code=404, detail="No content found for learning path")
         
     # Retrieve formatted content
-    lesson_text = content_retriever.get_lesson_content(path.concepts)
+    lesson_text = content_retriever.get_lesson_content(path.concepts, time_budget_minutes=time_budget)
     
     return {
         "target": target_concept,

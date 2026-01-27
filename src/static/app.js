@@ -246,7 +246,7 @@ async function completeLesson(concept) {
 
 async function renderIngest() {
     mainContent.innerHTML = `
-        <div class="card" style="max-width: 600px; margin: 4rem auto;">
+        <div class="card" style="max-width: 800px; margin: 4rem auto;">
             <h2>Ingest Documents</h2>
             <p style="margin-bottom: 2rem; color: var(--text-secondary);">Upload PDF or DOCX files to expand the knowledge graph.</p>
             
@@ -255,8 +255,64 @@ async function renderIngest() {
                 <input type="file" id="fileInput" style="display: none" onchange="handleFileUpload(this)">
             </div>
             <div id="uploadStatus" style="margin-top: 1rem; text-align: center;"></div>
+
+            <div class="document-section" style="margin-top: 4rem;">
+                <h3>Managed Documents</h3>
+                <div id="documentsList" class="loading-spinner">Loading documents...</div>
+            </div>
         </div>
     `;
+    loadDocuments();
+}
+
+async function loadDocuments() {
+    const listEl = document.getElementById('documentsList');
+    try {
+        const docs = await api.get('/documents');
+        if (docs.length === 0) {
+            listEl.innerHTML = '<p class="text-secondary">No documents ingested yet.</p>';
+            return;
+        }
+
+        listEl.innerHTML = `
+            <table class="doc-table">
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Upload Date</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${docs.map(doc => `
+                        <tr>
+                            <td>${doc.filename}</td>
+                            <td>${new Date(doc.upload_date).toLocaleDateString()}</td>
+                            <td><span class="tag ${doc.status === 'completed' ? 'unlocked' : 'root'}">${doc.status}</span></td>
+                            <td>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <a href="/documents/${doc.id}" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Download</a>
+                                    <button onclick="deleteDocument(${doc.id})" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: #ef4444; color: #ef4444;">Delete</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (err) {
+        listEl.innerHTML = `<div class="error">Failed to load documents: ${err.message}</div>`;
+    }
+}
+
+async function deleteDocument(id) {
+    try {
+        await fetch(`/documents/${id}`, { method: 'DELETE' });
+        loadDocuments();
+    } catch (err) {
+        alert('Failed to delete document: ' + err.message);
+    }
 }
 
 async function handleFileUpload(input) {
@@ -279,6 +335,7 @@ async function handleFileUpload(input) {
         const data = await res.json();
 
         status.innerHTML = `<span style="color: var(--success)">Success! ${data.message}</span>`;
+        loadDocuments(); // Refresh list
     } catch (err) {
         status.innerHTML = `<span style="color: var(--warning)">Error: ${err.message}</span>`;
     }

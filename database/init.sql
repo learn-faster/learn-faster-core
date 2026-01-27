@@ -4,9 +4,20 @@
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Create documents table to track ingested files
+CREATE TABLE IF NOT EXISTS documents (
+    id SERIAL PRIMARY KEY,
+    filename TEXT NOT NULL,
+    content_hash TEXT,
+    file_path TEXT,
+    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'pending'
+);
+
 -- Create learning_chunks table for content storage
 CREATE TABLE IF NOT EXISTS learning_chunks (
     id SERIAL PRIMARY KEY,
+    document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
     doc_source TEXT NOT NULL,           -- Source filename or URL
     content TEXT NOT NULL,              -- Markdown text chunk
     embedding vector(768) NOT NULL,     -- Semantic embedding from embeddinggemma:latest (768 dimensions)
