@@ -5,7 +5,7 @@ import logging
 import os
 from typing import List, Optional, Tuple, Any
 from pydantic import ValidationError
-import ollama
+
 from dotenv import load_dotenv
 
 from src.models.schemas import GraphSchema, PrerequisiteLink
@@ -66,37 +66,14 @@ Content to analyze:
 {content}
 """
     
-    def __init__(self, model: Optional[str] = None, ollama_host: Optional[str] = None):
+    
+    def __init__(self):
         """
         Initialize the ingestion engine.
-        
-        Args:
-            model: Ollama model name to use for extraction (default from env or gpt-oss:20b-cloud)
-            ollama_host: Optional Ollama server host URL (default from env or localhost:11434)
+        Using global settings for configuration.
         """
-        self.model = model or os.getenv("OLLAMA_EXTRACTION_MODEL", self.DEFAULT_MODEL)
-        self.MAX_EXTRACTION_CHARS = int(os.getenv("OLLAMA_CONTEXT_WINDOW_CHARS", "50000"))
-        
-        # Handle host configuration - use localhost when running outside Docker
-        if ollama_host:
-            self.ollama_host = ollama_host
-        else:
-            env_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-            # Convert docker internal host to localhost for local testing
-            if "host.docker.internal" in env_host:
-                self.ollama_host = env_host.replace("host.docker.internal", "localhost")
-            else:
-                self.ollama_host = env_host
-        
-        self._client = None
-        self.vector_storage = VectorStorage(ollama_host=self.ollama_host)
+        self.vector_storage = VectorStorage()
         self.document_processor = DocumentProcessor()
-    
-    def _get_client(self):
-        """Get or create Ollama client."""
-        if self._client is None:
-            self._client = ollama.Client(host=self.ollama_host)
-        return self._client
     
     def _normalize_concept_name(self, name: Any) -> str:
         """
@@ -190,7 +167,7 @@ Content to analyze:
             prerequisites=list(prereqs_map.values())
         )
 
-    def extract_graph_structure(self, markdown: str) -> GraphSchema:
+    async def extract_graph_structure(self, markdown: str) -> GraphSchema:
         """
         Extract knowledge graph structure from markdown content using LLM.
         Supports large documents by chunking content and merging results.
@@ -221,21 +198,13 @@ Content to analyze:
             prompt = self.EXTRACTION_PROMPT_TEMPLATE.format(content=window_content)
             
             try:
-                # Call Ollama for structured extraction
-                client = self._get_client()
-                response = client.chat(
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ],
-                    format="json"  # Request JSON format
-                )
+                # Call LLMService using generic chat completion
+                from src.services.llm_service import llm_service
                 
-                # Extract the response content
-                response_text = response['message']['content']
+                response_text = await llm_service.get_chat_completion(
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format="json"
+                )
                 
                 # Parse JSON response
                 try:
@@ -346,39 +315,43 @@ Content to analyze:
             logger.error(f"Failed to store graph data: {str(e)}")
             raise ValueError(f"Graph data storage failed: {str(e)}") from e
     
-    def store_vector_data(self, doc_source: str, content_chunks: List[str], concept_tags: List[str], document_id: Optional[int] = None) -> List[int]:
+    async def store_vector_data(self, doc_source: str, content_chunks: List[str], concept_tags: List[str], document_id: Optional[int] = None) -> List[int]:
         """
-        Store content chunks with embeddings in PostgreSQL vector database.
+        Store content chunks and their vectors in PostgreSQL.
         
         Args:
             doc_source: Source filename or URL
-            content_chunks: List of markdown text chunks
-            concept_tags: List of concept names corresponding to each chunk
+            content_chunks: List of text content chunks
+            concept_tags: List of concept tags corresponding to chunks
             document_id: Optional ID of the parent document
             
         Returns:
-            List of database IDs for stored chunks
-            
-        Raises:
-            ValueError: If chunks and tags don't match or storage fails
+            List of stored chunk IDs
         """
-        if len(content_chunks) != len(concept_tags):
-            raise ValueError("Number of content chunks must match number of concept tags")
-        
-        if not content_chunks:
-            return []
-        
         try:
             # Prepare batch data
+            # Each item is (doc_source, content, concept_tag, document_id)
             batch_data = []
-            for chunk, concept_tag in zip(content_chunks, concept_tags):
-                if chunk.strip() and concept_tag.strip():  # Skip empty chunks
-                    batch_data.append((doc_source, chunk, concept_tag, document_id))
+            for i, content in enumerate(content_chunks):
+                # Skip empty chunks
+                if not content.strip():
+                    continue
+
+                tag = concept_tags[i] if i < len(concept_tags) else "general"
+                # If tag is a Concept object (from schema), extract its name
+                if hasattr(tag, 'name'):
+                    tag = tag.name
+                
+                # Ensure tag is not empty after potential conversion
+                if not tag or not str(tag).strip():
+                    tag = "general"
+
+                batch_data.append((doc_source, content, tag, document_id))
             
             if not batch_data:
                 logger.warning("No valid chunks to store after filtering empty content")
                 return []
-            
+
             # Store using vector storage system
             chunk_ids = self.vector_storage.store_chunks_batch(batch_data)
             logger.info(f"Stored {len(chunk_ids)} content chunks from '{doc_source}'")
@@ -388,7 +361,7 @@ Content to analyze:
             logger.error(f"Failed to store vector data: {str(e)}")
             raise ValueError(f"Vector data storage failed: {str(e)}") from e
     
-    def process_document_complete(self, doc_source: str, markdown: str, content_chunks: List, document_id: Optional[int] = None) -> Tuple[GraphSchema, List[int]]:
+    async def process_document_complete(self, doc_source: str, markdown: str, content_chunks: List, document_id: Optional[int] = None) -> Tuple[GraphSchema, List[int]]:
         """
         Complete document processing: extract graph structure and store both graph and vector data.
         
@@ -406,7 +379,7 @@ Content to analyze:
         """
         try:
             # Extract graph structure from full markdown
-            schema = self.extract_graph_structure(markdown)
+            schema = await self.extract_graph_structure(markdown)
             
             # Store graph data in Neo4j
             self.store_graph_data(schema)
@@ -434,7 +407,7 @@ Content to analyze:
                     concept_tags = ["general"] * len(chunk_contents)
             
             # Store vector data in PostgreSQL
-            chunk_ids = self.store_vector_data(doc_source, chunk_contents, concept_tags, document_id)
+            chunk_ids = await self.store_vector_data(doc_source, chunk_contents, concept_tags, document_id)
             
             logger.info(f"Complete document processing finished for '{doc_source}'")
             return schema, chunk_ids
@@ -443,7 +416,7 @@ Content to analyze:
             logger.error(f"Complete document processing failed: {str(e)}")
             raise ValueError(f"Document processing failed: {str(e)}") from e
 
-    def process_document(self, file_path: str, document_id: Optional[int] = None) -> Tuple[GraphSchema, List[int]]:
+    async def process_document(self, file_path: str, document_id: Optional[int] = None) -> Tuple[GraphSchema, List[int]]:
         """
         Process a document file (PDF, DOCX, etc.) from start to finish.
         
@@ -469,7 +442,7 @@ Content to analyze:
             chunks = self.document_processor.chunk_content(markdown)
             
             # 3 & 4. Complete processing
-            return self.process_document_complete(
+            return await self.process_document_complete(
                 doc_source=os.path.basename(file_path),
                 markdown=markdown,
                 content_chunks=chunks,

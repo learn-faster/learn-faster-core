@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from .connections import neo4j_conn, postgres_conn
 from .graph_storage import graph_storage
+from .orm import Base, engine
 
 
 def initialize_neo4j_constraints():
@@ -47,6 +48,49 @@ def verify_postgres_schema():
         return False
 
 
+def initialize_orm_tables():
+    """Initialize SQLAlchemy ORM tables."""
+    try:
+        # Create new tables (Flashcard, StudySession, etc.)
+        Base.metadata.create_all(bind=engine)
+        print("ORM tables initialized successfully")
+        
+        # Manually migrate 'documents' table to add new columns if they don't exist
+        # This is needed because 'documents' table might already exist from raw SQL init
+        migrate_documents_table()
+        
+        return True
+    except Exception as e:
+        print(f"ORM table initialization failed: {e}")
+        return False
+
+
+def migrate_documents_table():
+    """Add new columns to documents table if they are missing."""
+    cols_to_add = [
+        ("title", "VARCHAR"),
+        ("file_type", "VARCHAR"),
+        ("tags", "JSON"),
+        ("category", "VARCHAR"),
+        ("folder_id", "VARCHAR"),
+        ("extracted_text", "TEXT"),
+        ("page_count", "INTEGER DEFAULT 0"),
+        ("time_spent_reading", "INTEGER DEFAULT 0"),
+        ("last_opened", "TIMESTAMP"),
+        ("completion_estimate", "INTEGER"),
+        ("reading_progress", "FLOAT DEFAULT 0.0")
+    ]
+    
+    for col_name, col_type in cols_to_add:
+        try:
+            postgres_conn.execute_query(f"ALTER TABLE documents ADD COLUMN {col_name} {col_type}")
+            print(f"Added column {col_name} to documents table")
+        except Exception as e:
+            # Ignore error if column likely exists
+            # In a real prod env, we'd check existence first, but this is a simple migration approach
+            pass
+
+
 def initialize_databases():
     """Initialize both Neo4j and PostgreSQL databases."""
     print("Initializing databases...")
@@ -61,6 +105,10 @@ def initialize_databases():
     
     # Verify PostgreSQL schema
     if not verify_postgres_schema():
+        return False
+        
+    # Initialize ORM tables
+    if not initialize_orm_tables():
         return False
     
     print("Database initialization completed successfully")

@@ -1,7 +1,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from main import app
 from src.ingestion.youtube_utils import extract_video_id
 
@@ -36,6 +36,9 @@ def test_ingest_youtube_success(mock_fetch, mock_ingestion, mock_store):
     mock_metadata.file_path = "data/documents/123_youtube_dQw4w9WgXcQ.md"
     mock_store.save_transcript.return_value = mock_metadata
     
+    # Configure async mock
+    mock_ingestion.process_document = AsyncMock(return_value=(None, []))
+
     # Execute request
     response = client.post("/ingest/youtube", json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"})
     

@@ -1,9 +1,4 @@
-"""
-LearnFast Core Engine - Main Application.
-
-Exposes REST API endpoints for document ingestion, navigation, path resolution, and content retrieval.
-"""
-
+# ... (existing imports)
 import os
 import shutil
 import logging
@@ -12,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware  # Added
 from pydantic import BaseModel
 
 from src.storage.document_store import DocumentStore
@@ -25,6 +21,17 @@ from src.path_resolution.content_retriever import ContentRetriever
 from src.database.init_db import initialize_databases
 from src.models.schemas import LearningPath
 from src.ingestion.youtube_utils import extract_video_id, fetch_transcript
+from src.config import settings  # Added
+
+# Import new routers
+from src.routers import (
+    documents as documents_api_router,
+    flashcards as flashcards_router,
+    study as study_router,
+    folders as folders_router,
+    analytics as analytics_router,
+    ai as ai_router
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -58,7 +65,7 @@ async def lifespan(app: FastAPI):
     
     logger.info("Initializing LearnFast Core Engine...")
     
-    # Initialize databases
+    # Initialize databases (Postgres, Neo4j, ORM)
     if not initialize_databases():
         logger.error("Failed to initialize databases")
     
@@ -69,6 +76,9 @@ async def lifespan(app: FastAPI):
     path_resolver = PathResolver()
     content_retriever = ContentRetriever()
     document_store = DocumentStore()
+    
+    # Ensure upload directory exists
+    os.makedirs(settings.upload_dir, exist_ok=True)
     
     logger.info("Components initialized successfully")
     
@@ -84,8 +94,26 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include new Feature Routers
+app.include_router(documents_api_router.router)
+app.include_router(flashcards_router.router)
+app.include_router(study_router.router)
+app.include_router(folders_router.router)
+app.include_router(analytics_router.router)
+app.include_router(ai_router.router)
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
+app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads") # Mount uploads
 
 @app.get("/")
 async def root():
@@ -109,7 +137,7 @@ async def ingest_document(file: UploadFile = File(...)):
         logger.info(f"Processing document {doc_metadata.id}: {doc_metadata.filename}")
         
         # 2. Process document (extract graph and vectors)
-        ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
+        await ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
         
         # 3. Update status to completed
         document_store.update_status(doc_metadata.id, "completed")
@@ -148,7 +176,7 @@ async def ingest_youtube(url: str = Body(..., embed=True)):
         logger.info(f"Processing YouTube transcript {doc_metadata.id}: {video_id}")
         
         # 3. Process document (extract graph and vectors)
-        ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
+        await ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
         
         # 4. Update status to completed
         document_store.update_status(doc_metadata.id, "completed")

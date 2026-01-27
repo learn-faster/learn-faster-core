@@ -1,6 +1,6 @@
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from src.ingestion.ingestion_engine import IngestionEngine
 from src.models.schemas import GraphSchema
 
@@ -9,10 +9,11 @@ class TestIngestionFlow:
     def mock_ingestion_engine(self):
         engine = IngestionEngine()
         engine.document_processor = MagicMock()
-        engine.process_document_complete = MagicMock()
+        engine.process_document_complete = AsyncMock()
         return engine
 
-    def test_process_document_calls_components_correctly(self, mock_ingestion_engine):
+    @pytest.mark.asyncio
+    async def test_process_document_calls_components_correctly(self, mock_ingestion_engine):
         # Setup
         file_path = "/path/to/test.pdf"
         mock_markdown = "# Test Document\n\nContent"
@@ -25,7 +26,7 @@ class TestIngestionFlow:
         mock_ingestion_engine.process_document_complete.return_value = (mock_schema, mock_chunk_ids)
 
         # Execute
-        result = mock_ingestion_engine.process_document(file_path)
+        result = await mock_ingestion_engine.process_document(file_path)
 
         # Verify
         mock_ingestion_engine.document_processor.convert_to_markdown.assert_called_once_with(file_path)

@@ -52,13 +52,14 @@ The system is configured via environment variables, typically managed in a `.env
 - `POSTGRES_USER`: Database user (default: `learnfast`).
 - `POSTGRES_PASSWORD`: Database password (default: `password`).
 
-### Ollama (LLM Services)
-- `OLLAMA_HOST`: URL of the Ollama server (default: `http://localhost:11434`).
-- `OLLAMA_EXTRACTION_MODEL`: Model used for Knowledge Graph extraction (e.g., `gpt-oss:120b-cloud`).
-- `OLLAMA_EMBEDDING_MODEL`: Model used for generating vector embeddings (e.g., `embeddinggemma:latest`).
-- `OLLAMA_CONTEXT_WINDOW_CHARS`: Maximum character window for document extraction (default: `50000`).
-- `OLLAMA_REWRITE_MODEL`: Model used for pedagogical content rewriting.
-- `OLLAMA_REWRITE_CONTEXT_WINDOW`: Context window specifically for rewriting tasks.
+### LLM Configuration
+- `LLM_PROVIDER`: Provider to use (`openai`, `groq`, `ollama`).
+- `LLM_MODEL`: Model name (e.g., `gpt-4o`, `llama3-70b`).
+- `OPENAI_API_KEY`: API key for OpenAI.
+- `GROQ_API_KEY`: API key for Groq.
+- `OLLAMA_BASE_URL`: Base URL for Ollama (default: `http://localhost:11434`).
+- `EMBEDDING_PROVIDER`: Provider to use for embeddings (`openai` or `ollama`).
+- `EMBEDDING_MODEL`: Model used for embeddings (must match provider).
 
 ### Core Application Settings
 - `CHUNK_SIZE_MINUTES`: Target reading time per content chunk (used for time-budgeting).

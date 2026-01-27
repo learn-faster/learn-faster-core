@@ -19,7 +19,9 @@ graph LR
         YTD --> MID
         MID --> DP[Document Processor]
         DP --> IE[Ingestion Engine]
-        IE --> Ollama[Ollama / LLM]
+        IE --> LLM[LLM Service (OpenAI/Groq/Ollama)]
+        IE --> VS[Vector Storage]
+        VS --> LLM
     end
     
     subgraph Storage_Layer ["Storage Layer (Persistence & Retrieval)"]
@@ -47,8 +49,8 @@ The choice of technologies reflects a commitment to privacy, performance, and st
 
 - **Neo4j & The Graph First approach**: Traditional relational databases struggle with recursive dependency trees. neo4j was selected because prerequisite mapping is naturally a directed acyclic graph (DAG). By using Cypher queries, we can resolve complex learning paths across hundreds of nodes with sub-millisecond latency.
 - **Markitdown & Data Normalization**: To ensure the Ingestion Engine operates on high-quality text, we utilize Microsoft's `markitdown`. This allows us to treat PDFs, Office documents, and YouTube transcripts as uniform Markdown content, which is significantly easier for LLMs to parse and structure.
-- **yt-dlp Implementation**: Following failures with standard API wrappers, we integrated `yt-dlp`. This provides a more resilient "browser-like" fetching mechanism, ensuring that transcripts are captured even when standard APIs return empty or blocked responses.
-- **Ollama for Local Intelligence**: LearnFast Core is designed for privacy. By running LLMs (like Llama 3 or Mistral) locally via Ollama, the system ensures that sensitive educational content never leaves the host environment, while also eliminating API costs and throttling.
+- **yt-dlp Implementation**: Integrated `yt-dlp` provides a resilient mechanism for capturing YouTube transcripts.
+- **Multi-Provider LLM Support**: LearnFast Core is vendor-agnostic. While it supports local privacy-first execution via Ollama, it can also leverage cloud providers like OpenAI or Groq for higher throughput and reasoning capabilities depending on deployment needs.
 
 ## 3. The Data Journey
 

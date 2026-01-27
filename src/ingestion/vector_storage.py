@@ -3,7 +3,6 @@
 import logging
 import os
 from typing import List, Optional, Tuple
-import ollama
 from dotenv import load_dotenv
 from src.database.connections import postgres_conn
 from src.models.schemas import LearningChunk
@@ -22,40 +21,16 @@ class VectorStorage:
     and stores them in PostgreSQL with pgvector for efficient similarity search.
     """
     
-    DEFAULT_EMBEDDING_MODEL = "embeddinggemma:latest"
-    EMBEDDING_DIMENSION = 768  # Updated to match embeddinggemma:latest actual dimension
     
-    def __init__(self, embedding_model: Optional[str] = None, ollama_host: Optional[str] = None, db_connection=None):
+    # We will fetch dimension dynamically if possible or assume default
+    # but for now we keep the constant or use config
+    
+    def __init__(self, db_connection=None):
         """
         Initialize the vector storage system.
-
-        Args:
-            embedding_model: Ollama model name for embeddings (default from env or embeddinggemma:latest)
-            ollama_host: Optional Ollama server host URL (default from env or localhost:11434)
-            db_connection: Optional database connection object (dependency injection for testing)
         """
-        self.embedding_model = embedding_model or os.getenv("OLLAMA_EMBEDDING_MODEL", self.DEFAULT_EMBEDDING_MODEL)
         self.db_conn = db_connection or postgres_conn
         
-        # Handle host configuration - use localhost when running outside Docker
-        if ollama_host:
-            self.ollama_host = ollama_host
-        else:
-            env_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-            # Convert docker internal host to localhost for local testing
-            if "host.docker.internal" in env_host:
-                self.ollama_host = env_host.replace("host.docker.internal", "localhost")
-            else:
-                self.ollama_host = env_host
-        
-        self._client = None
-    
-    def _get_client(self):
-        """Get or create Ollama client."""
-        if self._client is None:
-            self._client = ollama.Client(host=self.ollama_host)
-        return self._client
-    
     def _sanitize_text(self, text: str) -> str:
         """Remove null bytes from text to prevent PostgreSQL errors."""
         if not text:
@@ -63,42 +38,26 @@ class VectorStorage:
         return text.replace('\x00', '')
 
     
-    def generate_embedding(self, text: str) -> List[float]:
+    async def generate_embedding(self, text: str) -> List[float]:
         """
-        Generate semantic embedding for text using Ollama embeddinggemma:latest model.
-        
-        Args:
-            text: Text content to embed
-            
-        Returns:
-            List of float values representing the semantic embedding
-            
-        Raises:
-            ValueError: If text is empty or embedding generation fails
+        Generate semantic embedding for text using LLMService.
         """
         if not text or not text.strip():
             raise ValueError("Cannot generate embedding for empty text")
         
         try:
-            client = self._get_client()
-            response = client.embeddings(
-                model=self.embedding_model,
-                prompt=text.strip()
-            )
+            # Import here to avoid circular dependency if any, 
+            # though usually safe at top if structured correctly.
+            from src.services.llm_service import llm_service
             
-            embedding = response['embedding']
-            
-            # Validate embedding dimension
-            if len(embedding) != self.EMBEDDING_DIMENSION:
-                raise ValueError(f"Expected embedding dimension {self.EMBEDDING_DIMENSION}, got {len(embedding)}")
-            
+            embedding = await llm_service.get_embedding(text)
             return embedding
             
         except Exception as e:
             logger.error(f"Failed to generate embedding: {str(e)}")
             raise ValueError(f"Embedding generation failed: {str(e)}") from e
     
-    def store_chunk(self, doc_source: str, content: str, concept_tag: str, document_id: Optional[int] = None) -> int:
+    async def store_chunk(self, doc_source: str, content: str, concept_tag: str, document_id: Optional[int] = None) -> int:
         """
         Store a content chunk with its embedding in PostgreSQL.
         
@@ -120,7 +79,7 @@ class VectorStorage:
         
         try:
             # Generate embedding for the content
-            embedding = self.generate_embedding(content)
+            embedding = await self.generate_embedding(content)
             
             # Store in PostgreSQL
             query = """
@@ -149,7 +108,7 @@ class VectorStorage:
             logger.error(f"Failed to store chunk: {str(e)}")
             raise ValueError(f"Chunk storage failed: {str(e)}") from e
             
-    def store_chunks_batch(self, chunks: List[Tuple[str, str, str, Optional[int]]]) -> List[int]:
+    async def store_chunks_batch(self, chunks: List[Tuple[str, str, str, Optional[int]]]) -> List[int]:
         """
         Store multiple content chunks in batch for efficiency.
         
@@ -177,7 +136,7 @@ class VectorStorage:
                 if not doc_source or not content or not concept_tag:
                     raise ValueError("All chunk fields must be non-empty")
                 
-                embedding = self.generate_embedding(content)
+                embedding = await self.generate_embedding(content)
                 embeddings.append(embedding)
             
             # Prepare batch insert data logic...
@@ -266,7 +225,7 @@ class VectorStorage:
             logger.error(f"Failed to retrieve chunks for concept '{concept_tag}': {str(e)}")
             raise ValueError(f"Chunk retrieval failed: {str(e)}") from e
     
-    def similarity_search(self, query_text: str, limit: int = 10, concept_filter: Optional[str] = None) -> List[Tuple[LearningChunk, float]]:
+    async def similarity_search(self, query_text: str, limit: int = 10, concept_filter: Optional[str] = None) -> List[Tuple[LearningChunk, float]]:
         """
         Perform vector similarity search to find relevant content chunks.
         
@@ -286,7 +245,7 @@ class VectorStorage:
         
         try:
             # Generate embedding for the query
-            query_embedding = self.generate_embedding(query_text)
+            query_embedding = await self.generate_embedding(query_text)
             
             # Build the similarity search query
             base_query = """
