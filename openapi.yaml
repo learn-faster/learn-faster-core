@@ -39,6 +39,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /ingest/youtube:
+    post:
+      summary: Ingest transcripts from a YouTube video
+      description: 'Ingest transcripts from a YouTube URL.
+
+        Fetches transcript, saves as a virtual document, and processes the same way
+        as documents.'
+      operationId: ingest_youtube_ingest_youtube_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoutubeIngestRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /concepts/roots:
     get:
       summary: Get root concepts
@@ -126,6 +152,65 @@ paths:
           type: integer
           default: 30
           title: Time Budget
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /documents:
+    get:
+      summary: List all ingested documents
+      description: List all ingested documents with metadata.
+      operationId: list_documents_documents_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /documents/{doc_id}:
+    get:
+      summary: Download original document
+      description: Download the original ingested document file.
+      operationId: download_document_documents__doc_id__get
+      parameters:
+      - name: doc_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Doc Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      summary: Delete document and associated knowledge
+      description: Delete document file, metadata, and all its knowledge chunks from
+        the system.
+      operationId: delete_document_documents__doc_id__delete
+      parameters:
+      - name: doc_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Doc Id
       responses:
         '200':
           description: Successful Response
@@ -308,3 +393,12 @@ components:
       - msg
       - type
       title: ValidationError
+    YoutubeIngestRequest:
+      properties:
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - url
+      title: YoutubeIngestRequest
