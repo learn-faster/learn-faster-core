@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 from src.models.schemas import GraphSchema, PrerequisiteLink
 from src.database.connections import neo4j_conn
 from src.database.graph_storage import graph_storage
+from src.database.graph_storage import graph_storage
 from .vector_storage import VectorStorage
+from .document_processor import DocumentProcessor
 
 # Load environment variables
 load_dotenv()
@@ -87,6 +89,7 @@ Content to analyze:
         
         self._client = None
         self.vector_storage = VectorStorage(ollama_host=self.ollama_host)
+        self.document_processor = DocumentProcessor()
     
     def _get_client(self):
         """Get or create Ollama client."""
@@ -326,6 +329,43 @@ Content to analyze:
             logger.info(f"Complete document processing finished for '{doc_source}'")
             return schema, chunk_ids
             
+            return schema, chunk_ids
+            
         except Exception as e:
             logger.error(f"Complete document processing failed: {str(e)}")
             raise ValueError(f"Document processing failed: {str(e)}") from e
+
+    def process_document(self, file_path: str) -> Tuple[GraphSchema, List[int]]:
+        """
+        Process a document file (PDF, DOCX, etc.) from start to finish.
+        
+        1. Convert file to markdown
+        2. Chunk content
+        3. Extract knowledge graph
+        4. Store graph and vector data
+        
+        Args:
+            file_path: Path to document file
+            
+        Returns:
+            Tuple of (GraphSchema, list of chunk IDs)
+        """
+        try:
+            # 1. Convert to markdown
+            markdown = self.document_processor.convert_to_markdown(file_path)
+            
+            # 2. Chunk content
+            # Note: We don't have concepts yet for tagging, so we pass empty tag
+            # The store logic will handle tagging based on extracted concepts
+            chunks = self.document_processor.chunk_content(markdown)
+            
+            # 3 & 4. Complete processing
+            return self.process_document_complete(
+                doc_source=os.path.basename(file_path),
+                markdown=markdown,
+                content_chunks=chunks
+            )
+            
+        except Exception as e:
+            logger.error(f"Document processing failed for {file_path}: {str(e)}")
+            raise

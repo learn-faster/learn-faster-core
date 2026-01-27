@@ -8,6 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
-database
 .hypothesis
 .env
+
+# Uploads
+temp_uploads/
