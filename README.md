@@ -61,6 +61,12 @@ The system is configured via environment variables, typically managed in a `.env
 - `EMBEDDING_PROVIDER`: Provider to use for embeddings (`openai` or `ollama`).
 - `EMBEDDING_MODEL`: Model used for embeddings (must match provider).
 
+### Granular Model Configuration (Optional)
+- `EXTRACTION_MODEL`: Override model for graph extraction tasks (default: `LLM_MODEL`).
+- `EXTRACTION_CONTEXT_WINDOW`: Context window for extraction (default: 100000).
+- `REWRITE_MODEL`: Override model for content rewriting/lesson generation (default: `LLM_MODEL`).
+- `REWRITE_CONTEXT_WINDOW`: Context window for rewriting (default: 10000).
+
 ### Core Application Settings
 - `CHUNK_SIZE_MINUTES`: Target reading time per content chunk (used for time-budgeting).
 - `MAX_PATH_PREVIEW_DEPTH`: Default depth for learning path previews.

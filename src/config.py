@@ -3,7 +3,7 @@ Application configuration using Pydantic Settings.
 Handles environment variables and global application parameters.
 """
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -36,7 +36,13 @@ class Settings(BaseSettings):
     # Embedding Settings
     embedding_provider: str = "ollama" # openai, ollama
     embedding_model: str = "embeddinggemma:latest" 
-    ollama_embedding_model: str = None # Deprecated, alias for backward compat if needed
+    ollama_embedding_model: Optional[str] = None # Deprecated, alias for backward compat if needed
+
+    # Granular Model Settings (Optional - overrides llm_model if set)
+    extraction_model: Optional[str] = None
+    extraction_context_window: int = 100000
+    rewrite_model: Optional[str] = None
+    rewrite_context_window: int = 10000
     
     class Config:
         """Pydantic configuration dict."""

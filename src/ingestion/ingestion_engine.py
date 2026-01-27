@@ -198,12 +198,23 @@ Content to analyze:
             prompt = self.EXTRACTION_PROMPT_TEMPLATE.format(content=window_content)
             
             try:
-                # Call LLMService using generic chat completion
+                # Import here to avoid circular dependency
                 from src.services.llm_service import llm_service
-                
+                from src.routers.ai import LLMConfig
+                from src.config import settings
+
+                # Create config override for extraction
+                config = LLMConfig(
+                    provider=settings.llm_provider,
+                    model=settings.extraction_model if settings.extraction_model else settings.llm_model,
+                    base_url=settings.ollama_base_url
+                )
+
+                # Get completion from LLM Service
                 response_text = await llm_service.get_chat_completion(
                     messages=[{"role": "user", "content": prompt}],
-                    response_format="json"
+                    response_format="json",
+                    config=config
                 )
                 
                 # Parse JSON response

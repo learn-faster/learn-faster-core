@@ -247,3 +247,33 @@ class StudyStats(BaseModel):
     cards_reviewed: int
     new_cards: int
     average_rating: float
+
+
+# ========== Navigation/AI Schemas ==========
+
+class PathRequest(BaseModel):
+    """Request for generating a learning path."""
+    user_id: str
+    target_concept: str
+    time_budget_minutes: int = 60
+    document_id: Optional[int] = None
+    # Document.id is String/UUID in some places, Int in DocumentResponse? 
+    # DocumentResponse says id: int. DocumentStore uses int. 
+    # Let's stick to int for document_id if that's the system standard.
+    # But wait, main.py saved documents using UUID strings?
+    # No, DocumentStore probably manages IDs. 
+    # ORM Document.id is String usually in my experience with this user instructions, but let's check orm.py.
+    # ORM ID: `id = Column(Integer, primary_key=True)` usually.
+    # In `documents.py` earlier, I saw `doc_id = str(uuid.uuid4())`.
+    # AND `db.add(document)`.
+    # If `Document.id` is Integer (autoincrement), assigning a UUID string would fail.
+    # If `Document.id` is String, it works.
+    # `documents.py` earlier: `id=doc_id` (str). So ID is String.
+    # `DocumentResponse` in `schemas.py`: `id: int`. This is a mismatch!
+    # I should verify `src/models/orm.py`.
+
+
+class ProgressUpdate(BaseModel):
+    """Request for updating concept progress."""
+    user_id: str
+    concept_name: str

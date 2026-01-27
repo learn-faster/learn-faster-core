@@ -3,7 +3,7 @@ Documents Router for the Learning Assistant.
 Handles document uploads, metadata updates, and time tracking sessions.
 Note: This is the 'App' API. Core engine endpoints are also available at /documents.
 """
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -16,9 +16,178 @@ from src.models.orm import Document
 from src.models.enums import FileType
 from src.models.schemas import DocumentResponse, DocumentCreate, TimeTrackingRequest
 from src.services.time_tracking_service import TimeTrackingService
+from src.ingestion.document_processor import DocumentProcessor
+from src.ingestion.ingestion_engine import IngestionEngine
+from src.storage.document_store import DocumentStore
+from src.ingestion.youtube_utils import extract_video_id, fetch_transcript
+from src.dependencies import get_ingestion_engine, get_document_store
 from src.config import settings
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+
+# Initialize services
+document_processor = DocumentProcessor()
+
+# Ensure upload directory exists for storing documents
+os.makedirs(settings.upload_dir, exist_ok=True)
+
+
+@router.post("/upload", response_model=DocumentResponse)
+async def upload_document(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    tags: Optional[str] = Form(""),
+    category: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    ingestion_engine: IngestionEngine = Depends(get_ingestion_engine),
+    document_store: DocumentStore = Depends(get_document_store)
+):
+    """
+    Uploads a new study document and extracts its content.
+    
+    Processes the file (PDF or Image), saves it to disk (via DocumentStore), 
+    and uses the DocumentProcessor to extract text.
+    """
+    # Validate file type
+    file_ext = Path(file.filename).suffix.lower()
+    
+    if file_ext in settings.allowed_pdf_extensions:
+        file_type = FileType.PDF
+    elif file_ext in settings.allowed_image_extensions:
+        file_type = FileType.IMAGE
+    else:
+        file_type = FileType.OTHER
+    
+    # Read file content for size check (DocumentStore will read it again? 
+    # DocumentStore.save_document takes UploadFile. It reads from file.file.
+    # If I read it here, I might exhaust the stream.
+    # Better to check size if possible without consuming, or rely on nginx/fastapi limits.
+    # settings.max_file_size logic was here. 
+    # To check size safely: file.file.seek(0, 2); size = file.file.tell(); file.file.seek(0)
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    
+    if file_size > settings.max_file_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size exceeds maximum limit of {settings.max_file_size / (1024*1024)}MB"
+        )
+    
+    try:
+        # 1. Use DocumentStore to handle initial save and DB record creation
+        doc_metadata = document_store.save_document(file)
+        doc_id = doc_metadata.id
+        file_path = doc_metadata.file_path
+        
+        # 2. Get the ORM object to update metadata
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if not document:
+             # Should not happen if save_document worked
+             raise HTTPException(status_code=500, detail="Document created but not found in DB")
+        
+        # 3. Update Metadata
+        document.title = title
+        document.tags = tags.split(",") if tags else []
+        document.category = category
+        document.folder_id = folder_id
+        document.file_type = file_type.value # Store string value
+        
+        # 4. Extract text
+        print(f"DEBUG: Starting text extraction for {doc_id}...")
+        try:
+            if file_type == FileType.PDF or os.path.exists(file_path):
+                # Use DocumentProcessor (MarkItDown)
+                document.extracted_text = document_processor.convert_to_markdown(file_path)
+                document.page_count = 0 
+                print("DEBUG: Text extraction complete.")
+            else:
+                document.extracted_text = ""
+        except Exception as e:
+            print(f"Warning: Text extraction failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            document.extracted_text = ""
+        
+        # Save updates to DB
+        db.commit()
+        db.refresh(document)
+        
+        # 5. Trigger Full Ingestion
+        try:
+            if document.extracted_text:
+                print(f"DEBUG: Triggering IngestionEngine for document {doc_id}...")
+                chunks = document_processor.chunk_content(document.extracted_text)
+                await ingestion_engine.process_document_complete(
+                    doc_source=os.path.basename(file_path),
+                    markdown=document.extracted_text,
+                    content_chunks=chunks,
+                    document_id=doc_id
+                )
+                print("DEBUG: IngestionEngine processing complete.")
+                
+                # Update status
+                document.status = "completed"
+                document_store.update_status(doc_id, "completed") # Sync raw status
+                db.commit()
+        except Exception as e:
+            print(f"ERROR: IngestionEngine failed: {e}")
+            logger.error(f"Ingestion failed for doc {doc_id}: {e}")
+            
+        return document
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@router.post("/youtube", summary="Ingest transcripts from a YouTube video", response_model=DocumentResponse)
+async def ingest_youtube(
+    url: str = Body(..., embed=True), 
+    ingestion_engine: IngestionEngine = Depends(get_ingestion_engine),
+    document_store: DocumentStore = Depends(get_document_store),
+    # db dependency implicit in document_store usage if it uses its own session, 
+    # but here we might want to return a DocumentResponse so we need standard DB access?
+    # document_store methods return DocumentMetadata (pydantic?) or ORM?
+    # let's check document_store returns.
+    db: Session = Depends(get_db)
+):
+    """
+    Ingest transcripts from a YouTube URL.
+    Fetches transcript, saves as a virtual document, and processes it.
+    """
+    video_id = extract_video_id(url)
+    if not video_id:
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+        
+    try:
+        # 1. Fetch transcript
+        transcript = fetch_transcript(video_id)
+        if not transcript:
+            raise HTTPException(status_code=404, detail="Transcript not available for this video")
+            
+        # 2. Save transcript as virtual document
+        # DocumentStore handles saving to DB + creating file placeholder
+        doc_metadata = document_store.save_transcript(video_id, transcript)
+        
+        # 3. Process document (extract graph and vectors)
+        # We can pass the file path created by document_store
+        await ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
+        
+        # 4. Update status (if document_store supports it)
+        document_store.update_status(doc_metadata.id, "completed")
+        
+        # Return the document record
+        doc = db.query(Document).filter(Document.id == doc_metadata.id).first()
+        return doc
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"YouTube ingestion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"YouTube ingestion failed: {str(e)}")
 
 
 @router.get("/", response_model=List[DocumentResponse])

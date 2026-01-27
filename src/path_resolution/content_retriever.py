@@ -1,11 +1,16 @@
 import logging
 import os
 from typing import List, Dict, Any, Optional
-import ollama
+import logging
+import os
+from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
 from src.database.connections import postgres_conn
 from src.models.schemas import LearningChunk
+from src.services.llm_service import llm_service
+from src.routers.ai import LLMConfig
+from src.config import settings
 
 # Load environment variables
 load_dotenv()
@@ -37,31 +42,9 @@ Raw Chunks:
 High-Quality Lesson:
 """
 
-    def __init__(self, ollama_host: Optional[str] = None):
+    def __init__(self):
         """Initialize the content retriever."""
         self.connection = postgres_conn
-        
-        # Configuration
-        self.rewrite_model = os.getenv("OLLAMA_REWRITE_MODEL", "gpt-oss:20b-cloud")
-        self.context_window = int(os.getenv("OLLAMA_REWRITE_CONTEXT_WINDOW", "10000"))
-        
-        # Handle host configuration
-        if ollama_host:
-            self.ollama_host = ollama_host
-        else:
-            env_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-            if "host.docker.internal" in env_host:
-                self.ollama_host = env_host.replace("host.docker.internal", "localhost")
-            else:
-                self.ollama_host = env_host
-        
-        self._client = None
-        
-    def _get_client(self):
-        """Get or create Ollama client."""
-        if self._client is None:
-            self._client = ollama.Client(host=self.ollama_host)
-        return self._client
         
     def retrieve_chunks_by_concept(self, concept: str) -> List[LearningChunk]:
         """
@@ -129,12 +112,13 @@ High-Quality Lesson:
         except Exception as e:
             logger.error(f"Error caching lesson: {e}")
 
-    def _rewrite_with_llm(self, target_concept: str, time_budget: int, raw_content: str) -> str:
+    async def _rewrite_with_llm(self, target_concept: str, time_budget: int, raw_content: str) -> str:
         """Use LLM to rewrite raw content into a coherent lesson."""
         try:
             # Enforce context window limit
-            truncated_content = raw_content[:self.context_window]
-            if len(raw_content) > self.context_window:
+            context_window = settings.rewrite_context_window
+            truncated_content = raw_content[:context_window]
+            if len(raw_content) > context_window:
                 logger.warning(f"Truncated content for LLM rewrite for {target_concept} (budget: {time_budget}m)")
 
             prompt = self.REWRITE_PROMPT_TEMPLATE.format(
@@ -143,20 +127,26 @@ High-Quality Lesson:
                 raw_chunks=truncated_content
             )
 
-            client = self._get_client()
-            response = client.generate(
-                model=self.rewrite_model,
-                prompt=prompt,
-                stream=False
+            # Create config override for rewrite
+            config = LLMConfig(
+                provider=settings.llm_provider,
+                model=settings.rewrite_model if settings.rewrite_model else settings.llm_model,
+                base_url=settings.ollama_base_url
+            )
+
+            response_content = await llm_service.get_chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                response_format=None, # Standard text response
+                config=config
             )
             
-            return response['response'].strip()
+            return response_content.strip()
             
         except Exception as e:
             logger.error(f"LLM rewrite failed for {target_concept}: {e}")
             return raw_content # Fallback to raw content if LLM fails
 
-    def get_lesson_content(self, path_concepts: List[str], time_budget_minutes: int = 30) -> str:
+    async def get_lesson_content(self, path_concepts: List[str], time_budget_minutes: int = 30) -> str:
         """
         Generate a complete formatted lesson for a learning path.
         
@@ -193,8 +183,8 @@ High-Quality Lesson:
             return f"# {target_concept.title()}\n\n*No detailed content available for this concept.*"
 
         # 3. Rewrite with LLM
-        logger.info(f"Generating new lesson for {target_concept} ({time_budget_minutes}m) using {self.rewrite_model}")
-        enhanced_lesson = self._rewrite_with_llm(target_concept, time_budget_minutes, raw_full_content)
+        logger.info(f"Generating new lesson for {target_concept} ({time_budget_minutes}m)")
+        enhanced_lesson = await self._rewrite_with_llm(target_concept, time_budget_minutes, raw_full_content)
         
         # 4. Cache and Return
         self._cache_lesson(target_concept, time_budget_minutes, enhanced_lesson)

@@ -9,7 +9,7 @@ from src.models.orm import Document
 from src.services.llm_service import llm_service
 from src.ingestion.document_processor import DocumentProcessor
 from src.path_resolution.path_resolver import PathResolver
-from src.models.schemas import LearningPath
+from src.models.schemas import LearningPath, PathRequest
 
 router = APIRouter(prefix="/api/ai", tags=["AI Generation"])
 document_processor = DocumentProcessor()
@@ -37,11 +37,7 @@ class GenerateRequest(BaseModel):
     llm_config: Optional[LLMConfig] = None
 
 
-class LearningPathRequest(BaseModel):
-    """Request schema for curriculum/learning path generation."""
-    goal: str
-    user_id: Optional[str] = None
-    document_id: Optional[int] = None
+
 
 
 @router.post("/generate-flashcards")
@@ -103,23 +99,28 @@ async def generate_questions(request: GenerateRequest, db: Session = Depends(get
 
 
 @router.post("/learning-path")
-async def generate_learning_path(request: LearningPathRequest, db: Session = Depends(get_db)):
+async def generate_learning_path(request: PathRequest, db: Session = Depends(get_db)):
     """
     Generates a structured learning path/curriculum.
     
     Attempts to resolve path using Knowledge Graph first. 
     Falls back to LLM generation if no graph path found or if document context provided.
     """
-    # 1. Try Graph Resolution if user_id is provided
-    if request.user_id:
-        try:
-            # Default time budget 60 mins if not specified (PathResolver needs it)
-            # Future: add time_budget to request
-            graph_path = path_resolver.resolve_path(request.user_id, request.goal, time_budget_minutes=60)
-            if graph_path and graph_path.concepts:
-                return graph_path.dict()
-        except Exception as e:
-            print(f"Graph resolution failed, falling back to LLM: {e}")
+    # 1. Try Graph Resolution
+    # PathRequest requires user_id, so we always try this if not explicitly skipped (future flag?)
+    try:
+        # Use provided time budget
+        graph_path = path_resolver.resolve_path(
+            request.user_id, 
+            request.target_concept, 
+            time_budget_minutes=request.time_budget_minutes
+        )
+        if graph_path and graph_path.concepts:
+            # If we found a valid path, return it (casted to dict or allowed as Pydantic)
+            return graph_path
+    except Exception as e:
+        print(f"Graph resolution failed, falling back to LLM: {e}")
+        # Continue to LLM fallback
 
     # 2. Fallback to LLM Generation
     text = ""
@@ -133,11 +134,12 @@ async def generate_learning_path(request: LearningPathRequest, db: Session = Dep
                 except:
                     pass
 
-    if not request.goal:
-         raise HTTPException(status_code=400, detail="Goal is required")
+    if not request.target_concept:
+         raise HTTPException(status_code=400, detail="Target concept (goal) is required")
 
     try:
-        path = await llm_service.generate_learning_path(text, request.goal)
+        # Mapping target_concept to 'goal' for LLM
+        path = await llm_service.generate_learning_path(text, request.target_concept)
         return path
     except Exception as e:
         traceback.print_exc()
