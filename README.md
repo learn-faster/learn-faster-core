@@ -11,6 +11,7 @@ LearnFast Core Engine combines the structural reasoning of Knowledge Graphs with
 - **Adaptive Navigation**: Unlocks concepts as you progress through the graph.
 - **Time-Constrained Optimization**: Generates the most effective learning path that fits your available time budget.
 - **Automated Ingestion**: Converts documents (PDF, DOCX, HTML) into structured graph nodes and content embeddings.
+- **LLM Lesson Generation**: Synthesizes RAG-retrieved content into cohesive pedagogical lessons using local LLMs.
 - **Lightweight Web UI**: Includes a clean, reactive dashboard for document management and learning path visualization.
 
 ## 🏗 Architecture
