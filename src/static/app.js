@@ -1,0 +1,292 @@
+// App State
+const state = {
+    userId: 'user_123', // Hardcoded for prototype
+    currentView: 'dashboard',
+    concepts: {
+        roots: [],
+        unlocked: [],
+        progress: {}
+    }
+};
+
+// DOM Elements
+const mainContent = document.getElementById('main-content');
+const navLinks = document.querySelectorAll('.nav-link');
+
+// Initialization
+document.addEventListener('DOMContentLoaded', () => {
+    initRouter();
+});
+
+// Routing
+function initRouter() {
+    window.addEventListener('hashchange', handleRoute);
+    handleRoute(); // Initial load
+}
+
+function handleRoute() {
+    const hash = window.location.hash || '#dashboard';
+
+    // Update Nav
+    navLinks.forEach(link => {
+        link.classList.toggle('active', link.getAttribute('href') === hash);
+    });
+
+    if (hash === '#dashboard') {
+        renderDashboard();
+    } else if (hash === '#ingest') {
+        renderIngest();
+    } else if (hash.startsWith('#lesson/')) {
+        const raw = hash.split('#lesson/')[1];
+        const concept = decodeURIComponent(raw.split('?')[0]);
+        renderLesson(concept);
+    } else if (hash.startsWith('#path/')) {
+        const raw = hash.split('#path/')[1];
+        const concept = decodeURIComponent(raw.split('?')[0]);
+        renderPathGenerator(concept);
+    }
+}
+
+// API Client
+const api = {
+    async get(endpoint) {
+        const res = await fetch(endpoint);
+        if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
+        return res.json();
+    },
+    async post(endpoint, body) {
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
+        return res.json();
+    }
+};
+
+// Views
+
+async function renderDashboard() {
+    mainContent.innerHTML = '<div class="loading-spinner">Loading dashboard...</div>';
+
+    try {
+        const [roots, progress] = await Promise.all([
+            api.get('/concepts/roots'),
+            api.get(`/progress/${state.userId}`)
+        ]);
+
+        // Filter out completed roots
+        const availableRoots = roots.filter(c => !progress.completed_concepts.includes(c));
+
+        mainContent.innerHTML = `
+            <div class="dashboard-header">
+                <h1>Welcome Back</h1>
+                <p>Continue your learning journey.</p>
+            </div>
+
+            <div class="dashboard-grid">
+                <!-- Progress Column -->
+                <div class="card">
+                    <div class="section-header">
+                        <h2>Your Progress</h2>
+                    </div>
+                    ${progress.in_progress_concepts.length === 0 ? '<p class="text-secondary">No active lessons.</p>' : ''}
+                    <div class="concept-list">
+                        ${progress.in_progress_concepts.map(c => `
+                            <div class="concept-item" onclick="window.location.hash='#lesson/${encodeURIComponent(c)}'">
+                                <span>${formatConcept(c)}</span>
+                                <span class="tag unlocked">In Progress</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <h3 style="margin-top: 2rem;">Completed</h3>
+                    <div class="concept-list" style="margin-top: 1rem; opacity: 0.7;">
+                        ${progress.completed_concepts.map(c => `
+                            <div class="concept-item">
+                                <span>${formatConcept(c)}</span>
+                                <span class="tag completed">Done</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Available Column -->
+                <div class="card">
+                    <div class="section-header">
+                        <h2>Available to Learn</h2>
+                    </div>
+                    <div class="concept-list">
+                        ${progress.available_concepts.map(c => `
+                            <div class="concept-item" onclick="window.location.hash='#path/${encodeURIComponent(c)}'">
+                                <span>${formatConcept(c)}</span>
+                                <span class="tag unlocked">Unlocked</span>
+                            </div>
+                        `).join('')}
+                         ${availableRoots.map(c => `
+                            <div class="concept-item" onclick="window.location.hash='#path/${encodeURIComponent(c)}'">
+                                <span>${formatConcept(c)}</span>
+                                <span class="tag root">Root</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        mainContent.innerHTML = `<div class="error">Failed to load dashboard: ${err.message}</div>`;
+    }
+}
+
+async function renderPathGenerator(targetConcept) {
+    mainContent.innerHTML = `
+        <div class="card" style="max-width: 600px; margin: 4rem auto; text-align: center;">
+            <h2>Create Learning Path</h2>
+            <p style="margin-bottom: 2rem; color: var(--text-secondary);">Target: <strong>${formatConcept(targetConcept)}</strong></p>
+            
+            <div style="margin-bottom: 2rem;">
+                <label style="display: block; margin-bottom: 0.5rem;">Time Budget (minutes)</label>
+                <input type="number" id="timeBudget" value="30" style="padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: var(--bg-secondary); color: white; width: 100px; text-align: center;">
+            </div>
+
+            <button class="btn" onclick="generatePath('${targetConcept}')">Generate Path</button>
+        </div>
+    `;
+}
+
+async function generatePath(targetConcept) {
+    const timeBudget = document.getElementById('timeBudget').value;
+    const btn = document.querySelector('.btn');
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+
+    try {
+        const path = await api.post('/learning/path', {
+            user_id: state.userId,
+            target_concept: targetConcept,
+            time_budget_minutes: parseInt(timeBudget)
+        });
+
+        // Navigate to the lesson of the first concept in the path (or the target itself if path is short)
+        // For simplicity, let's just go to the target lesson, the API handles the full content retrieval
+        window.location.hash = `#lesson/${encodeURIComponent(targetConcept)}?time=${timeBudget}`;
+
+    } catch (err) {
+        alert('Failed to generate path: ' + err.message);
+        btn.textContent = 'Generate Path';
+        btn.disabled = false;
+    }
+}
+
+async function renderLesson(concept) {
+    // Check for query param for time budget
+    const params = new URLSearchParams(window.location.hash.split('?')[1]);
+    const timeBudget = params.get('time') || 30;
+
+    mainContent.innerHTML = '<div class="loading-spinner">Loading lesson content...</div>';
+
+    try {
+        // Start the concept first to mark progress
+        await api.post('/progress/start', {
+            user_id: state.userId,
+            concept_name: concept
+        });
+
+        const lesson = await api.get(`/learning/lesson/${state.userId}/${encodeURIComponent(concept)}?time_budget=${timeBudget}`);
+
+        // Configure marked
+        marked.use({
+            gfm: true,
+            breaks: false // Disable breaks to let text reflow naturally
+        });
+
+        // Convert Markdown to HTML using marked.js
+        const htmlContent = marked.parse(lesson.content_markdown);
+
+        mainContent.innerHTML = `
+            <div class="lesson-container">
+                <div class="path-stepper">
+                    ${lesson.path.map(step => `
+                        <div class="step ${step === concept ? 'active' : ''}">${formatConcept(step)}</div>
+                    `).join('')}
+                </div>
+
+                <div class="section-header">
+                    <h1>${formatConcept(lesson.target)}</h1>
+                    <span class="tag unlocked">${lesson.estimated_time} min</span>
+                </div>
+
+                <div class="lesson-content">
+                    ${htmlContent}
+                </div>
+
+                <div style="margin-top: 3rem; text-align: center; display: flex; gap: 1rem; justify-content: center;">
+                    <button class="btn btn-secondary" onclick="window.location.hash='#dashboard'">Back to Dashboard</button>
+                    <button class="btn" onclick="completeLesson('${concept}')">Complete Lesson</button>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        mainContent.innerHTML = `<div class="error">Failed to load lesson: ${err.message}</div>`;
+    }
+}
+
+async function completeLesson(concept) {
+    try {
+        await api.post('/progress/complete', {
+            user_id: state.userId,
+            concept_name: concept
+        });
+        window.location.hash = '#dashboard';
+    } catch (err) {
+        alert('Failed to complete lesson: ' + err.message);
+    }
+}
+
+async function renderIngest() {
+    mainContent.innerHTML = `
+        <div class="card" style="max-width: 600px; margin: 4rem auto;">
+            <h2>Ingest Documents</h2>
+            <p style="margin-bottom: 2rem; color: var(--text-secondary);">Upload PDF or DOCX files to expand the knowledge graph.</p>
+            
+            <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+                <p>Click to upload file</p>
+                <input type="file" id="fileInput" style="display: none" onchange="handleFileUpload(this)">
+            </div>
+            <div id="uploadStatus" style="margin-top: 1rem; text-align: center;"></div>
+        </div>
+    `;
+}
+
+async function handleFileUpload(input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    const status = document.getElementById('uploadStatus');
+
+    status.innerHTML = '<span style="color: var(--accent-primary)">Uploading and processing... This may take a while.</span>';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const res = await fetch('/ingest', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!res.ok) throw new Error(res.statusText);
+        const data = await res.json();
+
+        status.innerHTML = `<span style="color: var(--success)">Success! ${data.message}</span>`;
+    } catch (err) {
+        status.innerHTML = `<span style="color: var(--warning)">Error: ${err.message}</span>`;
+    }
+}
+
+// Helpers
+function formatConcept(name) {
+    return name.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+

@@ -10,6 +10,8 @@ import logging
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # Import core components
@@ -79,10 +81,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
 @app.get("/")
 async def root():
-    return {"message": "LearnFast Core Engine API is running"}
+    return FileResponse("src/static/index.html")
 
 
 # --- Ingestion Endpoints ---
