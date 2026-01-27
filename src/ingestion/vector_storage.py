@@ -25,15 +25,17 @@ class VectorStorage:
     DEFAULT_EMBEDDING_MODEL = "embeddinggemma:latest"
     EMBEDDING_DIMENSION = 768  # Updated to match embeddinggemma:latest actual dimension
     
-    def __init__(self, embedding_model: Optional[str] = None, ollama_host: Optional[str] = None):
+    def __init__(self, embedding_model: Optional[str] = None, ollama_host: Optional[str] = None, db_connection=None):
         """
         Initialize the vector storage system.
         
         Args:
             embedding_model: Ollama model name for embeddings (default from env or embeddinggemma:latest)
             ollama_host: Optional Ollama server host URL (default from env or localhost:11434)
+            db_connection: Optional database connection object (dependency injection for testing)
         """
         self.embedding_model = embedding_model or os.getenv("OLLAMA_EMBEDDING_MODEL", self.DEFAULT_EMBEDDING_MODEL)
+        self.db_conn = db_connection or postgres_conn
         
         # Handle host configuration - use localhost when running outside Docker
         if ollama_host:
@@ -53,6 +55,13 @@ class VectorStorage:
         if self._client is None:
             self._client = ollama.Client(host=self.ollama_host)
         return self._client
+    
+    def _sanitize_text(self, text: str) -> str:
+        """Remove null bytes from text to prevent PostgreSQL errors."""
+        if not text:
+            return text
+        return text.replace('\x00', '')
+
     
     def generate_embedding(self, text: str) -> List[float]:
         """
@@ -122,9 +131,9 @@ class VectorStorage:
                 RETURNING id
             """
             
-            result = postgres_conn.execute_query(
+            result = self.db_conn.execute_query(
                 query, 
-                (doc_source.strip(), content.strip(), str(embedding), concept_tag.strip().lower())
+                (self._sanitize_text(doc_source.strip()), self._sanitize_text(content.strip()), str(embedding), self._sanitize_text(concept_tag.strip().lower()))
             )
             
             if not result:
@@ -170,10 +179,10 @@ class VectorStorage:
             insert_data = []
             for i, (doc_source, content, concept_tag) in enumerate(chunks):
                 insert_data.append((
-                    doc_source.strip(),
-                    content.strip(),
+                    self._sanitize_text(doc_source.strip()),
+                    self._sanitize_text(content.strip()),
                     embeddings[i],
-                    concept_tag.strip().lower()
+                    self._sanitize_text(concept_tag.strip().lower())
                 ))
             
             # Execute batch insert
@@ -187,7 +196,7 @@ class VectorStorage:
             for i, data in enumerate(insert_data):
                 # Convert embedding to string format for PostgreSQL
                 data_with_vector = (data[0], data[1], str(data[2]), data[3])
-                result = postgres_conn.execute_query(query, data_with_vector)
+                result = self.db_conn.execute_query(query, data_with_vector)
                 if result:
                     chunk_ids.append(result[0]['id'])
                 else:
@@ -228,7 +237,7 @@ class VectorStorage:
             if limit:
                 query += f" LIMIT {int(limit)}"
             
-            result = postgres_conn.execute_query(query, (concept_tag.strip().lower(),))
+            result = self.db_conn.execute_query(query, (concept_tag.strip().lower(),))
             
             chunks = []
             for row in result:
@@ -285,7 +294,7 @@ class VectorStorage:
             
             base_query += f" ORDER BY similarity DESC LIMIT {int(limit)}"
             
-            result = postgres_conn.execute_query(base_query, params)
+            result = self.db_conn.execute_query(base_query, params)
             
             results = []
             for row in result:
@@ -324,7 +333,7 @@ class VectorStorage:
         
         try:
             query = "SELECT COUNT(*) as count FROM learning_chunks WHERE concept_tag = %s"
-            result = postgres_conn.execute_query(query, (concept_tag.strip().lower(),))
+            result = self.db_conn.execute_query(query, (concept_tag.strip().lower(),))
             
             count = result[0]['count'] if result else 0
             return count
@@ -351,7 +360,7 @@ class VectorStorage:
         
         try:
             query = "DELETE FROM learning_chunks WHERE concept_tag = %s"
-            deleted_count = postgres_conn.execute_query(query, (concept_tag.strip().lower(),))
+            deleted_count = self.db_conn.execute_query(query, (concept_tag.strip().lower(),))
             
             logger.info(f"Deleted {deleted_count} chunks for concept '{concept_tag}'")
             return deleted_count
