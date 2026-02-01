@@ -72,8 +72,8 @@ async function renderDashboard() {
 
     try {
         const [roots, progress] = await Promise.all([
-            api.get('/concepts/roots'),
-            api.get(`/progress/${state.userId}`)
+            api.get('/api/concepts/roots'),
+            api.get(`/api/progress/${state.userId}`)
         ]);
 
         // Filter out completed roots
@@ -162,7 +162,7 @@ async function generatePath(targetConcept) {
     btn.disabled = true;
 
     try {
-        const path = await api.post('/learning/path', {
+        const path = await api.post('/api/ai/learning-path', {
             user_id: state.userId,
             target_concept: targetConcept,
             time_budget_minutes: parseInt(timeBudget)
@@ -188,12 +188,12 @@ async function renderLesson(concept) {
 
     try {
         // Start the concept first to mark progress
-        await api.post('/progress/start', {
+        await api.post('/api/progress/start', {
             user_id: state.userId,
             concept_name: concept
         });
 
-        const lesson = await api.get(`/learning/lesson/${state.userId}/${encodeURIComponent(concept)}?time_budget=${timeBudget}`);
+        const lesson = await api.get(`/api/learning/lesson/${state.userId}/${encodeURIComponent(concept)}?time_budget=${timeBudget}`);
 
         // Configure marked
         marked.use({
@@ -234,7 +234,7 @@ async function renderLesson(concept) {
 
 async function completeLesson(concept) {
     try {
-        await api.post('/progress/complete', {
+        await api.post('/api/progress/complete', {
             user_id: state.userId,
             concept_name: concept
         });
@@ -274,7 +274,7 @@ async function renderIngest() {
 async function loadDocuments() {
     const listEl = document.getElementById('documentsList');
     try {
-        const docs = await api.get('/documents');
+        const docs = await api.get('/api/documents');
         if (docs.length === 0) {
             listEl.innerHTML = '<p class="text-secondary">No documents ingested yet.</p>';
             return;
@@ -314,7 +314,7 @@ async function loadDocuments() {
 
 async function deleteDocument(id) {
     try {
-        await fetch(`/documents/${id}`, { method: 'DELETE' });
+        await fetch(`/api/documents/${id}`, { method: 'DELETE' });
         loadDocuments();
     } catch (err) {
         alert('Failed to delete document: ' + err.message);
@@ -332,7 +332,7 @@ async function handleFileUpload(input) {
     formData.append('file', file);
 
     try {
-        const res = await fetch('/ingest', {
+        const res = await fetch('/api/documents/upload', {
             method: 'POST',
             body: formData
         });
@@ -356,7 +356,7 @@ async function handleYouTubeIngest() {
     status.innerHTML = '<span style="color: var(--accent-primary)">Fetching transcript and processing... This may take a while.</span>';
 
     try {
-        const res = await fetch('/ingest/youtube', {
+        const res = await fetch('/api/documents/youtube', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url })

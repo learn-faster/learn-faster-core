@@ -19,7 +19,7 @@ graph LR
         YTD --> MID
         MID --> DP[Document Processor]
         DP --> IE[Ingestion Engine]
-        IE --> LLM[LLM Service (OpenAI/Groq/Ollama)]
+        IE --> LLM[LLM Service]
         IE --> VS[Vector Storage]
         VS --> LLM
     end

@@ -71,10 +71,6 @@ class NavigationEngine:
                 ORDER BY length(path), c.name
             """ % depth
             
-            # Note: Parameterizing the depth in the relationship pattern isn't directly supported 
-            # in standard Cypher parameters for the hop count, so we use string formatting strictly for the integer depth.
-            # The root name is properly parameterized.
-            
             result = self.connection.execute_query(query, {"root_name": normalized_root})
             
             # Return unique concept names in order of appearance

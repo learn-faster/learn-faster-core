@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api", tags=["navigation"])
 
 # --- Navigation Endpoints ---
 
-@router.get("/concepts/roots", summary="Get root concepts", response_model=List[ConceptNode])
+@router.get("/concepts/roots", summary="Get root concepts", response_model=List[str])
 async def get_root_concepts(
     navigation_engine: NavigationEngine = Depends(get_navigation_engine)
 ):
@@ -19,7 +19,7 @@ async def get_root_concepts(
     return navigation_engine.find_root_concepts()
 
 
-@router.get("/concepts/unlocked/{user_id}", summary="Get unlocked concepts for user", response_model=List[ConceptNode])
+@router.get("/concepts/unlocked/{user_id}", summary="Get unlocked concepts for user", response_model=List[str])
 async def get_unlocked_concepts(
     user_id: str,
     navigation_engine: NavigationEngine = Depends(get_navigation_engine)

@@ -53,16 +53,13 @@ class TestNewRoutes:
 
     def test_get_root_concepts(self):
         """Test GET /api/concepts/roots"""
-        mock_nav_engine.find_root_concepts.return_value = [
-            ConceptNode(name="root_a"), 
-            ConceptNode(name="root_b")
-        ]
+        mock_nav_engine.find_root_concepts.return_value = ["root_a", "root_b"]
         
         response = client.get("/api/concepts/roots")
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 2
-        assert data[0]["name"] == "root_a"
+        assert data[0] == "root_a"
 
     def test_progress_start(self):
         """Test POST /api/progress/start"""
