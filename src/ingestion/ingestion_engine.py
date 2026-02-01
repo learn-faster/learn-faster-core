@@ -299,16 +299,17 @@ Content to analyze:
         
         return True
     
-    def store_graph_data(self, schema: GraphSchema) -> None:
+    def store_graph_data(self, schema: GraphSchema, document_id: Optional[int] = None) -> None:
         """
         Store extracted graph structure in Neo4j knowledge graph.
         
         Uses the dedicated GraphStorage module with MERGE operations to handle 
         duplicate concepts gracefully and stores prerequisite relationships 
-        with weight and reasoning metadata.
+        with weight, reasoning, and document provenance.
         
         Args:
             schema: GraphSchema with concepts and prerequisite relationships
+            document_id: Optional ID of the document context
             
         Raises:
             ValueError: If schema is invalid or storage fails
@@ -318,7 +319,7 @@ Content to analyze:
         
         try:
             # Use the dedicated graph storage module
-            result = graph_storage.store_graph_schema(schema)
+            result = graph_storage.store_graph_schema(schema, document_id)
             
             logger.info(f"Stored {result['concepts_stored']} concepts and {result['relationships_stored']} prerequisites")
             
@@ -392,8 +393,8 @@ Content to analyze:
             # Extract graph structure from full markdown
             schema = await self.extract_graph_structure(markdown)
             
-            # Store graph data in Neo4j
-            self.store_graph_data(schema)
+            # Store graph data in Neo4j with provenance
+            self.store_graph_data(schema, document_id)
             
             # Handle different chunk formats from document processor
             if content_chunks and isinstance(content_chunks[0], tuple):

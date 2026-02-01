@@ -131,18 +131,31 @@ class DocumentStore:
         self.db.execute_query(query, (status, doc_id))
 
     def delete_document(self, doc_id: int):
-        """Delete document and its file."""
+        """Delete document and its associated data in all stores."""
         doc = self.get_document(doc_id)
         if not doc:
             raise ValueError(f"Document {doc_id} not found")
             
-        # Delete from DB (Cascade will remove chunks)
-        # Note: If we added ON DELETE CASCADE to chunks, great.
-        # If not, we might need to verify that. The init.sql has it.
+        # 1. Delete from Knowledge Graph (Neo4j)
+        try:
+            from src.database.graph_storage import graph_storage
+            graph_storage.remove_document_provenance(doc_id)
+        except Exception as e:
+            logger.error(f"Failed to cleanup graph for document {doc_id}: {e}")
+            
+        # 2. Delete from Vector Storage (Postgres pgvector)
+        try:
+            from src.ingestion.vector_storage import VectorStorage
+            vector_storage = VectorStorage()
+            vector_storage.delete_document_chunks(doc_id)
+        except Exception as e:
+            logger.error(f"Failed to cleanup vector chunks for document {doc_id}: {e}")
+            
+        # 3. Delete from DB (Cascade will remove PostgreSQL metadata leftovers if any)
         self.db.execute_query("DELETE FROM documents WHERE id = %s", (doc_id,))
         
-        # Delete file
+        # 4. Delete physical file
         if doc.file_path and os.path.exists(doc.file_path):
             os.remove(doc.file_path)
             
-        logger.info(f"Deleted document {doc_id}")
+        logger.info(f"Deleted document {doc_id} and synchronized all stores")

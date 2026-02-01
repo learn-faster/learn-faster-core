@@ -125,15 +125,16 @@ class GraphStorage:
             except Exception:
                 pass  # Ignore cleanup errors
     
-    def store_concept(self, concept: ConceptNode) -> bool:
+    def store_concept(self, concept: ConceptNode, document_id: Optional[int] = None) -> bool:
         """
         Store a single concept using MERGE to handle duplicates gracefully.
         
         Uses MERGE operation as specified in Requirements 6.5 to handle
-        duplicate concepts without errors.
+        duplicate concepts without errors. Stores document provenance.
         
         Args:
             concept: ConceptNode to store
+            document_id: Optional ID of the document this concept was extracted from
             
         Returns:
             True if concept was stored successfully
@@ -149,23 +150,31 @@ class GraphStorage:
             normalized_name = concept.name.strip().lower()
             
             # Use MERGE to handle duplicates gracefully (Requirements 6.5)
+            # Track document provenance in source_docs list
             query = """
                 MERGE (c:Concept {name: $name})
                 ON CREATE SET 
                     c.description = $description,
                     c.depth_level = $depth_level,
-                    c.created_at = datetime()
+                    c.created_at = datetime(),
+                    c.source_docs = CASE WHEN $doc_id IS NOT NULL THEN [$doc_id] ELSE [] END
                 ON MATCH SET
                     c.description = COALESCE($description, c.description),
                     c.depth_level = COALESCE($depth_level, c.depth_level),
-                    c.updated_at = datetime()
+                    c.updated_at = datetime(),
+                    c.source_docs = CASE 
+                        WHEN $doc_id IS NOT NULL AND NOT $doc_id IN c.source_docs 
+                        THEN c.source_docs + $doc_id 
+                        ELSE c.source_docs 
+                    END
                 RETURN c.name as name
             """
             
             result = self.connection.execute_query(query, {
                 "name": normalized_name,
                 "description": concept.description,
-                "depth_level": concept.depth_level
+                "depth_level": concept.depth_level,
+                "doc_id": document_id
             })
             
             if result:
@@ -179,12 +188,13 @@ class GraphStorage:
             logger.error(f"Error storing concept '{concept.name}': {str(e)}")
             raise ValueError(f"Failed to store concept: {str(e)}") from e
     
-    def store_concepts_batch(self, concepts: List[ConceptNode]) -> int:
+    def store_concepts_batch(self, concepts: List[ConceptNode], document_id: Optional[int] = None) -> int:
         """
         Store multiple concepts in a batch operation.
         
         Args:
             concepts: List of ConceptNode objects to store
+            document_id: Optional ID of the document these concepts were extracted from
             
         Returns:
             Number of concepts successfully stored
@@ -195,7 +205,7 @@ class GraphStorage:
         stored_count = 0
         for concept in concepts:
             try:
-                if self.store_concept(concept):
+                if self.store_concept(concept, document_id):
                     stored_count += 1
             except Exception as e:
                 logger.warning(f"Failed to store concept in batch: {str(e)}")
@@ -204,15 +214,17 @@ class GraphStorage:
         logger.info(f"Stored {stored_count}/{len(concepts)} concepts in batch")
         return stored_count
     
-    def store_prerequisite_relationship(self, prerequisite: PrerequisiteLink) -> bool:
+    def store_prerequisite_relationship(self, prerequisite: PrerequisiteLink, document_id: Optional[int] = None) -> bool:
         """
         Store a prerequisite relationship with weight and reasoning metadata.
         
         Uses MERGE operations to handle duplicate relationships gracefully
-        and stores weight and reasoning metadata as specified in Requirements 5.2.
+        and stores weight, reasoning, and document provenance as specified 
+        in Requirements 5.2.
         
         Args:
             prerequisite: PrerequisiteLink with source, target, weight, and reasoning
+            document_id: Optional ID of the document this relationship was extracted from
             
         Returns:
             True if relationship was stored successfully
@@ -247,6 +259,7 @@ class GraphStorage:
                 raise ValueError(f"One or both concepts not found: {source_name}, {target_name}")
             
             # Store prerequisite relationship with metadata (Requirements 5.2)
+            # Track document provenance in source_docs list
             relationship_query = """
                 MATCH (source:Concept {name: $source_name})
                 MATCH (target:Concept {name: $target_name})
@@ -254,11 +267,17 @@ class GraphStorage:
                 ON CREATE SET 
                     r.weight = $weight,
                     r.reasoning = $reasoning,
-                    r.created_at = datetime()
+                    r.created_at = datetime(),
+                    r.source_docs = CASE WHEN $doc_id IS NOT NULL THEN [$doc_id] ELSE [] END
                 ON MATCH SET
                     r.weight = $weight,
                     r.reasoning = $reasoning,
-                    r.updated_at = datetime()
+                    r.updated_at = datetime(),
+                    r.source_docs = CASE 
+                        WHEN $doc_id IS NOT NULL AND NOT $doc_id IN r.source_docs 
+                        THEN r.source_docs + $doc_id 
+                        ELSE r.source_docs 
+                    END
                 RETURN r.weight as weight
             """
             
@@ -266,7 +285,8 @@ class GraphStorage:
                 "source_name": source_name,
                 "target_name": target_name,
                 "weight": prerequisite.weight,
-                "reasoning": prerequisite.reasoning
+                "reasoning": prerequisite.reasoning,
+                "doc_id": document_id
             })
             
             if result:
@@ -280,7 +300,7 @@ class GraphStorage:
             logger.error(f"Error storing prerequisite relationship: {str(e)}")
             raise ValueError(f"Failed to store prerequisite relationship: {str(e)}") from e
     
-    def store_graph_schema(self, schema: GraphSchema) -> Dict[str, int]:
+    def store_graph_schema(self, schema: GraphSchema, document_id: Optional[int] = None) -> Dict[str, int]:
         """
         Store complete graph schema with concepts and prerequisite relationships.
         
@@ -289,6 +309,7 @@ class GraphStorage:
         
         Args:
             schema: GraphSchema with concepts and prerequisites
+            document_id: Optional ID of the document this schema was extracted from
             
         Returns:
             Dictionary with counts of stored concepts and relationships
@@ -300,17 +321,15 @@ class GraphStorage:
             raise ValueError("Schema must contain at least one concept")
         
         try:
-            # Convert concept names to ConceptNode objects
-            concept_nodes = [ConceptNode(name=name) for name in schema.concepts]
-            
             # Store concepts first
-            concepts_stored = self.store_concepts_batch(concept_nodes)
+            concept_nodes = [ConceptNode(name=name) for name in schema.concepts]
+            concepts_stored = self.store_concepts_batch(concept_nodes, document_id)
             
             # Store prerequisite relationships
             relationships_stored = 0
             for prerequisite in schema.prerequisites:
                 try:
-                    if self.store_prerequisite_relationship(prerequisite):
+                    if self.store_prerequisite_relationship(prerequisite, document_id):
                         relationships_stored += 1
                 except Exception as e:
                     logger.warning(f"Failed to store prerequisite in schema: {str(e)}")
@@ -421,6 +440,54 @@ class GraphStorage:
             logger.error(f"Error checking concept existence: {str(e)}")
             return False
     
+    def remove_document_provenance(self, document_id: int) -> Dict[str, int]:
+        """
+        Removes a document's ID from all matching concepts and relationships.
+        Prunes nodes and relationships that have no remaining source documents.
+        
+        Args:
+            document_id: ID of the document to remove
+            
+        Returns:
+            Dictionary with counts of modified/deleted items
+        """
+        try:
+            # 1. Remove from relationships and delete orphans
+            rel_query = """
+                MATCH ()-[r:PREREQUISITE]->()
+                WHERE $doc_id IN r.source_docs
+                SET r.source_docs = [d IN r.source_docs WHERE d <> $doc_id]
+                WITH r
+                WHERE size(r.source_docs) = 0
+                DELETE r
+                RETURN count(*) as deleted_rels
+            """
+            rel_result = self.connection.execute_query(rel_query, {"doc_id": document_id})
+            deleted_rels = rel_result[0]["deleted_rels"] if rel_result else 0
+            
+            # 2. Remove from nodes and delete orphans
+            node_query = """
+                MATCH (c:Concept)
+                WHERE $doc_id IN c.source_docs
+                SET c.source_docs = [d IN c.source_docs WHERE d <> $doc_id]
+                WITH c
+                WHERE size(c.source_docs) = 0
+                DETACH DELETE c
+                RETURN count(*) as deleted_nodes
+            """
+            node_result = self.connection.execute_query(node_query, {"doc_id": document_id})
+            deleted_nodes = node_result[0]["deleted_nodes"] if node_result else 0
+            
+            logger.info(f"Cleanup for doc {document_id}: deleted {deleted_nodes} nodes, {deleted_rels} relationships")
+            return {
+                "deleted_nodes": deleted_nodes,
+                "deleted_relationships": deleted_rels
+            }
+            
+        except Exception as e:
+            logger.error(f"Error removing document provenance for {document_id}: {str(e)}")
+            raise
+
     def clear_all_data(self) -> bool:
         """
         Clear all data from the knowledge graph (for testing purposes).
