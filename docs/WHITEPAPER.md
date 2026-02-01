@@ -1,90 +1,81 @@
 # LearnFast Core: Technical Whitepaper
 
 ## 1. Executive Summary
-LearnFast Core is a high-performance engine designed to bridge the gap between unstructured educational resources and structured pedagogical frameworks. In an era of informational overload, the ability to automatically synthesize PDFs, YouTube transcripts, and documentation into a navigable Knowledge Graph is transformative. 
+LearnFast Core is a high-performance pedagogical engine designed to close the loop between raw information and long-term knowledge retention. By integrating AI-driven ingestion, hybrid graph-vector reasoning, and evidence-based learning strategies (SRS), LearnFast Core provides a complete ecosystem for converting unstructured data into structured mastery.
 
-LearnFast Core leverages state-of-the-art Large Language Models (LLMs) via Ollama, combined with robust graph database traversals in Neo4j, to enable personalized learning paths. By mapping concepts and their prerequisite dependencies, the system provides learners with a clear, structured roadmap through complex subjects, supported by granular progress tracking and vector-based content retrieval.
+The system provides a holistic learning lifecycle: **Ingest** (Multi-modal normalization), **Structure** (Knowledge Graph & Provenance), **Navigate** (Budget-Aware Paths), **Master** (Spaced Repetition & Study Sessions), and **Analyze** (Retention Metrics & Gamification).
 
-## 2. System Architecture
-
-The architecture of LearnFast Core is built on the principle of "Content Transformation." The system takes raw, heterogeneous data and refines it through multiple layers until it reaches a structured state suitable for navigation and reasoning.
+## 2. System Architecture: The Learning Lifecycle
+The architecture is built as a series of specialized engines that ensure data integrity and pedagogical effectiveness.
 
 ```mermaid
-graph LR
-    User([User]) <--> API[FastAPI Web Server]
+graph TD
+    User([User]) <--> API[Standardized /api Gateway]
     
-    subgraph Ingestion_Layer ["Ingestion Layer (Acquisition & Refinement)"]
-        YT[YouTube URL] --> YTD[yt-dlp]
-        FILES[Local Files / PDF / MD] --> MID[Markitdown]
-        YTD --> MID
-        MID --> DP[Document Processor]
-        DP --> IE[Ingestion Engine]
-        IE --> LLM[LLM Service]
-        IE --> VS[Vector Storage]
-        VS --> LLM
+    subgraph Ingestion_Layer ["1. Ingestion & Provenance"]
+        Source[PDF / YouTube / MD] --> MIK[MarkItDown Normalization]
+        MIK --> IE[Ingestion Engine]
+        IE --> Prov[Deep Provenance Injector]
     end
     
-    subgraph Storage_Layer ["Storage Layer (Persistence & Retrieval)"]
-        DS[Document Store] --> PG[(PostgreSQL)]
-        IE --> VS[Vector Storage]
-        IE --> GS[Graph Storage]
-        GS --> Neo4j[(Neo4j)]
+    subgraph Storage_Layer ["2. Synchronized Hybrid Store"]
+        Prov --> Neo4j[(Neo4j: Knowledge Graph)]
+        Prov --> PGV[(Postgres: Vector Store)]
+        Prov --> PGM[(Postgres: Metadata & Analytics)]
     end
     
-    subgraph Engine_Layer ["Core Engine Layer"]
-        NE[Navigation Engine]
-        UT[User Tracker]
+    subgraph Learning_Layer ["3. Navigation & Mastery"]
+        API <--> PR[Path Resolver]
+        API <--> SS[Study Session Engine]
+        SS <--> SRS[SRS Service: SM-2 Algorithm]
     end
     
-    API <--> NE
-    API <--> UT
-    API <--> DS
-    NE <--> Neo4j
-    UT <--> Neo4j
+    subgraph Analytics_Layer ["4. Cognitive Insights"]
+        API <--> AM[Analytics Manager]
+        AM --> Heatmap[Activity Heatmap]
+        AM --> Streak[Study Streaks]
+    end
 ```
 
-### 2.1 Component Rationales & Design Philosophy
+## 3. Storage & Integrity: Deep Provenance
+LearnFast Core utilizes a synchronized multi-store strategy to maintain perfect consistency.
 
-The choice of technologies reflects a commitment to privacy, performance, and structural integrity.
+### 3.1 Knowledge Graph (Neo4j)
+Atomic "Concept Nodes" are linked via directed prerequisite edges. Each node and relationship is tagged with **Deep Provenance**, a registry of contributing documents. This enables **Synchronized Distributed Deletion**: removing a source document automatically prunes the graph of any orphaned knowledge, ensuring the curriculum remains a living reflection of the current library.
 
-- **Neo4j & The Graph First approach**: Traditional relational databases struggle with recursive dependency trees. neo4j was selected because prerequisite mapping is naturally a directed acyclic graph (DAG). By using Cypher queries, we can resolve complex learning paths across hundreds of nodes with sub-millisecond latency.
-- **Markitdown & Data Normalization**: To ensure the Ingestion Engine operates on high-quality text, we utilize Microsoft's `markitdown`. This allows us to treat PDFs, Office documents, and YouTube transcripts as uniform Markdown content, which is significantly easier for LLMs to parse and structure.
-- **yt-dlp Implementation**: Integrated `yt-dlp` provides a resilient mechanism for capturing YouTube transcripts.
-- **Multi-Provider LLM Support**: LearnFast Core is vendor-agnostic. While it supports local privacy-first execution via Ollama, it can also leverage cloud providers like OpenAI or Groq for higher throughput and reasoning capabilities depending on deployment needs.
+### 3.2 Hybrid Vector Search (pgvector)
+Content is embedded as semantic chunks and stored in PostgreSQL using the `pgvector` extension. This allows for hyper-local retrieval, allowing the system to surface the exact paragraph needed to explain a concept encountered in a learning path.
 
-## 3. The Data Journey
+## 4. Operational Intelligence
+### 4.1 Budget-Aware Path Resolution
+The `PathResolver` calculates the optimal pedagogical route from a learner's frontier to their target goal. Unlike standard graph traversals, it is **Constraint-Aware**:
+- **Time Estimation**: Predicts study time based on chunk density.
+- **Budget Pruning**: Intelligently truncates paths to fit time limits, suggesting intermediate "Sub-Goals" to maintain motivation.
 
-### 3.1 The Knowledge Graph (Neo4j)
-The graph is the heart of the system. It doesn't just store data; it stores the *logic* of the curriculum.
-- **Concept Nodes**: Lowercase, normalized unique identifiers for atoms of knowledge.
-- **Prerequisite Links**: Weighted edges that define the directed flow of learning. A weight of `1.0` indicates a strict dependency, while lower weights suggest helpful but non-critical background info.
-- **User Progress**: Users are first-class citizens in the graph, linked to concepts via `IN_PROGRESS` and `COMPLETED` edges. This enables the Navigation Engine to perform "sub-graph filtering" to show only what the user is ready for.
+### 4.2 Spaced Repetition (SRS)
+To ensure long-term retention, LearnFast Core implements a native **SRS Service** based on the **SM-2 Algorithm**.
+- **Recall Ratings**: Users rate their recall (0-5) during study sessions.
+- **Adaptive Scheduling**: The system recalculates "Ease Factors" and intervals, forecasting future review dates to optimize the forgetting curve.
 
-### 3.2 Relational & Vector Persistence
-Complementing the graph is a dual-storage strategy:
-- **PostgreSQL**: Manages the "Document Lifecycle." It tracks the origin of all data, maintaining timestamps, status flags (Pending/Completed), and physical file paths.
-- **Vector Storage (PostgreSQL with pgvector)**: As the LLM extracts concepts, the underlying text chunks are embedded into a high-dimensional vector space. We utilize the `pgvector` extension in PostgreSQL to store these embeddings alongside the raw content. This enables efficient semantic search—finding the exact paragraph that explains a specific concept during a learning session without the overhead of a separate vector database.
+## 5. AI-Driven Mastery Tools
+Beyond navigation, the engine actively creates study material:
+- **Flashcard Harvesting**: LLMs extract key-value pairs (Front/Back) from documents.
+- **Question Generation**: Creating multiple-choice questions to test comprehension on the fly.
+- **Lesson Extraction**: Automatically assembling markdown modules based on resolved learning paths.
 
-## 4. Operational Workflows
+## 6. Organization & Analytics
+### 6.1 Hierarchical Management
+Documents are organized into a rich folder system featuring custom colors and icons, supporting bulk movement and unfiling operations.
 
-### 4.1 The Ingestion Pipeline
-The transformation from raw input to graph node is a five-stage pipeline:
+### 6.2 Cognitive Insights (Heatmaps & Metics)
+The `AnalyticsManager` provides a dashboard of learning health:
+- **Study Heatmaps**: Visualizing activity consistency over a year.
+- **Retention Rates**: Tracking successful vs. failed reviews.
+- **SRS Distribution**: A breakdown of the library from New to Mastered cards.
+- **Progress Tracking**: Real-time reading progress, time-on-page tracking, and completion estimates.
 
-1.  **Acquisition**: The system identifies the source (YouTube vs. File) and triggers the appropriate fetcher.
-2.  **Conversion**: `Markitdown` renders the source into a clean, structured Markdown format.
-3.  **Semantic Chunking**: Content is split into overlapping windows to ensure context is preserved during concept extraction.
-4.  **LLM Reasoning**: The `IngestionEngine` prompts the LLM to identify not just the *what* (concepts), but the *how* (prerequisites) and the *why* (reasoning).
-5.  **Graph Synthesis**: Extracted data is normalized and merged into Neo4j using idempotent `MERGE` operations, preventing graph fragmentation.
+## 7. Security & Privacy
+Designed for local-first reliability, the entire stack—from Neo4j to the LLM (via Ollama)—can be deployed in air-gapped environments. API access is strictly governed by a standardized `/api` prefix, ensuring secure and predictable front-end integration.
 
-### 4.2 The Navigation & Unlocking Logic
-The `NavigationEngine` acts as the curriculum coordinator. It uses Cypher logic to calculate the "Learner Frontier"—the set of concepts where all prerequisites are `COMPLETED` but the target is not. This ensures the learner is never overwhelmed by advanced material before mastering the fundamentals.
-
-## 5. Security, Privacy, and Robustness
-- **Defensive Data Handling**: The system assumes LLM output may be non-deterministic. The extraction logic includes recursive normalization to handle arrays, nested objects, or unexpected casing returned by the model.
-- **Idempotency**: Every ingestion step is idempotent. Re-submitting the same YouTube video or file updates existing records rather than creating duplicates, ensuring a clean database state.
-- **Local-Only Execution**: From database to LLM, the entire stack can run in an air-gapped environment, making it suitable for corporate and sensitive academic use cases.
-
-## 6. Future Roadmap
-- **Adaptive Prerquisite Weights**: Using machine learning to adjust prerequisite weights based on the actual difficulty learners face.
-- **Multi-Modal Graphs**: Integrating image and video frame analysis directly into the concept extraction process.
-- **Collaborative Filtering**: Recommending learning paths based on the success of other users with similar background knowledge.
+---
+*LearnFast Core: Structure for your Knowledge.*

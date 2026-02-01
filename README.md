@@ -1,192 +1,158 @@
 # LearnFast Core Engine
 
-**A Hybrid Graph-RAG Learning Platform**
+**A Hybrid Graph-RAG Pedagogical Platform**
 
-LearnFast Core Engine combines the structural reasoning of Knowledge Graphs with the semantic flexibility of Vector Search (RAG) to deliver intelligent, personalized, and time-constrained learning paths.
+LearnFast Core Engine combines the structural reasoning of Knowledge Graphs with the semantic flexibility of Vector Search (RAG) and evidence-based Spaced Repetition (SRS) to deliver an end-to-end ecosystem for structured knowledge mastery.
 
 ## 🚀 Key Features
 
-- **Structured Knowledge Graph**: Uses Neo4j to model concepts and prerequisite relationships.
-- **RAG Content Retrieval**: Uses PostgreSQL + pgvector to store and retrieve content chunks with semantic search.
-- **Adaptive Navigation**: Unlocks concepts as you progress through the graph.
-- **Time-Constrained Optimization**: Generates the most effective learning path that fits your available time budget.
-- **Automated Ingestion**: Converts documents (PDF, DOCX, HTML) into structured graph nodes and content embeddings.
-- **LLM Lesson Generation**: Synthesizes RAG-retrieved content into cohesive pedagogical lessons using local LLMs.
-- **Lightweight Web UI**: Includes a clean, reactive dashboard for document management and learning path visualization.
+### 1. Intelligence & Navigation
+- **Hybrid Graph-RAG Architecture**: Uses Neo4j for pedagogical structure and PostgreSQL/pgvector for granular semantic retrieval.
+- **Deep Provenance Tracking**: Knowledge atoms track their source documents. Deleting a document automatically prunes orphaned concepts from the graph.
+- **Budget-Aware Path Resolution**: Generates optimized learning paths that intelligently prune to fit your available time budget.
+- **Learner Frontier**: Automatically calculates what you are ready to learn next based on prerequisite completion.
+
+### 2. Mastery & Retention
+- **Native SRS Engine**: Implements the **SM-2 Algorithm** for scheduled spaced repetition.
+- **Active Recall Tools**: AI-driven generation of flashcards and multiple-choice questions directly from your documents.
+- **Study Sessions**: Interactive sessions that track recall ratings and update the forgetting curve in real-time.
+
+### 3. Digestion & Analytics
+- **Multi-Modal Ingestion**: Advanced extraction from PDFs, YouTube transcripts, and Markdown via Microsoft `MarkItDown`.
+- **Cognitive Heatmaps**: Visualizes study consistency and intensity over time.
+- **Retention Analytics**: Tracks success rates, SRS distribution (New vs. Mastered), and study streaks.
+- **Reading Progress**: Per-document tracking of time-on-page, completion estimates, and reading percentage.
 
 ## 🏗 Architecture
 
-The system uses a **Hybrid Graph-RAG** architecture:
+The system operates as a synchronized trio of specialized engines:
 
-1.  **Ingestion Layer**: 
-    - LLMs extract concepts and relationships from documents (supports large documents via sliding windows).
-    - Content is chunked and embedded for vector search.
-2.  **Storage Layer**:
-    - **Neo4j**: Stores the "Map" (Concepts, Relationships, User Progress).
-    - **PostgreSQL**: Stores the "Library" (Content Chunks, Embeddings).
-3.  **Logic Layer**:
-    - **Navigation Engine**: Determines what is valid to learn next.
-    - **Path Resolver**: Finds optimal paths and estimates learning time.
-    - **Content Retriever**: Assembles lessons from distributed chunks.
+1.  **Ingestion Engine**: Processes raw sources into semantic markdown, extracts concept dependencies, and injects provenance.
+2.  **Reasoning Engine**: Handles graph-based navigation and constraint-aware path resolution.
+3.  **Mastery Engine**: Manages the Spaced Repetition System (SRS) and study session tracking.
 
 ## 🛠️ Prerequisites
 
 - **Python 3.12+**
-- **Docker & Docker Compose**
+- **Docker & Docker Compose** (for Neo4j and PostgreSQL)
 - **uv** (Python package manager)
-- **Ollama** (running locally with `gpt-oss:20b-cloud` and `embeddinggemma:latest` models pulled)
+- **Ollama** (Running locally with your preferred LLM and embedding models)
 
 ## ⚙️ Configuration
 
-The system is configured via environment variables, typically managed in a `.env` file.
+The system is configured via environment variables in a `.env` file. Pydantic is used to validate and cast these values at runtime.
 
 ### Neo4j (Knowledge Graph)
-- `NEO4J_URI`: Connection URI (default: `bolt://localhost:7688`).
-- `NEO4J_USER`: Username (default: `neo4j`).
-- `NEO4J_PASSWORD`: Password (default: `password`).
+| Variable         | Description              | Default                 |
+| ---------------- | ------------------------ | ----------------------- |
+| `NEO4J_URI`      | Connection URI for Neo4j | `bolt://localhost:7688` |
+| `NEO4J_USER`     | Admin username           | `neo4j`                 |
+| `NEO4J_PASSWORD` | Admin password           | `password`              |
 
-### PostgreSQL (Structured Meta & Vectors)
-- `POSTGRES_HOST`: Database host (default: `localhost`).
-- `POSTGRES_PORT`: Database port (default: `5433`).
-- `POSTGRES_DB`: Database name (default: `learnfast`).
-- `POSTGRES_USER`: Database user (default: `learnfast`).
-- `POSTGRES_PASSWORD`: Database password (default: `password`).
+### PostgreSQL (Meta & Vector)
+| Variable            | Description                       | Default                |
+| ------------------- | --------------------------------- | ---------------------- |
+| `POSTGRES_HOST`     | Database host                     | `localhost`            |
+| `POSTGRES_PORT`     | Port for Postgres                 | `5433`                 |
+| `POSTGRES_DB`       | Database name                     | `learnfast`            |
+| `POSTGRES_USER`     | Database user                     | `learnfast`            |
+| `POSTGRES_PASSWORD` | Database password                 | `password`             |
+| `DATABASE_URL`      | Full SQLAlchemy connection string | *(Derived from above)* |
 
-### LLM Configuration
-- `LLM_PROVIDER`: Provider to use (`openai`, `groq`, `ollama`).
-- `LLM_MODEL`: Model name (e.g., `gpt-4o`, `llama3-70b`).
-- `OPENAI_API_KEY`: API key for OpenAI.
-- `GROQ_API_KEY`: API key for Groq.
-- `OLLAMA_BASE_URL`: Base URL for Ollama (default: `http://localhost:11434`).
-- `EMBEDDING_PROVIDER`: Provider to use for embeddings (`openai` or `ollama`).
-- `EMBEDDING_MODEL`: Model used for embeddings (must match provider).
+### LLM & Embedding Core
+| Variable             | Description                                         | Default                  |
+| -------------------- | --------------------------------------------------- | ------------------------ |
+| `LLM_PROVIDER`       | Provider for reasoning (`openai`, `groq`, `ollama`) | `openai`                 |
+| `LLM_MODEL`          | Default model for chat and generation               | `gpt-3.5-turbo`          |
+| `EMBEDDING_PROVIDER` | Provider for vectorization (`openai`, `ollama`)     | `ollama`                 |
+| `EMBEDDING_MODEL`    | Model used for generating embeddings                | `embeddinggemma:latest`  |
+| `OPENAI_API_KEY`     | Secret key for OpenAI services                      | `""`                     |
+| `GROQ_API_KEY`       | Secret key for Groq services                        | `""`                     |
+| `OLLAMA_BASE_URL`    | API endpoint for local Ollama instance              | `http://localhost:11434` |
 
-### Granular Model Configuration (Optional)
-- `EXTRACTION_MODEL`: Override model for graph extraction tasks (default: `LLM_MODEL`).
-- `EXTRACTION_CONTEXT_WINDOW`: Context window for extraction (default: 100000).
-- `REWRITE_MODEL`: Override model for content rewriting/lesson generation (default: `LLM_MODEL`).
-- `REWRITE_CONTEXT_WINDOW`: Context window for rewriting (default: 10000).
+### Granular AI Overrides (Optional)
+If set, these override the default `LLM_MODEL` for specific heavy-duty or lightweight tasks.
+| Variable                    | Description                          | Default     |
+| --------------------------- | ------------------------------------ | ----------- |
+| `EXTRACTION_MODEL`          | Model for graph extraction tasks     | `LLM_MODEL` |
+| `EXTRACTION_CONTEXT_WINDOW` | Max tokens for extraction operations | `100000`    |
+| `REWRITE_MODEL`             | Model for lesson/content generation  | `LLM_MODEL` |
+| `REWRITE_CONTEXT_WINDOW`    | Max tokens for content generation    | `10000`     |
 
-### Core Application Settings
-- `CHUNK_SIZE_MINUTES`: Target reading time per content chunk (used for time-budgeting).
-- `MAX_PATH_PREVIEW_DEPTH`: Default depth for learning path previews.
-- `DEFAULT_EMBEDDING_DIMENSION`: Target dimension for vector indexing (should match your embedding model).
-
-## 🏁 Quick Start
+### Application & Filesystem
+| Variable                      | Description                                  | Default                     |
+| ----------------------------- | -------------------------------------------- | --------------------------- |
+| `UPLOAD_DIR`                  | Local directory for storing PDFs/Transcripts | `./data/documents`          |
+| `MAX_FILE_SIZE`               | Maximum upload size in bytes                 | `52428800` (50MB)           |
+| `CORS_ORIGINS`                | Allowed frontend origins (JSON list)         | `["http://localhost:3000"]` |
+| `CHUNK_SIZE_MINUTES`          | Target study time per content chunk          | `2`                         |
+| `MAX_PATH_PREVIEW_DEPTH`      | Max levels to show in path previews          | `3`                         |
+| `DEFAULT_EMBEDDING_DIMENSION` | Expected vector dimension                    | `1024`                      |
 
 ### 1. Setup Environment
-
-Clone the repository and install dependencies:
-
 ```bash
 uv sync
 cp .env.example .env
 ```
 
 ### 2. Start Services
-
-Launch Neo4j, PostgreSQL, and ensure Ollama is ready:
-
+Launch databases and the FastAPI server:
 ```bash
 ./scripts/start_services.sh
-```
-
-*Services available at:*
-- **Neo4j Browser**: [http://localhost:7475](http://localhost:7475) (user: `neo4j`, pass: `password`)
-- **PostgreSQL**: `localhost:5433` (user: `learnfast`, pass: `password`)
-- **Web UI & API**: [http://localhost:8000](http://localhost:8000)
-
-### 3. Run the Application
-
-Start the FastAPI server:
-
-```bash
 uv run uvicorn main:app --reload
 ```
 
-## 📖 Usage Guide
+*Access the dashboard at:* [http://localhost:8000](http://localhost:8000)
 
-You can interact with the system via the REST API.
+## 📖 API Usage (Selection)
 
-### 1. Ingest Content
-Upload a document or provide a YouTube URL to build the knowledge graph.
+All core endpoints are standardized under the `/api` prefix.
 
+### 1. Manage Documents
 **Upload File:**
 ```bash
-curl -X POST "http://localhost:8000/ingest" \
-  -F "file=@/path/to/textbook.pdf"
+curl -X POST "http://localhost:8000/api/documents/upload" \
+  -F "file=@/path/to/calculus.pdf" -F "title=Calculus 101"
 ```
 
-**Ingest YouTube Video:**
+**YouTube Ingest:**
 ```bash
-curl -X POST "http://localhost:8000/ingest/youtube" \
+curl -X POST "http://localhost:8000/api/documents/youtube" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+  -d '{"url": "https://youtube.com/..."}'
 ```
 
-### 2. Check Available Concepts
-See what you can learn (Root concepts are available initially).
-
+### 2. Navigate & Learn
+**Get Roots:** `GET /api/concepts/roots`
+**Generate Path:**
 ```bash
-curl "http://localhost:8000/concepts/roots"
-```
-
-### 3. Generate a Learning Path
-Request a path to a specific target with a time limit (e.g., 30 minutes).
-
-```bash
-curl -X POST "http://localhost:8000/learning/path" \
+curl -X POST "http://localhost:8000/api/ai/learning-path" \
   -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "user_123",
-    "target_concept": "advanced_calculus",
-    "time_budget_minutes": 30
-  }'
+  -d '{"user_id": "u1", "target_concept": "limits", "time_budget_minutes": 15}'
 ```
 
-### 4. Get a Lesson
-Retrieve the actual content for your path.
-
+### 3. SRS & Study
+**Start Session:** `POST /api/study/session`
+**Submit Review:** 
 ```bash
-curl "http://localhost:8000/learning/lesson/user_123/advanced_calculus?time_budget=30"
+curl -X POST "http://localhost:8000/api/study/session/{id}/review" \
+  -d '{"card_id": "c1", "rating": 5}'
 ```
 
-### 5. Track Progress
-Mark concepts as you complete them to unlock new paths.
-
-```bash
-# Start a concept
-curl -X POST "http://localhost:8000/progress/start" \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "user_123", "concept_name": "limits"}'
-
-# Complete a concept
-curl -X POST "http://localhost:8000/progress/complete" \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "user_123", "concept_name": "limits"}'
-```
-
-## 🧪 Testing
-
-The codebase is verified using **property-based testing** with `hypothesis`.
-
-```bash
-# Run all tests
-uv run pytest
-
-# Run specific integration tests
-uv run pytest tests/test_api.py
-```
+### 4. Insights
+**Activity Heatmap:** `GET /api/analytics/heatmap`
+**Overview:** `GET /api/analytics/overview`
 
 ## 📂 Project Structure
 
 ```
 src/
-├── ingestion/          # LLM extraction & vector embedding logic
-├── navigation/         # Graph traversal & user state management
-├── path_resolution/    # Shortest path & time budget optimization
-├── database/           # Neo4j & PostgreSQL connection handlers
-└── models/             # Shared Pydantic schemas
+├── routers/        # Standardized API endpoints (/api)
+├── services/       # Core logic: SRS, Analytics, LLM, Time Tracking
+├── ingestion/      # Document processing & Vector embedding
+├── navigation/     # Graph traversal & User state
+├── path_resolution/# Optimal pathfinding & Budgeting
+└── storage/        # File & DB coordination
 ```
 
 ---
