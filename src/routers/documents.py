@@ -35,7 +35,7 @@ os.makedirs(settings.upload_dir, exist_ok=True)
 @router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    title: str = Form(...),
+    title: Optional[str] = Form(None),
     tags: Optional[str] = Form(""),
     category: Optional[str] = Form(None),
     folder_id: Optional[str] = Form(None),
@@ -88,7 +88,7 @@ async def upload_document(
              raise HTTPException(status_code=500, detail="Document created but not found in DB")
         
         # 3. Update Metadata
-        document.title = title or os.path.basename(file_path)
+        document.title = title or doc_metadata.filename
         document.tags = tags.split(",") if tags else []
         document.category = category
         document.folder_id = folder_id
@@ -173,6 +173,14 @@ async def ingest_youtube(
         # DocumentStore handles saving to DB + creating file placeholder
         doc_metadata = document_store.save_transcript(video_id, transcript)
         
+        # Initialize metadata for the record
+        doc = db.query(Document).filter(Document.id == doc_metadata.id).first()
+        if doc:
+            doc.title = f"YouTube: {video_id}"
+            doc.tags = ["youtube", "transcript"]
+            doc.status = "processing"
+            db.commit()
+
         # 3. Process document (extract graph and vectors)
         # We can pass the file path created by document_store
         await ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
@@ -302,21 +310,20 @@ def end_reading_session(
 
 
 @router.delete("/{document_id}")
-def delete_document(document_id: int, db: Session = Depends(get_db)):
+async def delete_document(
+    document_id: int, 
+    db: Session = Depends(get_db),
+    document_store: DocumentStore = Depends(get_document_store)
+):
     """
-    Deletes a document and its file.
+    Deletes a document and its associated data across all stores.
     """
-    document = db.query(Document).filter(Document.id == document_id).first()
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-        
-    # Delete file from disk
-    if document.file_path and os.path.exists(document.file_path):
-        try:
-            os.remove(document.file_path)
-        except Exception as e:
-            print(f"Error deleting file {document.file_path}: {e}")
-            
-    db.delete(document)
-    db.commit()
-    return {"message": "Document deleted successfully"}
+    try:
+        # standardizing on document_store for coordinated cleanup
+        document_store.delete_document(document_id)
+        return {"message": "Document and associated metadata/vectors deleted successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to delete document {document_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal deletion failure")

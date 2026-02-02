@@ -175,18 +175,18 @@ High-Quality Lesson:
         for concept in path_concepts:
             chunks = self.retrieve_chunks_by_concept(concept)
             for chunk in chunks:
-                lesson_parts.append(chunk.content)
+                lesson_parts.append(f"Source: {chunk.doc_source}\n\nContent: ```\n{chunk.content}\n```")
         
-        raw_full_content = "\n\n".join(lesson_parts)
-        
+        raw_full_content = "\n\n".join([f"### {i+1}\n{part}" for i,part in enumerate(lesson_parts)])
+
         if not raw_full_content.strip():
             return f"# {target_concept.title()}\n\n*No detailed content available for this concept.*"
 
         # 3. Rewrite with LLM
         logger.info(f"Generating new lesson for {target_concept} ({time_budget_minutes}m)")
         enhanced_lesson = await self._rewrite_with_llm(target_concept, time_budget_minutes, raw_full_content)
-        
+
         # 4. Cache and Return
         self._cache_lesson(target_concept, time_budget_minutes, enhanced_lesson)
-        
+
         return enhanced_lesson

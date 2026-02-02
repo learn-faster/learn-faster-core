@@ -141,18 +141,195 @@ async function renderDashboard() {
 
 async function renderPathGenerator(targetConcept) {
     mainContent.innerHTML = `
-        <div class="card" style="max-width: 600px; margin: 4rem auto; text-align: center;">
+        <div class="card" style="max-width: 800px; margin: 4rem auto; text-align: center;">
             <h2>Create Learning Path</h2>
-            <p style="margin-bottom: 2rem; color: var(--text-secondary);">Target: <strong>${formatConcept(targetConcept)}</strong></p>
+            <p style="margin-bottom: 1rem; color: var(--text-secondary);">Target: <strong>${formatConcept(targetConcept)}</strong></p>
             
-            <div style="margin-bottom: 2rem;">
-                <label style="display: block; margin-bottom: 0.5rem;">Time Budget (minutes)</label>
-                <input type="number" id="timeBudget" value="30" style="padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: var(--bg-secondary); color: white; width: 100px; text-align: center;">
+            <div id="cognitive-map" class="graph-container">
+                <div class="loading-spinner" style="margin-top: 150px;">Loading frontier map...</div>
+            </div>
+
+            <div style="margin-bottom: 2rem; padding: 0 2rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <label>Time Budget</label>
+                    <span id="timeValue" style="color: var(--accent-primary); font-weight: bold;">30 min</span>
+                </div>
+                <input type="range" id="timeBudget" min="0" max="60" value="30" style="width: 100%; cursor: pointer;" 
+                    oninput="document.getElementById('timeValue').innerText = this.value + ' min'; updateGraphHighlights(this.value)">
             </div>
 
             <button class="btn" onclick="generatePath('${targetConcept}')">Generate Path</button>
         </div>
     `;
+
+    renderCognitiveMap('cognitive-map', targetConcept);
+}
+
+async function renderCognitiveMap(containerId, targetConcept) {
+    const container = document.getElementById(containerId);
+
+    try {
+        const [data, progress] = await Promise.all([
+            api.get(`/api/concepts/neighborhood/${encodeURIComponent(targetConcept)}`),
+            api.get(`/api/progress/${state.userId}`)
+        ]);
+
+        if (data.nodes.length === 0) {
+            container.innerHTML = '<div style="margin-top: 150px; color: var(--text-secondary);">No graph data available for this concept.</div>';
+            return;
+        }
+
+        container.innerHTML = ''; // Clear loading
+
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        const svg = d3.select(`#${containerId}`)
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        // Arrowhead definition
+        svg.append("defs").append("marker")
+            .attr("id", "arrowhead")
+            .attr("viewBox", "-0 -5 10 10")
+            .attr("refX", 18) // Adjusted for node radius
+            .attr("refY", 0)
+            .attr("orient", "auto")
+            .attr("markerWidth", 8)
+            .attr("markerHeight", 8)
+            .attr("xoverflow", "visible")
+            .append("svg:path")
+            .attr("d", "M 0,-5 L 10 ,0 L 0,5")
+            .attr("fill", "var(--border-color)")
+            .style("stroke", "none");
+
+        const simulation = d3.forceSimulation(data.nodes)
+            .force("link", d3.forceLink(data.edges).id(d => d.id).distance(120))
+            .force("charge", d3.forceManyBody().strength(-400))
+            .force("center", d3.forceCenter(width / 2, height / 2));
+
+        const link = svg.append("g")
+            .selectAll("line")
+            .data(data.edges)
+            .join("line")
+            .attr("class", "link");
+
+        const node = svg.append("g")
+            .selectAll("g")
+            .data(data.nodes)
+            .join("g")
+            .attr("class", d => {
+                let cls = `node ${d.group}`;
+                if (progress.completed_concepts.includes(d.id)) cls += " completed";
+                else if (d.id !== targetConcept && !progress.available_concepts.includes(d.id)) cls += " locked";
+                return cls;
+            })
+            .on("click", (event, d) => {
+                if (d.id !== targetConcept) {
+                    renderPathGenerator(d.id); // Switch target
+                }
+            })
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended));
+
+        node.append("circle");
+
+        // Add markers with background pills
+        const markers = [
+            { group: 'prerequisite', text: 'START', color: 'var(--warning)' },
+            { group: 'target', text: 'GOAL', color: 'var(--accent-primary)' },
+            { group: 'dependent', text: 'NEXT', color: 'var(--success)' }
+        ];
+
+        markers.forEach(m => {
+            const selection = node.filter(d => d.group === m.group);
+
+            selection.append("rect")
+                .attr("class", "badge-bg")
+                .attr("x", -20)
+                .attr("y", -32)
+                .attr("width", 40)
+                .attr("height", 14)
+                .style("stroke", m.color);
+
+            selection.append("text")
+                .attr("class", "badge")
+                .attr("dy", -22)
+                .text(m.text);
+        });
+
+        node.append("text")
+            .attr("dy", 30)
+            .text(d => formatConcept(d.id));
+
+        simulation.on("tick", () => {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            node
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+        });
+
+        // Store for dynamic updates
+        window.currentMap = { node, targetConcept, userId: state.userId };
+
+        // Initial highlight
+        updateGraphHighlights(document.getElementById('timeBudget').value);
+
+        function dragstarted(event) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            event.subject.fx = event.subject.x;
+            event.subject.fy = event.subject.y;
+        }
+
+        function dragged(event) {
+            event.subject.fx = event.x;
+            event.subject.fy = event.y;
+        }
+
+        function dragended(event) {
+            if (!event.active) simulation.alphaTarget(0);
+            event.subject.fx = null;
+            event.subject.fy = null;
+        }
+
+    } catch (err) {
+        console.error(err);
+        container.innerHTML = `<div style="margin-top: 150px; color: var(--warning);">Error: ${err.message}</div>`;
+    }
+}
+
+let highlightTimeout;
+function updateGraphHighlights(value) {
+    if (!window.currentMap) return;
+
+    // Debounce API calls
+    clearTimeout(highlightTimeout);
+    highlightTimeout = setTimeout(async () => {
+        try {
+            const { targetConcept, userId, node } = window.currentMap;
+            const preview = await api.get(`/api/learning/path-preview?user_id=${userId}&target_concept=${encodeURIComponent(targetConcept)}&time_budget=${value}`);
+
+            // Update node classes
+            node.classed("in-path", d => preview.concepts.includes(d.id));
+
+            // Update GOAL label if pruned
+            if (preview.is_pruned && preview.concepts.length > 0) {
+                const newGoal = preview.concepts[preview.concepts.length - 1];
+                document.getElementById('timeValue').innerHTML = `${value} min <span style="font-size: 0.8rem; opacity: 0.7;">(Limited to ${formatConcept(newGoal)})</span>`;
+            } else {
+                document.getElementById('timeValue').innerHTML = `${value} min`;
+            }
+        } catch (err) {
+            console.warn("Failed to update highlights:", err);
+        }
+    }, 150);
 }
 
 async function generatePath(targetConcept) {
@@ -293,7 +470,7 @@ async function loadDocuments() {
                 <tbody>
                     ${docs.map(doc => `
                         <tr>
-                            <td>${doc.filename}</td>
+                            <td>${doc.title || doc.filename || 'Untitled'}</td>
                             <td>${new Date(doc.upload_date).toLocaleDateString()}</td>
                             <td><span class="tag ${doc.status === 'completed' ? 'unlocked' : 'root'}">${doc.status}</span></td>
                             <td>

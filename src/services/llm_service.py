@@ -170,7 +170,6 @@ class LLMService:
                 return self.client
             raise ValueError(f"Unsupported Embedding provider: {provider}")
 
-    @track
     async def get_embedding(self, text: str) -> list[float]:
         """
         Generates an embedding vector for the input text.

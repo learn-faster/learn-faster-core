@@ -455,10 +455,10 @@ class GraphStorage:
             # 1. Remove from relationships and delete orphans
             rel_query = """
                 MATCH ()-[r:PREREQUISITE]->()
-                WHERE $doc_id IN r.source_docs
+                WHERE $doc_id IN COALESCE(r.source_docs, [])
                 SET r.source_docs = [d IN r.source_docs WHERE d <> $doc_id]
                 WITH r
-                WHERE size(r.source_docs) = 0
+                WHERE size(COALESCE(r.source_docs, [])) = 0
                 DELETE r
                 RETURN count(*) as deleted_rels
             """
@@ -468,10 +468,10 @@ class GraphStorage:
             # 2. Remove from nodes and delete orphans
             node_query = """
                 MATCH (c:Concept)
-                WHERE $doc_id IN c.source_docs
+                WHERE $doc_id IN COALESCE(c.source_docs, [])
                 SET c.source_docs = [d IN c.source_docs WHERE d <> $doc_id]
                 WITH c
-                WHERE size(c.source_docs) = 0
+                WHERE size(COALESCE(c.source_docs, [])) = 0
                 DETACH DELETE c
                 RETURN count(*) as deleted_nodes
             """

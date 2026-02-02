@@ -84,7 +84,9 @@ class DocumentMetadata(BaseModel):
 class DocumentBase(BaseModel):
     """Base schema for document data."""
     title: Optional[str] = None
-    tags: List[str] = []
+    filename: Optional[str] = None
+    status: Optional[str] = "pending"
+    tags: Optional[List[str]] = []
     category: Optional[str] = None
 
 

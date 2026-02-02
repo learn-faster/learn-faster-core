@@ -28,6 +28,15 @@ async def get_unlocked_concepts(
     return navigation_engine.get_unlocked_concepts(user_id)
 
 
+@router.get("/concepts/neighborhood/{concept_name}", summary="Get concept neighborhood")
+async def get_concept_neighborhood(
+    concept_name: str,
+    navigation_engine: NavigationEngine = Depends(get_navigation_engine)
+):
+    """Get immediate prerequisites and dependents of a concept."""
+    return navigation_engine.get_neighborhood(concept_name)
+
+
 # --- Content Retrieval Endpoints ---
 
 @router.get("/learning/lesson/{user_id}/{target_concept}", summary="Get formatted lesson content")
@@ -56,6 +65,22 @@ async def get_lesson_content(
         "path": path.concepts,
         "estimated_time": path.estimated_time_minutes,
         "content_markdown": lesson_text
+    }
+
+
+@router.get("/learning/path-preview", summary="Get learning path preview for map")
+async def get_path_preview(
+    user_id: str, 
+    target_concept: str, 
+    time_budget: int = Query(30),
+    path_resolver: PathResolver = Depends(get_path_resolver)
+):
+    """Get the list of concepts that would be included in the learning path."""
+    path = path_resolver.resolve_path(user_id, target_concept, time_budget)
+    return {
+        "concepts": path.concepts if path else [],
+        "estimated_time": path.estimated_time_minutes if path else 0,
+        "is_pruned": path.pruned if path else False
     }
 
 

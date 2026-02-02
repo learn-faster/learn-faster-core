@@ -175,3 +175,61 @@ class NavigationEngine:
         except Exception as e:
             logger.error(f"Error getting unlocked concepts for user '{user_id}': {str(e)}")
             return []
+
+    def get_neighborhood(self, concept_name: str) -> Dict[str, Any]:
+        """
+        Get immediate prerequisites and dependents of a concept.
+        
+        Args:
+            concept_name: Name of the concept
+            
+        Returns:
+            Dict containing nodes and edges for the local neighborhood graph.
+        """
+        if not concept_name:
+            return {"nodes": [], "edges": []}
+            
+        try:
+            normalized_name = concept_name.strip().lower()
+            
+            # Query for immediate neighbors (in and out)
+            query = """
+                MATCH (target:Concept {name: $name})
+                OPTIONAL MATCH (pre:Concept)-[r1:PREREQUISITE]->(target)
+                OPTIONAL MATCH (target)-[r2:PREREQUISITE]->(post:Concept)
+                RETURN 
+                    target.name as target_name,
+                    collect(DISTINCT {name: pre.name, type: 'prerequisite'}) as prerequisites,
+                    collect(DISTINCT {name: post.name, type: 'dependent'}) as dependents
+            """
+            
+            result = self.connection.execute_query(query, {"name": normalized_name})
+            
+            if not result:
+                return {"nodes": [], "edges": []}
+                
+            data = result[0]
+            nodes = [{"id": data["target_name"], "group": "target"}]
+            edges = []
+            
+            seen_nodes = {data["target_name"]}
+            
+            for p in data["prerequisites"]:
+                if p["name"]:
+                    if p["name"] not in seen_nodes:
+                        nodes.append({"id": p["name"], "group": "prerequisite"})
+                        seen_nodes.add(p["name"])
+                    edges.append({"source": p["name"], "target": data["target_name"], "type": "prerequisite"})
+                    
+            for d in data["dependents"]:
+                if d["name"]:
+                    if d["name"] not in seen_nodes:
+                        nodes.append({"id": d["name"], "group": "dependent"})
+                        seen_nodes.add(d["name"])
+                    edges.append({"source": data["target_name"], "target": d["name"], "type": "dependent"})
+                    
+            return {"nodes": nodes, "edges": edges}
+            
+        except Exception as e:
+            logger.error(f"Error getting neighborhood for '{concept_name}': {str(e)}")
+            return {"nodes": [], "edges": []}
