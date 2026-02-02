@@ -83,7 +83,7 @@ class DocumentMetadata(BaseModel):
 
 class DocumentBase(BaseModel):
     """Base schema for document data."""
-    title: str
+    title: Optional[str] = None
     tags: List[str] = []
     category: Optional[str] = None
 
@@ -96,8 +96,8 @@ class DocumentCreate(DocumentBase):
 class DocumentResponse(DocumentBase):
     """Schema for document API responses."""
     id: int  # Adapted to int match learn-fast-core DB
-    file_type: FileType = FileType.OTHER
-    file_path: str
+    file_type: Optional[FileType] = FileType.OTHER
+    file_path: Optional[str] = None
     upload_date: datetime
     extracted_text: Optional[str] = None
     reading_progress: float = 0.0

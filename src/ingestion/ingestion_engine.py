@@ -365,7 +365,7 @@ Content to analyze:
                 return []
 
             # Store using vector storage system
-            chunk_ids = self.vector_storage.store_chunks_batch(batch_data)
+            chunk_ids = await self.vector_storage.store_chunks_batch(batch_data)
             logger.info(f"Stored {len(chunk_ids)} content chunks from '{doc_source}'")
             return chunk_ids
             

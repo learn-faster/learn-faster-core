@@ -6,9 +6,10 @@ multiple-choice questions, and personalized learning paths.
 import json
 import httpx
 import traceback
-from openai import OpenAI, AsyncOpenAI
+from openai import AsyncOpenAI
 from src.config import settings
 from src.services.prompts import FLASHCARD_PROMPT_TEMPLATE, QUESTION_PROMPT_TEMPLATE, LEARNING_PATH_PROMPT_TEMPLATE
+from opik import configure, track
 
 class LLMService:
     """
@@ -23,7 +24,9 @@ class LLMService:
         self.api_key = settings.openai_api_key if self.provider == "openai" else settings.groq_api_key
         self.base_url = settings.ollama_base_url if self.provider == "ollama" else None
         self.model = settings.llm_model
-        
+        if settings.use_opik:
+            configure()
+
         if self.provider == "openai":
             self.client = AsyncOpenAI(
                 api_key=self.api_key,
@@ -85,6 +88,7 @@ class LLMService:
              # Fallback to default
              return self.client, self.model
 
+    @track
     async def get_chat_completion(self, messages: list[dict], response_format: str = None, config=None) -> str:
         """
         Generic method to get chat completions from the configured LLM provider.
@@ -166,6 +170,7 @@ class LLMService:
                 return self.client
             raise ValueError(f"Unsupported Embedding provider: {provider}")
 
+    @track
     async def get_embedding(self, text: str) -> list[float]:
         """
         Generates an embedding vector for the input text.
@@ -193,6 +198,7 @@ class LLMService:
             traceback.print_exc()
             raise e
 
+    @track
     async def generate_flashcards(self, text: str, count: int = 5, config=None):
         """
         Generates a list of flashcards from the provided text.
@@ -216,6 +222,7 @@ class LLMService:
              
         return json.loads(response_text)
 
+    @track
     async def generate_questions(self, text: str, count: int = 5, config=None):
         """
         Generates multiple-choice quiz questions from the provided text.
@@ -238,6 +245,7 @@ class LLMService:
 
         return json.loads(response_text)
 
+    @track
     async def generate_learning_path(self, text: str, goal: str, config=None):
         """
         Generates a structured learning path for a student goal.

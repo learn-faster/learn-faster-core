@@ -88,11 +88,12 @@ async def upload_document(
              raise HTTPException(status_code=500, detail="Document created but not found in DB")
         
         # 3. Update Metadata
-        document.title = title
+        document.title = title or os.path.basename(file_path)
         document.tags = tags.split(",") if tags else []
         document.category = category
         document.folder_id = folder_id
         document.file_type = file_type.value # Store string value
+        document.status = "processing"
         
         # 4. Extract text
         print(f"DEBUG: Starting text extraction for {doc_id}...")
