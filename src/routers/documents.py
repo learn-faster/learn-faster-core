@@ -4,6 +4,7 @@ Handles document uploads, metadata updates, and time tracking sessions.
 Note: This is the 'App' API. Core engine endpoints are also available at /documents.
 """
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form, Body
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -140,6 +141,8 @@ async def upload_document(
 ):
     """
     Uploads a new study document and extracts its content asynchronously.
+
+    TODO: Add rate limiting to prevent abuse of upload endpoint.
     """
     # Validate file type
     file_ext = Path(file.filename).suffix.lower()
@@ -292,6 +295,22 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     return document
+
+
+@router.get("/{document_id}/download")
+async def download_document(document_id: int, db: Session = Depends(get_db)):
+    """
+    Downloads a document file.
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = document.file_path
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(file_path, filename=document.filename)
 
 
 @router.put("/{document_id}", response_model=DocumentResponse)

@@ -298,7 +298,7 @@ async function loadDocuments() {
                             <td><span class="tag ${doc.status === 'completed' ? 'unlocked' : 'root'}">${doc.status || 'pending'}</span></td>
                             <td>
                                 <div style="display: flex; gap: 0.5rem;">
-                                    <a href="/documents/${doc.id}" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Download</a>
+                                    <a href="/api/documents/${doc.id}/download" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Download</a>
                                     <button onclick="deleteDocument(${doc.id})" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: #ef4444; color: #ef4444;">Delete</button>
                                 </div>
                             </td>
