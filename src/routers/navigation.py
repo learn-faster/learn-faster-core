@@ -57,7 +57,7 @@ async def get_lesson_content(
         raise HTTPException(status_code=404, detail="No content found for learning path")
         
     # Retrieve formatted content
-    lesson_text = content_retriever.get_lesson_content(path.concepts, time_budget_minutes=time_budget)
+    lesson_text = await content_retriever.get_lesson_content(path.concepts, time_budget_minutes=time_budget)
     
     return {
         "target": target_concept,
