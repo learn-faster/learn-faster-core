@@ -284,7 +284,7 @@ async function loadDocuments() {
             <table class="doc-table">
                 <thead>
                     <tr>
-                        <th>Filename</th>
+                        <th>Title</th>
                         <th>Upload Date</th>
                         <th>Status</th>
                         <th>Actions</th>
@@ -293,9 +293,9 @@ async function loadDocuments() {
                 <tbody>
                     ${docs.map(doc => `
                         <tr>
-                            <td>${doc.filename}</td>
+                            <td>${doc.title || doc.filename || 'Untitled'}</td>
                             <td>${new Date(doc.upload_date).toLocaleDateString()}</td>
-                            <td><span class="tag ${doc.status === 'completed' ? 'unlocked' : 'root'}">${doc.status}</span></td>
+                            <td><span class="tag ${doc.status === 'completed' ? 'unlocked' : 'root'}">${doc.status || 'pending'}</span></td>
                             <td>
                                 <div style="display: flex; gap: 0.5rem;">
                                     <a href="/documents/${doc.id}" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Download</a>
@@ -331,6 +331,7 @@ async function handleFileUpload(input) {
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('title', file.name); // Add required title field
 
     try {
         const res = await fetch('/api/documents/upload', {
@@ -338,10 +339,13 @@ async function handleFileUpload(input) {
             body: formData
         });
 
-        if (!res.ok) throw new Error(res.statusText);
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(errorData.detail || res.statusText);
+        }
         const data = await res.json();
 
-        status.innerHTML = `<span style="color: var(--success)">Success! ${data.message}</span>`;
+        status.innerHTML = `<span style="color: var(--success)">Success! Document uploaded and processing started.</span>`;
         loadDocuments(); // Refresh list
     } catch (err) {
         status.innerHTML = `<span style="color: var(--warning)">Error: ${err.message}</span>`;
