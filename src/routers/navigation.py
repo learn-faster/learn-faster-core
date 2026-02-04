@@ -28,12 +28,13 @@ async def get_unlocked_concepts(
     return navigation_engine.get_unlocked_concepts(user_id)
 
 
-@router.get("/concepts/graph", summary="Get full knowledge graph")
-async def get_concept_graph(
+@router.get("/concepts/neighborhood/{concept_name}", summary="Get concept neighborhood")
+async def get_concept_neighborhood(
+    concept_name: str,
     navigation_engine: NavigationEngine = Depends(get_navigation_engine)
 ):
-    """Get the full concept graph (nodes and edges)."""
-    return navigation_engine.get_full_graph()
+    """Get immediate prerequisites and dependents of a concept."""
+    return navigation_engine.get_neighborhood(concept_name)
 
 
 # --- Content Retrieval Endpoints ---
@@ -62,25 +63,33 @@ async def get_lesson_content(
     # If no path found in graph, create a path with just the target concept
     # This allows generating content for concepts that aren't in the graph yet
     if not path or not path.concepts:
-        # Create a minimal path with just the target concept
-        concepts = [target_concept.lower()]
-        estimated_time = time_budget
-    else:
-        concepts = path.concepts
-        estimated_time = path.estimated_time_minutes
-
-    # Retrieve formatted content WITH flashcards
-    lesson_data = await content_retriever.get_lesson_with_flashcards(
-        concepts,
-        time_budget_minutes=time_budget
-    )
-
+        raise HTTPException(status_code=404, detail="No content found for learning path")
+        
+    # Retrieve formatted content
+    lesson_text = await content_retriever.get_lesson_content(path.concepts, time_budget_minutes=time_budget)
+    
     return {
         "target": target_concept,
         "path": concepts,
         "estimated_time": estimated_time,
         "content_markdown": lesson_data["content_markdown"],
         "flashcards": lesson_data["flashcards"]
+    }
+
+
+@router.get("/learning/path-preview", summary="Get learning path preview for map")
+async def get_path_preview(
+    user_id: str, 
+    target_concept: str, 
+    time_budget: int = Query(30),
+    path_resolver: PathResolver = Depends(get_path_resolver)
+):
+    """Get the list of concepts that would be included in the learning path."""
+    path = path_resolver.resolve_path(user_id, target_concept, time_budget)
+    return {
+        "concepts": path.concepts if path else [],
+        "estimated_time": path.estimated_time_minutes if path else 0,
+        "is_pruned": path.pruned if path else False
     }
 
 

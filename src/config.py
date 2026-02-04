@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
     llm_model: str = "gpt-3.5-turbo" 
+    use_opik: bool = False
+    opik_api_key: str = ""
 
     # Embedding Settings
     embedding_provider: str = "ollama" # openai, ollama

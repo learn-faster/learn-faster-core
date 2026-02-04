@@ -15,10 +15,12 @@ LearnFast Core Engine combines the structural reasoning of Knowledge Graphs with
 ### 2. Mastery & Retention
 - **Native SRS Engine**: Implements the **SM-2 Algorithm** for scheduled spaced repetition.
 - **Active Recall Tools**: AI-driven generation of flashcards and multiple-choice questions directly from your documents.
+- **Math-Aware Learning**: Integrated **KaTeX** support renders complex LaTeX equations beautifully in lessons and flashcards.
 - **Study Sessions**: Interactive sessions that track recall ratings and update the forgetting curve in real-time.
 
 ### 3. Digestion & Analytics
 - **Multi-Modal Ingestion**: Advanced extraction from PDFs, YouTube transcripts, and Markdown via Microsoft `MarkItDown`.
+- **Robust Path Resolution**: Handles content gaps with baseline estimates and intelligently prunes paths for low time budgets.
 - **Cognitive Heatmaps**: Visualizes study consistency and intensity over time.
 - **Retention Analytics**: Tracks success rates, SRS distribution (New vs. Mastered), and study streaks.
 - **Reading Progress**: Per-document tracking of time-on-page, completion estimates, and reading percentage.

@@ -33,7 +33,8 @@ Guidelines:
 3.  **Engagement**: Use a helpful and encouraging tone.
 4.  **Markdown**: Use proper Markdown formatting (headers, lists, bold text) to make the content readable.
 5.  **Conciseness**: Ensure the content is appropriate for a {time_budget}-minute reading session. Do not include irrelevant fluff.
-6.  **Accuracy**: Stick to the facts provided in the chunks. Do not hallucinate external information unless it's common knowledge used for analogies.
+6.  **Formatting**: Use proper Markdown (headers, lists, etc.). Use LaTeX for math notation (e.g. \( ... \) for inline, \[ ... \] for block equations).
+7.  **Accuracy**: Stick to the facts provided in the chunks. Do not hallucinate external information unless it's common knowledge used for analogies.
 
 Raw Chunks:
 {raw_chunks}
@@ -304,11 +305,10 @@ Return ONLY the JSON object, no other text:"""
         for concept in path_concepts:
             chunks = self.retrieve_chunks_by_concept(concept)
             for chunk in chunks:
-                lesson_parts.append(chunk.content)
+                lesson_parts.append(f"Source: {chunk.doc_source}\n\nContent: ```\n{chunk.content}\n```")
+        
+        raw_full_content = "\n\n".join([f"### {i+1}\n{part}" for i,part in enumerate(lesson_parts)])
 
-        raw_full_content = "\n\n".join(lesson_parts)
-
-        # 3. Generate or Rewrite with LLM
         if not raw_full_content.strip():
             # No chunks exist - generate lesson from scratch
             logger.info(f"No chunks found for {target_concept}, generating from scratch")
@@ -317,6 +317,10 @@ Return ONLY the JSON object, no other text:"""
             # Rewrite existing chunks into coherent lesson
             logger.info(f"Generating new lesson for {target_concept} ({time_budget_minutes}m)")
             enhanced_lesson = await self._rewrite_with_llm(target_concept, time_budget_minutes, raw_full_content)
+
+        # 3. Rewrite with LLM
+        logger.info(f"Generating new lesson for {target_concept} ({time_budget_minutes}m)")
+        enhanced_lesson = await self._rewrite_with_llm(target_concept, time_budget_minutes, raw_full_content)
 
         # 4. Cache and Return
         self._cache_lesson(target_concept, time_budget_minutes, enhanced_lesson)

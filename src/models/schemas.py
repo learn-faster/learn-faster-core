@@ -84,6 +84,8 @@ class DocumentMetadata(BaseModel):
 class DocumentBase(BaseModel):
     """Base schema for document data."""
     title: Optional[str] = None
+    filename: Optional[str] = None
+    status: Optional[str] = "pending"
     tags: Optional[List[str]] = []
     category: Optional[str] = None
 
@@ -95,10 +97,9 @@ class DocumentCreate(DocumentBase):
 
 class DocumentResponse(DocumentBase):
     """Schema for document API responses."""
-    id: int
-    filename: str
+    id: int  # Adapted to int match learn-fast-core DB
     file_type: Optional[FileType] = FileType.OTHER
-    file_path: str
+    file_path: Optional[str] = None
     upload_date: datetime
     status: str = "pending"
     extracted_text: Optional[str] = None

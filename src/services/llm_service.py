@@ -6,9 +6,11 @@ multiple-choice questions, and personalized learning paths.
 import json
 import httpx
 import traceback
-from openai import OpenAI, AsyncOpenAI
+import re
+from openai import AsyncOpenAI
 from src.config import settings
 from src.services.prompts import FLASHCARD_PROMPT_TEMPLATE, QUESTION_PROMPT_TEMPLATE, LEARNING_PATH_PROMPT_TEMPLATE
+from opik import configure, track
 
 class LLMService:
     """
@@ -22,16 +24,8 @@ class LLMService:
         self.provider = settings.llm_provider.lower()
         self.base_url = settings.ollama_base_url if self.provider == "ollama" else None
         self.model = settings.llm_model
-
-        # Select API key based on provider
-        if self.provider == "openai":
-            self.api_key = settings.openai_api_key
-        elif self.provider == "groq":
-            self.api_key = settings.groq_api_key
-        elif self.provider == "openrouter":
-            self.api_key = settings.openrouter_api_key
-        else:
-            self.api_key = None
+        if settings.use_opik:
+            configure()
 
         if self.provider == "openai":
             self.client = AsyncOpenAI(
@@ -107,6 +101,7 @@ class LLMService:
              # Fallback to default
              return self.client, self.model
 
+    @track
     async def get_chat_completion(self, messages: list[dict], response_format: str = None, config=None) -> str:
         """
         Generic method to get chat completions from the configured LLM provider.
@@ -155,7 +150,6 @@ class LLMService:
         Raises:
             Exception: If the API request fails.
         """
-        # Re-use the generic method
         return await self.get_chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -164,6 +158,53 @@ class LLMService:
             response_format="json", # Most internal calls use JSON system prompt
             config=config
         )
+
+    def _extract_and_parse_json(self, text: str):
+        """
+        Robustly extract and parse JSON from LLM response text.
+        Handles code blocks, trailing commas, and common formatting issues.
+        """
+        # 1. Basic extraction from code blocks
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+        
+        # 2. Find the first [ or { and last ] or } if still messy
+        start_brace = text.find('{')
+        start_bracket = text.find('[')
+        
+        if start_brace != -1 or start_bracket != -1:
+            if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+                start = start_brace
+                end = text.rfind('}')
+            else:
+                start = start_bracket
+                end = text.rfind(']')
+            
+            if start != -1 and end != -1:
+                text = text[start:end+1]
+
+        # 3. Clean up common issues
+        # Trailing commas in arrays or objects
+        text = re.sub(r',\s*}', '}', text)
+        text = re.sub(r',\s*\]', ']', text)
+        
+        # Attempt to parse
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Last ditch effort: if single quotes were used instead of double quotes
+            # This is risky but often fixes LLM "JSON"
+            try:
+                # Replace 'key': with "key":
+                text_fixed = re.sub(r"'(\w+)':", r'"\1":', text)
+                # Replace : 'value' with : "value"
+                text_fixed = re.sub(r":\s*'([^']*)'", r': "\1"', text_fixed)
+                return json.loads(text_fixed)
+            except:
+                # Re-raise original error if fix fails
+                raise
 
     def _get_embedding_client(self):
         """
@@ -215,6 +256,7 @@ class LLMService:
             traceback.print_exc()
             raise e
 
+    @track
     async def generate_flashcards(self, text: str, count: int = 5, config=None):
         """
         Generates a list of flashcards from the provided text.
@@ -229,15 +271,9 @@ class LLMService:
         """
         prompt = FLASHCARD_PROMPT_TEMPLATE.format(text=text, count=count)
         response_text = await self._get_completion(prompt, system_prompt="You are a JSON-speaking flashcard generator.", config=config)
-        
-        # Clean up code blocks if present
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-             response_text = response_text.split("```")[1].split("```")[0]
-             
-        return json.loads(response_text)
+        return self._extract_and_parse_json(response_text)
 
+    @track
     async def generate_questions(self, text: str, count: int = 5, config=None):
         """
         Generates multiple-choice quiz questions from the provided text.
@@ -252,14 +288,9 @@ class LLMService:
         """
         prompt = QUESTION_PROMPT_TEMPLATE.format(text=text, count=count)
         response_text = await self._get_completion(prompt, system_prompt="You are a JSON-speaking quiz generator.", config=config)
-        
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-             response_text = response_text.split("```")[1].split("```")[0]
+        return self._extract_and_parse_json(response_text)
 
-        return json.loads(response_text)
-
+    @track
     async def generate_learning_path(self, text: str, goal: str, config=None):
         """
         Generates a structured learning path for a student goal.
@@ -274,13 +305,7 @@ class LLMService:
         """
         prompt = LEARNING_PATH_PROMPT_TEMPLATE.format(text=text, goal=goal)
         response_text = await self._get_completion(prompt, system_prompt="You are a JSON-speaking curriculum designer.", config=config)
-        
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-             response_text = response_text.split("```")[1].split("```")[0]
-
-        return json.loads(response_text)
+        return self._extract_and_parse_json(response_text)
 
 # Local singleton for global use
 llm_service = LLMService()

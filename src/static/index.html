@@ -9,6 +9,122 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .graph-container {
+            width: 100%;
+            height: 400px;
+            background: var(--bg-secondary);
+            border-radius: 1rem;
+            margin: 2rem 0;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        .node circle {
+            stroke: var(--bg-primary);
+            stroke-width: 2px;
+            cursor: pointer;
+            transition: r 0.2s;
+        }
+
+        .node:hover circle {
+            r: 12px;
+        }
+
+        .node text {
+            font-size: 12px;
+            fill: white;
+            pointer-events: none;
+            text-anchor: middle;
+            font-weight: 500;
+        }
+
+        .link {
+            stroke: var(--border-color);
+            stroke-opacity: 0.6;
+            stroke-width: 2px;
+            marker-end: url(#arrowhead);
+        }
+
+        .node.target circle {
+            fill: var(--accent-primary);
+            r: 12px;
+            stroke-width: 3px;
+        }
+
+        .node.prerequisite circle {
+            fill: var(--warning);
+            opacity: 0.8;
+        }
+
+        .node.dependent circle {
+            fill: var(--success);
+            opacity: 0.8;
+        }
+
+        .node.completed circle {
+            fill: var(--success);
+            opacity: 1;
+        }
+
+        .node.locked circle {
+            fill: #4b5563;
+            opacity: 0.5;
+            stroke-dasharray: 2;
+        }
+
+        .node.in-path circle {
+            stroke: var(--accent-primary);
+            stroke-width: 4px;
+            filter: drop-shadow(0 0 5px var(--accent-primary));
+        }
+
+        /* Node Badges */
+        .badge {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            fill: white;
+            pointer-events: none;
+            text-anchor: middle;
+        }
+
+        .badge-bg {
+            fill: var(--bg-primary);
+            stroke: var(--border-color);
+            stroke-width: 1px;
+            rx: 4px;
+        }
+
+        /* Range Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: var(--accent-primary);
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -6px;
+            box-shadow: 0 0 10px var(--accent-primary);
+        }
+    </style>
 </head>
 
 <body>
@@ -28,7 +144,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 

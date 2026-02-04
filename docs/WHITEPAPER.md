@@ -49,8 +49,8 @@ Content is embedded as semantic chunks and stored in PostgreSQL using the `pgvec
 ## 4. Operational Intelligence
 ### 4.1 Budget-Aware Path Resolution
 The `PathResolver` calculates the optimal pedagogical route from a learner's frontier to their target goal. Unlike standard graph traversals, it is **Constraint-Aware**:
-- **Time Estimation**: Predicts study time based on chunk density.
-- **Budget Pruning**: Intelligently truncates paths to fit time limits, suggesting intermediate "Sub-Goals" to maintain motivation.
+- **Time Estimation**: Predicts study time based on chunk density, using baseline estimates for concepts with sparse content to prevent "free" paths.
+- **Robust Budget Pruning**: Intelligently truncates paths to fit time limits, suggesting intermediate "Sub-Goals" to maintain motivation and ensure every session is achievable.
 
 ### 4.2 Spaced Repetition (SRS)
 To ensure long-term retention, LearnFast Core implements a native **SRS Service** based on the **SM-2 Algorithm**.
@@ -61,7 +61,7 @@ To ensure long-term retention, LearnFast Core implements a native **SRS Service*
 Beyond navigation, the engine actively creates study material:
 - **Flashcard Harvesting**: LLMs extract key-value pairs (Front/Back) from documents.
 - **Question Generation**: Creating multiple-choice questions to test comprehension on the fly.
-- **Lesson Extraction**: Automatically assembling markdown modules based on resolved learning paths.
+- **Lesson Extraction**: Automatically assembling markdown modules based on resolved learning paths, with **Math-Aware Rendering** (via KaTeX) to preserve complex notation.
 
 ## 6. Organization & Analytics
 ### 6.1 Hierarchical Management
