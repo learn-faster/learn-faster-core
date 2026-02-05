@@ -31,6 +31,9 @@ import {
 import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
 import Card from '../components/ui/Card';
 import api from '../services/api';
+import ForgettingCurve from '../components/analytics/ForgettingCurve';
+import LearningVelocity from '../components/analytics/LearningVelocity';
+import StreakProtection from '../components/analytics/StreakProtection';
 
 ChartJS.register(
     CategoryScale,
@@ -59,21 +62,30 @@ const Analytics = () => {
     const [retention, setRetention] = useState(null);
     const [overview, setOverview] = useState(null);
     const [timeStats, setTimeStats] = useState([]);
+    const [velocity, setVelocity] = useState(null);
+    const [forgettingCurve, setForgettingCurve] = useState(null);
+    const [streakStatus, setStreakStatus] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [perfData, retData, overData, timeData] = await Promise.all([
+                const [perfData, retData, overData, timeData, velData, curveData, streakData] = await Promise.all([
                     api.get('/analytics/performance'),
                     api.get('/analytics/retention'),
                     api.get('/analytics/overview'),
-                    api.get('/analytics/time-tracking')
+                    api.get('/analytics/time-tracking'),
+                    api.get('/analytics/velocity'),
+                    api.get('/analytics/forgetting-curve'),
+                    api.get('/analytics/streak-status')
                 ]);
                 setPerformance(perfData);
                 setRetention(retData);
                 setOverview(overData);
                 setTimeStats(timeData);
+                setVelocity(velData);
+                setForgettingCurve(curveData);
+                setStreakStatus(streakData);
             } catch (err) {
                 console.error('Failed to fetch analytics', err);
             } finally {
@@ -169,7 +181,7 @@ const Analytics = () => {
      * Data configuration for the Recall Quality pie chart.
      */
     const pieData = {
-        labels: ['Forgot (0-1)', 'Difficult (2-3)', 'Good (4)', 'Perfect (5)'],
+        labels: ['Complete Blackout', 'Struggled', 'Good Recall', 'Perfect'],
         datasets: [
             {
                 data: retention?.rating_distribution ? [
@@ -491,6 +503,23 @@ const Analytics = () => {
                     </div>
                 </Card>
             </div>
+
+            {/* Abstract Art: Learning Velocity & Forgetting Curve */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Learning Velocity - Orbital Visualization */}
+                <LearningVelocity data={velocity} />
+
+                {/* Forgetting Curve - Flowing Abstract Lines */}
+                <Card className="!p-0 overflow-hidden">
+                    <ForgettingCurve data={forgettingCurve} />
+                </Card>
+            </div>
+
+            {/* Streak Protection Banner */}
+            <StreakProtection
+                data={streakStatus}
+                onStudyNow={() => window.location.href = '/study'}
+            />
         </div>
     );
 };
