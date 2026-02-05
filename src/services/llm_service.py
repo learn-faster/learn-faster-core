@@ -38,31 +38,34 @@ class LLMService:
         if settings.use_opik:
             configure()
 
+        # Create HTTP client with timeout
+        timeout = httpx.Timeout(60.0, connect=10.0)
+        
         if self.provider == "openai":
             self.client = AsyncOpenAI(
                 api_key=self.api_key,
-                http_client=httpx.AsyncClient(trust_env=False)
+                http_client=httpx.AsyncClient(timeout=timeout, trust_env=False)
             )
         elif self.provider == "groq":
              # Groq uses OpenAI-compatible client
             self.client = AsyncOpenAI(
                 base_url="https://api.groq.com/openai/v1/",
                 api_key=self.api_key,
-                http_client=httpx.AsyncClient(trust_env=False)
+                http_client=httpx.AsyncClient(timeout=timeout, trust_env=False)
             )
         elif self.provider == "openrouter":
             # OpenRouter uses OpenAI-compatible API
             self.client = AsyncOpenAI(
                 base_url="https://openrouter.ai/api/v1",
                 api_key=self.api_key,
-                http_client=httpx.AsyncClient(trust_env=False)
+                http_client=httpx.AsyncClient(timeout=timeout, trust_env=False)
             )
         elif self.provider == "ollama":
              # Ollama also has an OpenAI compatible endpoint
             self.client = AsyncOpenAI(
                 base_url=f"{self.base_url}/v1",
                 api_key="ollama", # required but unused
-                http_client=httpx.AsyncClient(trust_env=False)
+                http_client=httpx.AsyncClient(timeout=timeout, trust_env=False)
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")

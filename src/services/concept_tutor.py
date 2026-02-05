@@ -34,11 +34,28 @@ class ConceptTutorService:
             Make it high-quality, dense, and "aha!" inducing.
             """
             
-            response = await LLMService.generate_json(
+            response = await LLMService._get_completion(
+                prompt=prompt,
                 system_prompt="You are a master educator. Output JSON only.",
-                user_prompt=prompt,
-                response_model=None # Start with dict
+                config=None
             )
+            
+            # Parse the JSON response
+            try:
+                import re
+                # Extract JSON from response
+                text = response
+                if "```json" in text:
+                    text = text.split("```json")[1].split("```")[0]
+                elif "```" in text:
+                    text = text.split("```")[1].split("```")[0]
+                start_brace = text.find('{')
+                if start_brace != -1:
+                    text = text[start_brace:text.rfind('}')+1]
+                response_data = json.loads(text)
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"Failed to parse LLM response as JSON: {e}")
+                response_data = {}
             
             if not response:
                 return ConceptTutorService._get_fallback_intel(concept_name)

@@ -81,7 +81,6 @@ def migrate_documents_table():
         ("last_opened", "TIMESTAMP"),
         ("first_opened", "TIMESTAMP"),
         ("completion_estimate", "INTEGER"),
-        ("completion_estimate", "INTEGER"),
         ("reading_progress", "FLOAT DEFAULT 0.0"),
         ("reading_time_min", "INTEGER"),
         ("reading_time_max", "INTEGER"),

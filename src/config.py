@@ -2,7 +2,7 @@
 Application configuration using Pydantic Settings.
 Handles environment variables and global application parameters.
 """
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, ConfigDict
 from typing import List, Optional
 
 
@@ -47,11 +47,11 @@ class Settings(BaseSettings):
     rewrite_model: Optional[str] = None
     rewrite_context_window: int = 10000
     
-    class Config:
-        """Pydantic configuration dict."""
-        env_file = ".env"
-        case_sensitive = False
-        extra = "ignore" # Ignore extra env vars
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore"
+    )
 
 
 # Singleton instance of settings to be used across the application

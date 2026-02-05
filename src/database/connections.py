@@ -4,6 +4,7 @@ import os
 from typing import Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from psycopg2.pool import SimpleConnectionPool
 from neo4j import GraphDatabase, Driver
 from dotenv import load_dotenv
 
@@ -47,7 +48,9 @@ class Neo4jConnection:
 
 
 class PostgreSQLConnection:
-    """PostgreSQL database connection manager."""
+    """PostgreSQL database connection manager with connection pooling."""
+    
+    _pool: Optional[SimpleConnectionPool] = None
     
     def __init__(self, host: Optional[str] = None, port: Optional[int] = None, 
                  database: Optional[str] = None, user: Optional[str] = None, 
@@ -59,23 +62,32 @@ class PostgreSQLConnection:
         self.password = password or os.getenv("POSTGRES_PASSWORD", "password")
         self._connection = None
     
-    def connect(self):
-        """Establish connection to PostgreSQL database."""
-        if self._connection is None or self._connection.closed:
-            self._connection = psycopg2.connect(
-                host=self.host,
-                port=self.port,
-                database=self.database,
-                user=self.user,
-                password=self.password,
-                cursor_factory=RealDictCursor
+    @classmethod
+    def _get_pool(cls, host: str, port: int, database: str, user: str, password: str) -> SimpleConnectionPool:
+        """Get or create a connection pool."""
+        if cls._pool is None:
+            cls._pool = SimpleConnectionPool(
+                minconn=2,
+                maxconn=20,
+                host=host,
+                port=port,
+                database=database,
+                user=user,
+                password=password
             )
+        return cls._pool
+    
+    def connect(self):
+        """Establish connection to PostgreSQL database using pool."""
+        pool = self._get_pool(self.host, self.port, self.database, self.user, self.password)
+        self._connection = pool.getconn()
         return self._connection
     
     def close(self):
-        """Close the PostgreSQL connection."""
-        if self._connection and not self._connection.closed:
-            self._connection.close()
+        """Return connection to pool."""
+        if self._connection:
+            pool = self._get_pool(self.host, self.port, self.database, self.user, self.password)
+            pool.putconn(self._connection)
             self._connection = None
     
     def execute_query(self, query: str, parameters: Optional[tuple] = None):

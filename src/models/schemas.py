@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from src.models.enums import FileType, CardType
 
@@ -124,8 +124,7 @@ class DocumentResponse(DocumentBase):
     language: Optional[str] = None
     scanned_prob: float = 0.0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== Folder Schemas ==========
@@ -200,8 +199,7 @@ class FlashcardResponse(FlashcardBase):
     next_review: datetime
     last_review: Optional[datetime]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== Study Schemas ==========
@@ -238,8 +236,7 @@ class StudySessionResponse(BaseModel):
     reflection: Optional[str]
     effectiveness_rating: Optional[int]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== Analytics Schemas ==========
@@ -253,8 +250,7 @@ class ActivityLogResponse(BaseModel):
     document_id: Optional[int] = None
     extra_data: dict = {}
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AnalyticsOverview(BaseModel):
@@ -312,8 +308,7 @@ class CurriculumModuleResponse(CurriculumModuleBase):
 
     completed_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CurriculumBase(BaseModel):
@@ -338,8 +333,7 @@ class CurriculumResponse(CurriculumBase):
     updated_at: datetime
     modules: List[CurriculumModuleResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== Goal Schemas ==========
@@ -388,8 +382,7 @@ class GoalResponse(GoalBase):
     days_remaining: Optional[int] = None
     is_on_track: Optional[bool] = True
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== Focus Session Schemas ==========
@@ -417,5 +410,4 @@ class FocusSessionResponse(BaseModel):
     session_type: str
     notes: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
