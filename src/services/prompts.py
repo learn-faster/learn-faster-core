@@ -99,3 +99,21 @@ Output a valid JSON object:
   ]
 }}
 """
+
+CONCEPT_EXTRACTION_PROMPT_TEMPLATE = """
+You are a knowledge engineer. Your task is to extract core concepts and their relationships from the provided text to build a knowledge graph.
+Identify the most important atomic concepts and how they relate to each other (e.g., "is a prerequisite for", "is a sub-concept of", "is an example of").
+
+Text:
+{text}
+
+Output format:
+{{
+  "nodes": [
+    {{"id": "Unique Concept ID", "label": "Full Concept Name", "description": "Short explanation"}}
+  ],
+  "edges": [
+    {{"from": "Source Concept ID", "to": "Target Concept ID", "relationship": "Relationship Type"}}
+  ]
+}}
+"""

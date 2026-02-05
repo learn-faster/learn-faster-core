@@ -25,10 +25,10 @@ import FlashcardCreator from '../components/flashcards/FlashcardCreator';
  * 
  * @returns {JSX.Element} The rendered flashcard library page.
  */
-const Flashcards = () => {
+const Flashcards = ({ initialSearch = '' }) => {
     const { flashcards, isLoading, fetchFlashcards, deleteFlashcard } = useFlashcardStore();
     const [isCreatorOpen, setIsCreatorOpen] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [searchQuery, setSearchQuery] = useState(initialSearch);
 
     useEffect(() => {
         fetchFlashcards();

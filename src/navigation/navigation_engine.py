@@ -233,3 +233,124 @@ class NavigationEngine:
         except Exception as e:
             logger.error(f"Error getting neighborhood for '{concept_name}': {str(e)}")
             return {"nodes": [], "edges": []}
+
+    def get_full_graph(self, user_id: str = None) -> Dict[str, Any]:
+        """
+        Get the entire concept graph enriched with user progress status.
+        
+        Args:
+            user_id: The ID of the user to fetch progress for.
+            
+        Returns:
+            Dict containing nodes and links for the complete graph.
+            Nodes will have a 'status' field: LOCKED, UNLOCKED, COMPLETED, IN_PROGRESS.
+        """
+        try:
+            # Fetch all concepts with optional user status
+            nodes_query = """
+                MATCH (c:Concept)
+                OPTIONAL MATCH (:User {uid: $user_id})-[r_status:COMPLETED|IN_PROGRESS]->(c)
+                RETURN c.name as name, c.description as description, type(r_status) as status
+            """
+            
+            # Fetch all relationships
+            links_query = """
+                MATCH (s:Concept)-[r:PREREQUISITE]->(t:Concept)
+                RETURN s.name as source, t.name as target, type(r) as type
+            """
+            
+            nodes_result = self.connection.execute_query(nodes_query, {"user_id": user_id or "default_user"})
+            links_result = self.connection.execute_query(links_query)
+            
+            # 1. Normalization & Node Map Construction
+            # We map lower_case_name -> {canonical_name, data}
+            node_map = {}
+            
+            for record in nodes_result:
+                name = record["name"]
+                if not name: continue
+                
+                normalized = name.strip().lower()
+                status = record["status"] # COMPLETED, IN_PROGRESS, or None
+                
+                # If we encounter the same concept name (case-variant), prefer the one with status or longer description
+                # For now, simplistic first-wins or status-wins logic
+                if normalized not in node_map:
+                    node_map[normalized] = {
+                        "id": name, # Keep original casing of the first one found
+                        "name": name,
+                        "description": record["description"] or "",
+                        "status": status,
+                        "val": 10 # Default size
+                    }
+                else:
+                    # Update status if this variant has one and existing doesn't
+                    if status and not node_map[normalized]["status"]:
+                        node_map[normalized]["status"] = status
+                        
+            # 2. Build Adjacency List (for dependency checking)
+            # normalized_target -> set(normalized_sources)
+            dependencies = {n: set() for n in node_map}
+            
+            links = []
+            for record in links_result:
+                source = record["source"]
+                target = record["target"]
+                
+                if not source or not target: continue
+                
+                norm_source = source.strip().lower()
+                norm_target = target.strip().lower()
+                
+                # Only include link if both nodes exist in our cleaned map
+                if norm_source in node_map and norm_target in node_map:
+                    dependencies[norm_target].add(norm_source)
+                    
+                    # Use the canonical IDs from our node_map
+                    links.append({
+                        "source": node_map[norm_source]["id"],
+                        "target": node_map[norm_target]["id"],
+                        "relationship": record["type"]
+                    })
+                    
+            # 3. Calculate Status (LOCKED vs UNLOCKED)
+            # Logic:
+            # - If already COMPLETED or IN_PROGRESS -> Keep as is
+            # - If NO prerequisites -> UNLOCKED (Root)
+            # - If ALL prerequisites are COMPLETED -> UNLOCKED
+            # - Else -> LOCKED
+            
+            final_nodes = []
+            for norm_name, data in node_map.items():
+                current_status = data["status"]
+                
+                if current_status == "COMPLETED":
+                    final_status = "COMPLETED"
+                elif current_status == "IN_PROGRESS":
+                    final_status = "IN_PROGRESS"
+                else:
+                    # Check prerequisites
+                    prereqs = dependencies[norm_name]
+                    if not prereqs:
+                        final_status = "UNLOCKED" # Root concept
+                    else:
+                        all_met = True
+                        for p in prereqs:
+                            if node_map[p]["status"] != "COMPLETED":
+                                all_met = False
+                                break
+                        final_status = "UNLOCKED" if all_met else "LOCKED"
+                        
+                data["status"] = final_status
+                
+                # Dynamic sizing based on connectivity (degree)
+                degree = len([l for l in links if l["source"] == data["id"] or l["target"] == data["id"]])
+                data["val"] = 10 + (degree * 2)
+                
+                final_nodes.append(data)
+                
+            return {"nodes": final_nodes, "links": links}
+            
+        except Exception as e:
+            logger.error(f"Error getting full graph: {str(e)}")
+            return {"nodes": [], "links": []}

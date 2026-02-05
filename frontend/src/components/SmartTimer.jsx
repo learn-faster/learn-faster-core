@@ -1,130 +1,67 @@
 import React, { useState, useEffect } from 'react';
-import { FaPlay, FaPause, FaStop, FaCoffee, FaCheck, FaLightbulb } from 'react-icons/fa';
-import GapJournal from './GapJournal';
-import studyService from '../services/study';
-import cognitiveService from '../services/cognitive';
-import { META_STAGES, REFLECTIVE_PROMPTS, EFFECTIVENESS_RATINGS } from '../constants/metacognition';
+import { Play, Pause, Square, RotateCcw, ChevronDown, ChevronUp, Coffee, Target } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import useTimerStore from '../stores/useTimerStore';
+import { EFFECTIVENESS_RATINGS } from '../constants/metacognition';
+import goalsService from '../services/goals';
 
+/**
+ * SmartTimer - Dashboard Version (Control Center)
+ * 
+ * Connected to the global useTimerStore.
+ */
 const SmartTimer = () => {
-    // Timer state
-    const [timeLeft, setTimeLeft] = useState(25 * 60);
-    const [isActive, setIsActive] = useState(false);
-    const [mode, setMode] = useState('WORK'); // WORK, BREAK
-    const [studyType, setStudyType] = useState('semantic'); // semantic, procedural
-    const [sessionCount, setSessionCount] = useState(0);
+    const {
+        timeLeft, isActive, mode, studyType, activeSessionId, goal, selectedGoalId,
+        sessionCount, isExpanded,
+        togglePlayPause, stopSession, endSessionSync, reset, setStudyType,
+        loadSettings
+    } = useTimerStore();
 
-    // Metacognition State
-    const [activeSessionId, setActiveSessionId] = useState(null);
+    const [localExpanded, setLocalExpanded] = useState(false);
     const [showPlanModal, setShowPlanModal] = useState(false);
     const [showReflectModal, setShowReflectModal] = useState(false);
-    const [monitorPrompt, setMonitorPrompt] = useState(null);
-
-    // Form State
-    const [goal, setGoal] = useState('');
-    const [successCriteria, setSuccessCriteria] = useState('');
+    const [localGoal, setLocalGoal] = useState('');
+    const [localGoalId, setLocalGoalId] = useState(null);
+    const [goals, setGoals] = useState([]);
     const [reflection, setReflection] = useState('');
     const [effectivenessRating, setEffectivenessRating] = useState(3);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // User-configurable durations (loaded from settings)
-    const [focusDuration, setFocusDuration] = useState(25);
-    const [breakDuration, setBreakDuration] = useState(5);
-
-    // Load user settings on mount
+    // Fetch goals when plan modal opens
     useEffect(() => {
-        const loadSettings = async () => {
-            try {
-                const settings = await cognitiveService.getSettings();
-                setFocusDuration(settings.focus_duration || 25);
-                setBreakDuration(settings.break_duration || 5);
-                setTimeLeft((settings.focus_duration || 25) * 60);
-            } catch (error) {
-                console.error("Failed to load timer settings:", error);
-            }
-        };
-        loadSettings();
-    }, []);
-
-    // Durations based on study type and user settings
-    const durations = {
-        semantic: {
-            work: focusDuration * 60,
-            break: breakDuration * 60,
-            label: "Concept Absorption",
-            subtitle: "Deep understanding & mental models",
-            color: "indigo",
-            protocol: "Wakeful Rest (No Phone!)"
-        },
-        procedural: {
-            work: Math.round(focusDuration * 0.6) * 60, // Shorter for procedural
-            break: breakDuration * 60,
-            label: "Reflex Refinement",
-            subtitle: "Problem solving & flow state",
-            color: "emerald",
-            protocol: "Micro-Break (Movement!)"
+        if (showPlanModal) {
+            goalsService.getGoals({ status: 'active' }).then(setGoals).catch(console.error);
         }
+    }, [showPlanModal]);
+
+    const formatTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-
-    const toggleTimer = () => setIsActive(!isActive);
-
-    const resetTimer = () => {
-        setIsActive(false);
-        setMode('WORK');
-        setTimeLeft(durations[studyType].work);
-    };
-
-    const extendTimer = () => {
-        setTimeLeft(prev => prev + 5 * 60);
-    };
-
-    // Monitoring Logic - Random prompts every ~15 mins
-    useEffect(() => {
-        if (!isActive || mode === 'BREAK') return;
-
-        const monitorInterval = setInterval(() => {
-            // 20% chance every check to show a prompt (to make it random)
-            if (Math.random() > 0.7) {
-                const prompts = REFLECTIVE_PROMPTS[META_STAGES.MONITORING];
-                const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
-                setMonitorPrompt(randomPrompt);
-
-                // Auto-hide after 15s
-                setTimeout(() => setMonitorPrompt(null), 15000);
-            }
-        }, 10 * 60 * 1000); // Check every 10 mins
-
-        return () => clearInterval(monitorInterval);
-    }, [isActive, mode]);
-
-    // Handlers
     const handlePlayPause = () => {
         if (isActive) {
-            setIsActive(false); // Pause
+            togglePlayPause();
             return;
         }
 
-        // If resuming or starting break, just play
         if (activeSessionId || mode === 'BREAK') {
-            setIsActive(true);
+            togglePlayPause();
             return;
         }
 
-        // If new work session, show plan modal
         setShowPlanModal(true);
     };
 
     const confirmStartSession = async () => {
         setIsSubmitting(true);
         try {
-            const session = await studyService.startSession({
-                goal,
-                success_criteria: successCriteria,
-                study_type: studyType
-            });
-            setActiveSessionId(session.id);
-            setIsActive(true);
+            await useTimerStore.getState().startSession(localGoal, localGoalId);
             setShowPlanModal(false);
+            setLocalGoal('');
+            setLocalGoalId(null);
         } catch (error) {
             console.error("Failed to start session:", error);
         } finally {
@@ -134,29 +71,20 @@ const SmartTimer = () => {
 
     const handleStop = () => {
         if (!activeSessionId) {
-            resetTimer();
+            reset();
             return;
         }
-        // Pause timer and show reflection
-        setIsActive(false);
+        stopSession();
         setShowReflectModal(true);
     };
 
     const confirmEndSession = async () => {
         setIsSubmitting(true);
         try {
-            await studyService.endSession(activeSessionId, {
-                reflection,
-                effectiveness_rating: effectivenessRating
-            });
-            setActiveSessionId(null);
+            await endSessionSync(reflection, effectivenessRating);
             setShowReflectModal(false);
-
-            // Reset for next time
-            setGoal('');
-            setSuccessCriteria('');
+            setLocalGoal('');
             setReflection('');
-            resetTimer();
         } catch (error) {
             console.error("Failed to end session:", error);
         } finally {
@@ -164,298 +92,238 @@ const SmartTimer = () => {
         }
     };
 
-    const skipPhase = () => {
-        if (mode === 'WORK') {
-            setMode('BREAK');
-            setTimeLeft(durations[studyType].break);
-            setSessionCount(prev => prev + 1);
-        } else {
-            setMode('WORK');
-            setTimeLeft(durations[studyType].work);
-        }
+    const themeColor = mode === 'WORK' ? (studyType === 'practice' ? 'emerald' : 'indigo') : 'orange';
+
+    const colorClasses = {
+        indigo: { bg: 'bg-indigo-500', text: 'text-indigo-400', border: 'border-indigo-500/30', glow: 'shadow-indigo-500/20' },
+        emerald: { bg: 'bg-emerald-500', text: 'text-emerald-400', border: 'border-emerald-500/30', glow: 'shadow-emerald-500/20' },
+        orange: { bg: 'bg-orange-500', text: 'text-orange-400', border: 'border-orange-500/30', glow: 'shadow-orange-500/20' },
     };
 
-    const handleTypeChange = (type) => {
-        if (isActive) return;
-        setStudyType(type);
-        setTimeLeft(durations[type].work);
-    };
-
-    useEffect(() => {
-        let interval = null;
-        if (isActive && timeLeft > 0) {
-            interval = setInterval(() => {
-                setTimeLeft(prev => prev - 1);
-            }, 1000);
-        } else if (timeLeft === 0 && isActive) {
-            setIsActive(false);
-            if (mode === 'WORK') {
-                setSessionCount(prev => prev + 1);
-                setMode('BREAK');
-                setTimeLeft(durations[studyType].break);
-            } else {
-                setMode('WORK');
-                setTimeLeft(durations[studyType].work);
-            }
-        }
-        return () => clearInterval(interval);
-    }, [isActive, timeLeft, mode, studyType]);
-
-    const formatTime = (seconds) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    };
-
-    const currentDuration = mode === 'WORK' ? durations[studyType].work : durations[studyType].break;
-    const progress = (timeLeft / currentDuration) * 100;
-    const strokeDasharray = 2 * Math.PI * 45; // Radius 45
-    const strokeDashoffset = (progress / 100) * strokeDasharray;
-
-    const glowColors = {
-        indigo: 'bg-indigo-500',
-        emerald: 'bg-emerald-500',
-        orange: 'bg-orange-500'
-    };
-
-    const themeColor = mode === 'WORK' ? durations[studyType].color : 'orange';
+    const colors = colorClasses[themeColor];
+    const progress = 100 - (timeLeft / (mode === 'WORK' ? (studyType === 'practice' ? useTimerStore.getState().focusDuration * 0.6 * 60 : useTimerStore.getState().focusDuration * 60) : useTimerStore.getState().breakDuration * 60) * 100);
 
     return (
         <>
-            <div className="relative group overflow-hidden rounded-3xl bg-white/40 dark:bg-gray-900/40 backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-2xl p-8 transition-all duration-500 hover:shadow-indigo-500/10">
-                {/* Animated Background Glow */}
-                <div className={`absolute -top-24 -right-24 w-64 h-64 rounded-full blur-3xl opacity-20 transition-colors duration-1000 ${glowColors[themeColor]}`} />
+            <div className={`relative overflow-hidden rounded-2xl bg-dark-900/60 backdrop-blur-sm border border-white/5 shadow-lg ${colors.glow} transition-all`}>
+                {/* Progress bar */}
+                <div className="absolute top-0 left-0 h-1 bg-dark-800 w-full">
+                    <motion.div
+                        className={`h-full ${colors.bg}`}
+                        initial={false}
+                        animate={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+                    />
+                </div>
 
-                <div className="relative flex flex-col lg:flex-row items-center gap-10">
-                    {/* Timer Section */}
-                    <div className="flex flex-col items-center">
-                        <div className="relative w-48 h-48 flex items-center justify-center">
-                            {/* Circular Progress SVG */}
-                            <svg className="absolute w-full h-full -rotate-90">
-                                <circle
-                                    cx="50%" cy="50%" r="45%"
-                                    className="stroke-gray-100 dark:stroke-gray-800 fill-none"
-                                    strokeWidth="8"
-                                />
-                                <circle
-                                    cx="50%" cy="50%" r="45%"
-                                    className={`transition-all duration-1000 ease-linear fill-none ${themeColor === 'indigo' ? 'stroke-indigo-500' : themeColor === 'emerald' ? 'stroke-emerald-500' : 'stroke-orange-500'}`}
-                                    strokeWidth="8"
-                                    strokeDasharray={strokeDasharray}
-                                    strokeDashoffset={strokeDashoffset}
-                                    strokeLinecap="round"
-                                />
-                            </svg>
-
-                            <div className="flex flex-col items-center">
-                                <span className="text-4xl font-bold font-mono tracking-tighter text-gray-800 dark:text-white">
+                <div className="p-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                        <div className="flex items-center gap-6">
+                            <div className="text-center">
+                                <div className={`text-5xl font-black font-mono tracking-tighter ${isActive ? 'text-white' : 'text-dark-300'}`}>
                                     {formatTime(timeLeft)}
-                                </span>
-                                <span className="text-[10px] uppercase tracking-widest font-semibold opacity-50">
-                                    {mode} PHASE
-                                </span>
+                                </div>
+                                <div className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${colors.text}`}>
+                                    {mode === 'WORK' ? (studyType === 'practice' ? 'Practice' : 'Deep Reading') : 'Break Time'}
+                                </div>
                             </div>
-                        </div>
 
-                        <div className="flex gap-3 mt-6">
-                            <button
-                                onClick={handlePlayPause}
-                                className={`group relative flex items-center justify-center w-14 h-14 rounded-2xl text-white shadow-lg transition-all active:scale-95 ${isActive ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                            >
-                                {isActive ? <FaPause size={18} /> : <FaPlay size={18} className="translate-x-0.5" />}
-                            </button>
-                            <button
-                                onClick={handleStop}
-                                className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-800 dark:hover:text-white transition-all active:scale-95"
-                            >
-                                <FaStop size={18} />
-                            </button>
-                            <button
-                                onClick={extendTimer}
-                                title="+5 Minutes"
-                                className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-emerald-500 transition-all active:scale-95"
-                            >
-                                <span className="text-sm font-bold">+5</span>
-                            </button>
-                        </div>
-
-                        <div className="flex gap-2 mt-6 p-1 bg-gray-100/50 dark:bg-white/5 rounded-2xl backdrop-blur-sm">
-                            {Object.entries(durations).map(([key, config]) => (
+                            <div className="flex gap-2">
                                 <button
-                                    key={key}
-                                    onClick={() => handleTypeChange(key)}
-                                    className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${studyType === key ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                                    onClick={handlePlayPause}
+                                    className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all active:scale-95 ${isActive ? 'bg-amber-500 hover:bg-amber-400 text-white' : `${colors.bg} hover:opacity-90 text-white`
+                                        }`}
                                 >
-                                    {config.label.split(' ')[0]}
+                                    {isActive ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
                                 </button>
-                            ))}
+                                <button
+                                    onClick={handleStop}
+                                    className="w-12 h-12 rounded-xl bg-white/5 hover:bg-white/10 text-dark-400 hover:text-white flex items-center justify-center transition-all"
+                                >
+                                    <Square className="w-4 h-4" />
+                                </button>
+                                <button
+                                    onClick={reset}
+                                    disabled={isActive}
+                                    className="w-12 h-12 rounded-xl bg-white/5 hover:bg-white/10 text-dark-400 hover:text-white flex items-center justify-center transition-all disabled:opacity-30"
+                                >
+                                    <RotateCcw className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
-                    </div>
 
-                    {/* Info & Content Section */}
-                    <div className="flex-1 w-full space-y-6 lg:border-l lg:pl-10 border-gray-100 dark:border-white/5">
-                        <div>
-                            <div className="flex items-start justify-between">
-                                <div>
-                                    <h3 className={`text-2xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-500 dark:from-white dark:to-gray-400 bg-clip-text text-transparent`}>
-                                        {mode === 'WORK' ? durations[studyType].label : 'Time to Recharge'}
-                                    </h3>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                        {mode === 'WORK' ? durations[studyType].subtitle : 'Switch off from intense cognition'}
-                                    </p>
-                                </div>
-                                <div className="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 text-[10px] font-bold uppercase tracking-widest border border-indigo-500/20">
-                                    Session #{sessionCount + 1}
-                                </div>
+                        <div className="flex items-center gap-4">
+                            <div className="flex gap-1 p-1 bg-white/5 rounded-lg">
+                                {['deep', 'practice'].map(type => (
+                                    <button
+                                        key={type}
+                                        onClick={() => setStudyType(type)}
+                                        disabled={isActive}
+                                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${studyType === type
+                                            ? (type === 'deep' ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white')
+                                            : 'text-dark-400 hover:text-white'
+                                            } disabled:opacity-50`}
+                                    >
+                                        {type === 'deep' ? 'Deep' : 'Practice'}
+                                    </button>
+                                ))}
                             </div>
 
-                            {mode === 'BREAK' ? (
-                                <div className="mt-4 p-4 rounded-2xl bg-orange-500/5 border border-orange-500/10 space-y-2">
-                                    <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400 font-bold text-xs uppercase tracking-tighter">
-                                        <FaCoffee size={12} /> Science-Backed Protocol
-                                    </div>
-                                    <p className="text-sm font-medium text-orange-900/80 dark:text-orange-200/80 leading-relaxed italic">
-                                        "{durations[studyType].protocol}"
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className="mt-4 flex gap-2">
-                                    <button
-                                        onClick={skipPhase}
-                                        className="text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-indigo-500 transition-colors"
-                                    >
-                                        Skip to break →
-                                    </button>
-                                </div>
-                            )}
-                        </div>
+                            <button
+                                onClick={() => setLocalExpanded(!localExpanded)}
+                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-dark-400 hover:text-white transition-all"
+                            >
+                                {localExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </button>
 
-                        <div className="pt-2">
-                            <GapJournal />
+                            <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${colors.border} border ${colors.text}`}>
+                                Session {sessionCount + 1}
+                            </div>
                         </div>
                     </div>
+
+                    <AnimatePresence>
+                        {localExpanded && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="pt-6 mt-6 border-t border-white/5">
+                                    {mode === 'BREAK' ? (
+                                        <div className="flex items-center gap-3 text-orange-400">
+                                            <Coffee className="w-5 h-5" />
+                                            <div>
+                                                <p className="font-bold">Time to recharge</p>
+                                                <p className="text-sm text-dark-400">Step away from the screen, stretch, breathe.</p>
+                                            </div>
+                                        </div>
+                                    ) : activeSessionId ? (
+                                        <div>
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-dark-500 mb-2">Current Goal</p>
+                                            <p className="text-white font-medium">{goal || "No goal set"}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center text-dark-500">
+                                            <p className="text-sm">Press play to start a new focus session</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </div>
 
-            {/* Monitoring Toast */}
-            {
-                monitorPrompt && (
-                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 animate-in slide-in-from-top-4 fade-in duration-500">
-                        <div className="bg-indigo-900/90 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-xl border border-indigo-500/30 flex items-center gap-3">
-                            <FaLightbulb className="text-yellow-400 animate-pulse" />
-                            <span className="text-sm font-medium">{monitorPrompt}</span>
-                        </div>
-                    </div>
-                )
-            }
+            {/* Modals (Plan/Reflect) */}
+            <AnimatePresence>
+                {showPlanModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                        onClick={() => setShowPlanModal(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
+                            className="w-full max-w-md bg-dark-900 rounded-2xl p-6 border border-white/10 shadow-2xl"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <h3 className={`text-xl font-bold ${colors.text} mb-4`}>What's your focus?</h3>
 
-            {/* Planning Modal */}
-            {
-                showPlanModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
-                        <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-3xl p-8 shadow-2xl border border-white/10 m-4">
-                            <h3 className="text-2xl font-bold bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent mb-6">
-                                Session Planning
-                            </h3>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Micro-Goal</label>
-                                    <input
-                                        value={goal}
-                                        onChange={e => setGoal(e.target.value)}
-                                        placeholder="What specific concept will you master?"
-                                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-xl p-4 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Success Criteria</label>
-                                    <textarea
-                                        value={successCriteria}
-                                        onChange={e => setSuccessCriteria(e.target.value)}
-                                        placeholder="I'll know I've learned it when..."
-                                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-xl p-4 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 h-24 resize-none"
-                                    />
-                                </div>
-
-                                <div className="flex gap-3 pt-4">
-                                    <button
-                                        onClick={() => setShowPlanModal(false)}
-                                        className="flex-1 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={confirmStartSession}
-                                        disabled={!goal || isSubmitting}
-                                        className="flex-1 py-3 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-50"
-                                    >
-                                        {isSubmitting ? 'Starting...' : 'Start Focus'}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-
-            {/* Reflection Modal */}
-            {
-                showReflectModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
-                        <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-3xl p-8 shadow-2xl border border-white/10 m-4">
-                            <h3 className="text-2xl font-bold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent mb-2">
-                                Session Complete
-                            </h3>
-                            <p className="text-gray-500 text-sm mb-6">Take a moment to consolidate your learning.</p>
-
-                            <div className="space-y-6">
-                                <div>
-                                    <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Reflection</label>
-                                    <textarea
-                                        value={reflection}
-                                        onChange={e => setReflection(e.target.value)}
-                                        placeholder="What stuck? What was hard?"
-                                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-xl p-4 text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 h-24 resize-none"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-bold uppercase text-gray-500 mb-3">Effectiveness Rating</label>
-                                    <div className="flex justify-between gap-1">
-                                        {[1, 2, 3, 4, 5].map((rate) => (
+                            {/* Goal Selector */}
+                            {goals.length > 0 && (
+                                <div className="mb-4">
+                                    <label className="text-xs font-bold uppercase tracking-widest text-dark-500 mb-2 block">
+                                        Attribute to Goal
+                                    </label>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            onClick={() => setLocalGoalId(null)}
+                                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${localGoalId === null
+                                                    ? 'bg-white/10 text-white border border-white/20'
+                                                    : 'bg-white/5 text-dark-400 hover:bg-white/10'
+                                                }`}
+                                        >
+                                            No Goal
+                                        </button>
+                                        {goals.map(g => (
                                             <button
-                                                key={rate}
-                                                onClick={() => setEffectivenessRating(rate)}
-                                                className={`w-10 h-10 rounded-xl font-bold text-sm transition-all ${effectivenessRating === rate
-                                                    ? 'bg-emerald-500 text-white scale-110 shadow-lg shadow-emerald-500/30'
-                                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30'
+                                                key={g.id}
+                                                onClick={() => setLocalGoalId(g.id)}
+                                                className={`px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${localGoalId === g.id
+                                                        ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                                                        : 'bg-white/5 text-dark-400 hover:bg-white/10'
                                                     }`}
                                             >
-                                                {rate}
+                                                <Target className="w-3 h-3" />
+                                                {g.title}
                                             </button>
                                         ))}
                                     </div>
-                                    <p className="text-center text-xs mt-2 text-emerald-600 font-medium">
-                                        {EFFECTIVENESS_RATINGS.find(r => r.value === effectivenessRating)?.label}
-                                    </p>
                                 </div>
+                            )}
 
-                                <div className="pt-2">
-                                    <button
-                                        onClick={confirmEndSession}
-                                        disabled={isSubmitting}
-                                        className="w-full py-4 rounded-xl font-bold bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:scale-[1.02] transition-transform active:scale-[0.98]"
-                                    >
-                                        {isSubmitting ? 'Saving...' : 'Complete Session'}
-                                    </button>
-                                </div>
+                            <input
+                                value={localGoal}
+                                onChange={e => setLocalGoal(e.target.value)}
+                                placeholder="e.g., Understand chapter 3 concepts..."
+                                className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
+                                autoFocus
+                            />
+                            <div className="flex gap-3 mt-6">
+                                <button onClick={() => setShowPlanModal(false)} className="flex-1 py-3 rounded-xl font-bold text-dark-400">Cancel</button>
+                                <button
+                                    onClick={confirmStartSession}
+                                    disabled={!localGoal || isSubmitting}
+                                    className={`flex-1 py-3 rounded-xl font-bold ${colors.bg} text-white disabled:opacity-50`}
+                                >
+                                    {isSubmitting ? 'Starting...' : 'Start Focus'}
+                                </button>
                             </div>
-                        </div>
-                    </div>
-                )
-            }
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {showReflectModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
+                            className="w-full max-w-md bg-dark-900 rounded-2xl p-6 border border-white/10 shadow-2xl"
+                        >
+                            <h3 className="text-xl font-bold text-emerald-400 mb-2">Session Complete</h3>
+                            <textarea
+                                value={reflection}
+                                onChange={e => setReflection(e.target.value)}
+                                placeholder="How did it go?"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white h-24 resize-none mb-4"
+                            />
+                            <div className="flex gap-2">
+                                {[1, 2, 3, 4, 5].map(rate => (
+                                    <button
+                                        key={rate}
+                                        onClick={() => setEffectivenessRating(rate)}
+                                        className={`flex-1 py-2 rounded-lg font-bold ${effectivenessRating === rate ? 'bg-emerald-500 text-white' : 'bg-white/5 text-dark-400'}`}
+                                    >
+                                        {rate}
+                                    </button>
+                                ))}
+                            </div>
+                            <button
+                                onClick={confirmEndSession}
+                                disabled={isSubmitting}
+                                className="w-full py-4 mt-6 rounded-xl font-bold bg-white text-dark-900 disabled:opacity-50"
+                            >
+                                {isSubmitting ? 'Saving...' : 'Complete Session'}
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </>
     );
 };

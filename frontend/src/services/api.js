@@ -5,8 +5,10 @@ import axios from 'axios';
  * Configures the base URL for the backend and provides 
  * standardized response/error handling via interceptors.
  */
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'; // Force IPv4 to avoid ::1 issues
+
 const api = axios.create({
-    baseURL: 'http://localhost:8000/api',
+    baseURL: API_URL + '/api',
     headers: {
         'Content-Type': 'application/json',
     },

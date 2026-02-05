@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
     Library,
     GraduationCap,
@@ -25,9 +26,17 @@ import Card from '../components/ui/Card';
  * 
  * Consolidates Flashcard Library and Active Recall Study into a single immersive view.
  */
+
 const Practice = () => {
+    const location = useLocation();
     const [activeTab, setActiveTab] = useState('review'); // 'review' | 'library'
     const { dueCards, fetchDueCards, flashcards, fetchFlashcards } = useFlashcardStore();
+
+    useEffect(() => {
+        if (location.state?.searchTarget) {
+            setActiveTab('library');
+        }
+    }, [location.state]);
 
     useEffect(() => {
         fetchDueCards();
@@ -96,7 +105,7 @@ const Practice = () => {
                     {activeTab === 'review' ? (
                         <Study />
                     ) : (
-                        <Flashcards />
+                        <Flashcards initialSearch={location.state?.searchTarget} />
                     )}
                 </motion.div>
             </AnimatePresence>

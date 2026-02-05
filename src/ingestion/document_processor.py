@@ -49,12 +49,14 @@ class DocumentProcessor:
             )
         
         try:
+            print(f"DEBUG: MarkItDown converting: {path}")
             result = self._converter.convert(str(path))
             text = result.text_content
             # PostgreSQL does not allow NUL (\x00) characters in string literals
             return text.replace('\x00', '') if text else ""
         except Exception as e:
-            raise RuntimeError(f"Failed to convert document: {str(e)}") from e
+            print(f"DEBUG: MarkItDown failure: {str(e)}")
+            raise RuntimeError(f"MarkItDown failed to convert {path.name}: {str(e)}") from e
     
     def chunk_content(self, markdown: str, concept_tag: str = "") -> List[Tuple[str, str]]:
         """

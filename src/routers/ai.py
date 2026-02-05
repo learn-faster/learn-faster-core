@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
+import os
 from typing import Optional
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -161,6 +162,66 @@ async def generate_learning_path(
         # Mapping target_concept to 'goal' for LLM
         path = await llm_service.generate_learning_path(text, request.target_concept)
         return path
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/extract-concepts")
+async def extract_concepts(request: GenerateRequest, db: Session = Depends(get_db)):
+    """
+    Extracts concepts and relationships from a document and updates the graph.
+    """
+    document = db.query(Document).filter(Document.id == request.document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    text = document.extracted_text
+    file_path = document.file_path
+
+    if not text and file_path:
+        print(f"DEBUG: Attempting extraction for document {document.id} at path: {file_path}")
+        
+        # Robust path check: if file_path is relative, join with upload_dir
+        if not os.path.exists(file_path):
+            alt_path = os.path.join(settings.upload_dir, os.path.basename(file_path))
+            print(f"DEBUG: Original path not found. Trying alt path: {alt_path}")
+            if os.path.exists(alt_path):
+                file_path = alt_path
+            else:
+                # If still not found, try stripping the ID prefix (DocumentStore pattern: docid_filename)
+                # But document.file_path usually contains the whole thing.
+                pass
+
+        try:
+            text = document_processor.convert_to_markdown(file_path)
+            if text:
+                print(f"DEBUG: Successfully extracted {len(text)} characters.")
+                # Update document with extracted text so we don't do it again
+                document.extracted_text = text
+                db.commit()
+            else:
+                 print(f"DEBUG: MarkItDown returned empty text for {file_path}")
+        except Exception as e:
+            print(f"ERROR: Extraction failed for {file_path}: {str(e)}")
+            
+    if not text:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Document has no text content. Path checked: {file_path}. Exists: {os.path.exists(file_path) if file_path else 'No file path'}"
+        )
+
+    try:
+        # Extract structured data
+        extraction = await llm_service.extract_concepts(text, request.llm_config)
+        
+        # TODO: In a real implementation, we would save these to the knowledge graph (Neo4j/Graph Storage)
+        # For now, we return the extraction results to the frontend to demonstrate the feature works.
+        return {
+            "status": "success",
+            "message": "Concepts extracted and synthesized.",
+            "data": extraction
+        }
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

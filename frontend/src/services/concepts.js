@@ -33,18 +33,21 @@ const ConceptService = {
 
     /**
      * Fetches the full concept graph structure (nodes and edges).
+     * @param {string} userId - Optional user ID for personalized status.
      * @returns {Promise<Object>} Graph data { nodes: [], edges: [] }
      */
-    getGraph: async () => {
-        return await api.get('/concepts/graph');
+    getGraph: async (userId = 'default_user') => {
+        return await api.get(`/concepts/graph?user_id=${userId}`);
     },
 
     /**
-     * @stub No backend endpoint for concept extraction.
+     * Extracts core concepts and relationships from a document.
      */
     extractConcepts: async (documentId) => {
-        console.warn('Concept extraction endpoint not available in backend.');
-        return { nodes: [], edges: [], message: 'Not implemented' };
+        return await api.post('/ai/extract-concepts', {
+            document_id: documentId,
+            count: 7 // Default concept count
+        });
     },
 
     /**
