@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS documents (
     category TEXT,
     folder_id TEXT,
     extracted_text TEXT,
+    ai_summary TEXT,
     page_count INTEGER DEFAULT 0,
     time_spent_reading INTEGER DEFAULT 0,
     last_opened TIMESTAMP,

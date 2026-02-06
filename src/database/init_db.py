@@ -5,6 +5,7 @@ from pathlib import Path
 from .connections import neo4j_conn, postgres_conn
 from .graph_storage import graph_storage
 from .orm import Base, engine
+from src.models import orm as orm_models  # Ensure models are registered with Base
 
 
 def initialize_neo4j_constraints():
@@ -76,6 +77,7 @@ def migrate_documents_table():
         ("category", "VARCHAR"),
         ("folder_id", "VARCHAR"),
         ("extracted_text", "TEXT"),
+        ("ai_summary", "TEXT"),
         ("page_count", "INTEGER DEFAULT 0"),
         ("time_spent_reading", "INTEGER DEFAULT 0"),
         ("last_opened", "TIMESTAMP"),
@@ -93,11 +95,10 @@ def migrate_documents_table():
     
     for col_name, col_type in cols_to_add:
         try:
-            postgres_conn.execute_query(f"ALTER TABLE documents ADD COLUMN {col_name} {col_type}")
+            postgres_conn.execute_write(f"ALTER TABLE documents ADD COLUMN {col_name} {col_type}")
             print(f"Added column {col_name} to documents table")
         except Exception as e:
             # Ignore error if column likely exists
-            # In a real prod env, we'd check existence first, but this is a simple migration approach
             pass
 
 
@@ -122,7 +123,7 @@ def migrate_user_settings_table():
     
     for col_name, col_type in cols_to_add:
         try:
-            postgres_conn.execute_query(f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type}")
+            postgres_conn.execute_write(f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type}")
             print(f"Added column {col_name} to user_settings table")
         except Exception as e:
             # Ignore error if column already exists

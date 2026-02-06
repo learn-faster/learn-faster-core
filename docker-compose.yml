@@ -2,25 +2,35 @@ services:
   neo4j:
     image: neo4j:5.15-community
     container_name: learnfast-neo4j
+    restart: unless-stopped
     ports:
       - "7475:7474"
       - "7688:7687"
     environment:
       - NEO4J_AUTH=neo4j/password
-      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
-      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
-      - NEO4J_dbms_security_procedures_allowlist=apoc.*,gds.*
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_security_procedures_allowlist=apoc.*
+      # Memory - use correct Neo4j 5.x syntax (dots, not double underscores)
+      - NEO4J_server.memory.heap.initial_size=256m
+      - NEO4J_server.memory.heap.max_size=512m
+      - NEO4J_server.memory.pagecache.size=256m
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
-      - neo4j_import:/var/lib/neo4j/import
-      - neo4j_plugins:/plugins
     networks:
       - learnfast-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   postgres:
     image: pgvector/pgvector:pg16
     container_name: learnfast-postgres
+    restart: unless-stopped
     ports:
       - "5433:5432"
     environment:
@@ -32,12 +42,15 @@ services:
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - learnfast-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U learnfast"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   neo4j_data:
   neo4j_logs:
-  neo4j_import:
-  neo4j_plugins:
   postgres_data:
 
 networks:

@@ -127,6 +127,7 @@ app.include_router(multidoc_graph_router.router)
 # Mount static files
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads") # Mount uploads
+app.mount("/extracted_images", StaticFiles(directory="data/extracted_images"), name="extracted_images")  # Multimodal assets
 
 @app.get("/")
 async def root():
