@@ -3,8 +3,24 @@
 # Start LearnFast Core Engine services
 echo "Starting LearnFast Core Engine services..."
 
+# Check if docker compose (v2) or docker-compose (v1) is available
+if command -v docker &> /dev/null; then
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        echo "Error: docker compose or docker-compose not found"
+        exit 1
+    fi
+else
+    echo "Error: Docker not found"
+    exit 1
+fi
+
 # Start Docker Compose services
-docker-compose up -d
+echo "Starting database containers..."
+$DOCKER_COMPOSE up -d
 
 # Wait for services to be ready
 echo "Waiting for services to start..."

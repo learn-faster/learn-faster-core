@@ -348,10 +348,11 @@ class VectorStorage:
         """
         try:
             query = "DELETE FROM learning_chunks WHERE document_id = %s"
-            deleted_count = self.db_conn.execute_query(query, (document_id,))
+            # Use execute_write for DELETE operations to ensure transaction commits
+            self.db_conn.execute_write(query, (document_id,))
             
-            logger.info(f"Deleted {deleted_count} chunks for document {document_id}")
-            return deleted_count
+            logger.info(f"Deleted chunks for document {document_id}")
+            return 1  # execute_write doesn't return row count, but operation succeeded
             
         except Exception as e:
             logger.error(f"Failed to delete chunks for document {document_id}: {str(e)}")

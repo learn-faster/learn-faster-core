@@ -11,8 +11,12 @@ from src.models.enums import FileType, CardType
 class PrerequisiteLink(BaseModel):
     """Represents a prerequisite relationship between concepts."""
     
-    source_concept: str = Field(..., description="The fundamental concept")
-    target_concept: str = Field(..., description="The advanced concept")
+    # Scoped IDs for document-specific relationships
+    source_concept: str = Field(..., description="The fundamental concept (scoped ID)")
+    target_concept: str = Field(..., description="The advanced concept (scoped ID)")
+    source_doc_id: Optional[int] = Field(None, description="Document ID for source concept")
+    target_doc_id: Optional[int] = Field(None, description="Document ID for target concept")
+    
     weight: float = Field(..., ge=0.0, le=1.0, description="Dependency strength")
     reasoning: str = Field(..., description="Why source is needed for target")
 
@@ -23,6 +27,58 @@ class GraphSchema(BaseModel):
     concepts: List[str] = Field(..., description="List of extracted concepts")
     prerequisites: List[PrerequisiteLink] = Field(..., description="Concept dependencies")
     concept_mappings: Dict[str, List[int]] = Field({}, description="Mapping of concept name to list of chunk indices (0-based within the processed context)")
+    document_id: Optional[int] = Field(None, description="Document ID for scoping")
+
+
+class DocumentScopedConcept(BaseModel):
+    """Represents a concept scoped to a specific document."""
+    
+    scoped_id: str = Field(..., description="Unique scoped ID: doc{_id}_{concept_name}")
+    document_id: int = Field(..., description="Parent document ID")
+    global_name: str = Field(..., description="Human-readable concept name (original case)")
+    normalized_name: str = Field(..., description="Normalized name for searching")
+    description: Optional[str] = Field(None, description="Concept description")
+    depth_level: Optional[int] = Field(None, description="Depth in prerequisite hierarchy")
+    chunk_ids: List[int] = Field(default_factory=list, description="Chunk indices where concept appears")
+    is_merged: bool = Field(False, description="Whether this concept is merged with others")
+    merged_with: Optional[Dict[str, str]] = Field(None, description="Mapping of doc_id -> scoped_id for merged concepts")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CrossDocumentConcept(BaseModel):
+    """Represents a concept that spans multiple documents."""
+    
+    global_id: str = Field(..., description="Global concept identifier")
+    global_name: str = Field(..., description="Canonical concept name")
+    document_scoped_ids: List[str] = Field(..., description="All scoped IDs from different documents")
+    similarity_score: float = Field(..., ge=0.0, le=1.0, description="Similarity between occurrences")
+    merged: bool = Field(False, description="Whether documents agree this is the same concept")
+
+
+class DocumentGraph(BaseModel):
+    """Represents a document's complete knowledge graph."""
+    
+    document_id: int
+    document_name: str
+    concepts: List[DocumentScopedConcept]
+    relationships: List[PrerequisiteLink]
+    global_connections: List[CrossDocumentConcept] = Field(default_factory=list, description="Concepts that connect to other documents")
+    node_count: int
+    relationship_count: int
+
+
+class GlobalConceptIndex(BaseModel):
+    """Global semantic index for cross-document concept discovery."""
+    
+    global_id: str = Field(..., description="Global concept identifier")
+    global_name: str = Field(..., description="Canonical name")
+    document_ids: List[int] = Field(..., description="All documents containing this concept")
+    occurrence_count: int
+    avg_depth: float
+    embeddings: Optional[List[float]] = Field(None, description="Semantic embedding for similarity")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class UserState(BaseModel):
@@ -90,6 +146,7 @@ class DocumentBase(BaseModel):
     status: Optional[str] = "pending"
     tags: Optional[List[str]] = []
     category: Optional[str] = None
+    ai_summary: Optional[str] = None
 
 
 class DocumentCreate(DocumentBase):
@@ -105,6 +162,7 @@ class DocumentResponse(DocumentBase):
     upload_date: datetime
     status: str = "pending"
     extracted_text: Optional[str] = None
+    ai_summary: Optional[str] = None
     reading_progress: float = 0.0
     folder_id: Optional[str] = None
 

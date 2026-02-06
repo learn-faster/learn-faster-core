@@ -35,7 +35,8 @@ from src.routers import (
     curriculum as curriculum_router,
     resources as resources_router,
     goals as goals_router,
-    notifications as notifications_router
+    notifications as notifications_router,
+    multidoc_graph as multidoc_graph_router
 )
 
 
@@ -120,6 +121,7 @@ app.include_router(curriculum_router.router)
 app.include_router(resources_router.router)
 app.include_router(goals_router.router)
 app.include_router(notifications_router.router)
+app.include_router(multidoc_graph_router.router)
 
 
 # Mount static files

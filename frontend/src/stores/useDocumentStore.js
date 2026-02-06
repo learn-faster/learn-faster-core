@@ -139,12 +139,6 @@ const useDocumentStore = create((set, get) => ({
      * @param {FormData} formData - The multipart form data containing the file/metadata.
      * @returns {Promise<Object>} The created document record.
      */
-    /**
-     * Uploads a new document file.
-     * @async
-     * @param {FormData} formData - The multipart form data containing the file/metadata.
-     * @returns {Promise<Object>} The created document record.
-     */
     uploadDocument: async (formData) => {
         set({ error: null }); // Don't set global isLoading to true, it might flicker the list
 

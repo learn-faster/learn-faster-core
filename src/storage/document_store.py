@@ -46,7 +46,7 @@ class DocumentStore:
                 
             # Update record with path
             update_query = "UPDATE documents SET file_path = %s WHERE id = %s"
-            self.db.execute_query(update_query, (file_path, doc_id))
+            self.db.execute_write(update_query, (file_path, doc_id))
             
             logger.info(f"Saved document {doc_id}: {file.filename}")
             return DocumentMetadata(
@@ -73,7 +73,7 @@ class DocumentStore:
                 doc_id = existing[0]['id']
                 upload_date = existing[0]['upload_date']
                 # Reset status to pending
-                self.db.execute_query("UPDATE documents SET status = 'pending' WHERE id = %s", (doc_id,))
+                self.db.execute_write("UPDATE documents SET status = 'pending' WHERE id = %s", (doc_id,))
                 logger.info(f"Reusing existing record {doc_id} for YouTube video {video_id}")
             else:
                 insert_query = """
@@ -95,7 +95,7 @@ class DocumentStore:
                 
             # Update record with path
             update_query = "UPDATE documents SET file_path = %s WHERE id = %s"
-            self.db.execute_query(update_query, (file_path, doc_id))
+            self.db.execute_write(update_query, (file_path, doc_id))
             
             logger.info(f"Saved YouTube transcript {doc_id}: {video_id}")
             
@@ -152,7 +152,7 @@ class DocumentStore:
             logger.error(f"Failed to cleanup vector chunks for document {doc_id}: {e}")
             
         # 3. Delete from DB (Cascade will remove PostgreSQL metadata leftovers if any)
-        self.db.execute_query("DELETE FROM documents WHERE id = %s", (doc_id,))
+        self.db.execute_write("DELETE FROM documents WHERE id = %s", (doc_id,))
         
         # 4. Delete physical file
         if doc.file_path and os.path.exists(doc.file_path):

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
 import shutil
+import logging
 from pathlib import Path
 from datetime import datetime
 
@@ -21,7 +22,6 @@ from src.ingestion.document_processor import DocumentProcessor
 from src.ingestion.ingestion_engine import IngestionEngine
 from src.storage.document_store import DocumentStore
 from src.ingestion.youtube_utils import extract_video_id, fetch_transcript
-from src.dependencies import get_ingestion_engine, get_document_store
 from src.dependencies import get_ingestion_engine, get_document_store
 from src.config import settings
 from src.services.reading_time import reading_time_estimator
@@ -56,8 +56,11 @@ async def process_document_background(
         extracted_text = ""
         try:
             if file_type == FileType.PDF or os.path.exists(file_path):
+                print(f"DEBUG: File exists at {file_path}, attempting conversion...")
                 extracted_text = document_processor.convert_to_markdown(file_path)
-                print(f"DEBUG: Extraction complete for {doc_id}")
+                print(f"DEBUG: Extraction complete. Text length: {len(extracted_text) if extracted_text else 0}")
+                if not extracted_text:
+                    logging.warning(f"Empty extraction for {doc_id} - file might be image-only or corrupted")
 
             # Update DB with extracted text
             document = db.query(Document).filter(Document.id == doc_id).first()
@@ -79,13 +82,13 @@ async def process_document_background(
                 db.commit()
 
         except Exception as e:
-            print(f"Extraction failed: {e}")
+            print(f"ERROR: Extraction failed for document {doc_id}: {str(e)}")
             import traceback
             traceback.print_exc()
             document = db.query(Document).filter(Document.id == doc_id).first()
             if document:
                 document.status = "failed"
-                document.extracted_text = ""
+                document.extracted_text = f"ERROR: Failed to extract text - {str(e)}"
                 db.commit()
             return
 
@@ -94,6 +97,7 @@ async def process_document_background(
             if extracted_text:
                 print(f"DEBUG: Triggering IngestionEngine for document {doc_id}...")
                 chunks = document_processor.chunk_content(extracted_text)
+                print(f"DEBUG: Created {len(chunks)} chunks from document {doc_id}")
                 await ingestion_engine.process_document_complete(
                     doc_source=os.path.basename(file_path),
                     markdown=extracted_text,
@@ -362,7 +366,7 @@ def update_document(
 @router.put("/{document_id}/move")
 def move_document(
     document_id: int,
-    folder_id: Optional[str] = Form(None),
+    folder_id: Optional[str] = Body(None, embed=True),
     db: Session = Depends(get_db)
 ):
     """
@@ -372,9 +376,9 @@ def move_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
         
-    document.folder_id = folder_id if folder_id != "" else None
+    document.folder_id = folder_id if (folder_id and folder_id != "") else None
     db.commit()
-    return {"message": "Document moved successfully"}
+    return {"message": "Document moved successfully", "folder_id": document.folder_id}
 
 
 @router.post("/{document_id}/start-session")

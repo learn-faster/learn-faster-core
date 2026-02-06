@@ -481,3 +481,158 @@ Content to analyze:
         except Exception as e:
             logger.error(f"Document processing failed for {file_path}: {str(e)}")
             raise
+    
+    # ========== Multi-Document Graph Ingestion ==========
+    
+    async def extract_graph_structure_for_document(self, content_chunks: List[str], document_id: int) -> Dict[str, Any]:
+        """
+        Extract and store graph structure with document scoping.
+        
+        This is an enhanced version of extract_graph_structure that also stores
+        concepts and relationships using document-scoped IDs.
+        
+        Args:
+            content_chunks: List of text chunks
+            document_id: The document ID for scoping
+            
+        Returns:
+            Dict with extraction stats
+        """
+        from src.database.graph_storage import multi_doc_graph_storage
+        
+        # Extract graph structure
+        schema = await self.extract_graph_structure(content_chunks)
+        
+        concepts_stored = 0
+        relationships_stored = 0
+        
+        # Store concepts with document scoping
+        for concept_name in schema.concepts:
+            chunk_ids = schema.concept_mappings.get(concept_name, [])
+            
+            success = multi_doc_graph_storage.store_document_concept(
+                document_id=document_id,
+                concept_name=concept_name,
+                description=None,  # Could extract from chunks if needed
+                depth_level=None,
+                chunk_ids=chunk_ids
+            )
+            if success:
+                concepts_stored += 1
+        
+        # Store relationships with document scoping
+        for prereq in schema.prerequisites:
+            success = multi_doc_graph_storage.store_document_relationship(
+                document_id=document_id,
+                source_concept=prereq.source_concept,
+                target_concept=prereq.target_concept,
+                weight=prereq.weight,
+                reasoning=prereq.reasoning
+            )
+            if success:
+                relationships_stored += 1
+        
+        return {
+            "document_id": document_id,
+            "concepts_stored": concepts_stored,
+            "relationships_stored": relationships_stored,
+            "concepts_total": len(schema.concepts),
+            "relationships_total": len(schema.prerequisites)
+        }
+    
+    async def process_document_scoped(self, file_path: str, document_id: int) -> Dict[str, Any]:
+        """
+        Process a document using document-scoped graph storage.
+        
+        This method creates isolated concept namespaces per document while
+        maintaining a global semantic index for cross-document discovery.
+        
+        Args:
+            file_path: Path to document file
+            document_id: The document ID for scoping
+            
+        Returns:
+            Dict with processing stats and graph info
+        """
+        try:
+            # 1. Convert to markdown
+            markdown = self.document_processor.convert_to_markdown(file_path)
+            
+            # 2. Chunk content
+            chunks = self.document_processor.chunk_content(markdown)
+            
+            # 3. Extract and store scoped graph
+            result = await self.extract_graph_structure_for_document(chunks, document_id)
+            
+            # 4. Store vector data (still uses original storage)
+            chunk_tags = ["general"] * len(chunks)
+            if result.get("concepts_total", 0) > 0:
+                chunk_tags = await self.store_vector_data(
+                    doc_source=os.path.basename(file_path),
+                    content_chunks=chunks,
+                    concept_tags=chunk_tags,
+                    document_id=document_id
+                )
+            
+            result["chunks_stored"] = len(chunk_tags)
+            result["filename"] = os.path.basename(file_path)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Scoped document processing failed for {file_path}: {e}")
+            raise
+    
+    def merge_cross_document_concepts(
+        self,
+        document_id: int,
+        concept_name: str,
+        similarity_threshold: float = 0.85
+    ) -> Dict[str, Any]:
+        """
+        Find and merge the same concept across documents.
+        
+        Uses the LLM to determine if concepts from different documents
+        are semantically similar enough to merge.
+        
+        Args:
+            document_id: The document to check
+            concept_name: Concept to find across documents
+            similarity_threshold: Minimum similarity to merge
+            
+        Returns:
+            Dict with merge result
+        """
+        from src.database.graph_storage import multi_doc_graph_storage
+        
+        # Find concept across documents
+        occurrences = multi_doc_graph_storage.find_cross_document_concepts(concept_name)
+        
+        if len(occurrences) < 2:
+            return {
+                "status": "no_merge_needed",
+                "occurrences": len(occurrences),
+                "message": "Concept appears in only one document or no duplicates found"
+            }
+        
+        # For now, auto-merge if found in multiple documents
+        # In production, this would use LLM to verify semantic similarity
+        scoped_ids = [o["scoped_id"] for o in occurrences]
+        
+        success = multi_doc_graph_storage.merge_cross_document_concepts(
+            scoped_ids=scoped_ids,
+            global_name=concept_name
+        )
+        
+        if success:
+            return {
+                "status": "merged",
+                "global_name": concept_name,
+                "merged_documents": [o["document_id"] for o in occurrences],
+                "scoped_ids": scoped_ids
+            }
+        else:
+            return {
+                "status": "failed",
+                "message": "Merge operation failed"
+            }

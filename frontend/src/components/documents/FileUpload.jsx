@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, X, FileText, ImageIcon, Loader2, Link as LinkIcon, Globe } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import useDocumentStore from '../../stores/useDocumentStore';
 
 const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
@@ -11,6 +12,7 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
     const [category, setCategory] = useState('');
     const [folderId, setFolderId] = useState(initialFolderId || '');
     const [isUploading, setIsUploading] = useState(false);
+    const [error, setError] = useState(null);
 
     const { uploadDocument, addLinkDocument, folders } = useDocumentStore();
 
@@ -18,8 +20,8 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
         const selectedFile = acceptedFiles[0];
         setFile(selectedFile);
         if (selectedFile) {
-            // Auto-fill title from filename without extension
             setTitle(selectedFile.name.replace(/\.[^/.]+$/, ""));
+            setError(null);
         }
     }, []);
 
@@ -35,6 +37,7 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
     });
 
     const handleUpload = async () => {
+        setError(null);
         if (activeTab === 'upload') {
             if (!file || !title) return;
 
@@ -52,8 +55,7 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
                 resetForm();
                 if (onComplete) onComplete();
             } catch (err) {
-                console.error('Upload failed', err);
-                alert(`Upload failed: ${err}`);
+                setError(err.message || 'Neural uplink failed. Verify connection.');
             } finally {
                 setIsUploading(false);
             }
@@ -72,8 +74,7 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
                 resetForm();
                 if (onComplete) onComplete();
             } catch (err) {
-                console.error('Link addition failed', err);
-                alert(`Failed to add link: ${err}`);
+                setError(err.message || 'External resource synthesis failed.');
             } finally {
                 setIsUploading(false);
             }
@@ -86,28 +87,39 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
         setUrl('');
         setCategory('');
         setFolderId(initialFolderId || '');
+        setError(null);
     };
 
     return (
-        <div className="space-y-6 animate-scale-in">
+        <div className="space-y-10">
             {/* Tab Switcher */}
             {!file && (
-                <div className="flex p-1 bg-white/5 rounded-2xl w-fit mx-auto border border-white/10">
+                <div className="flex p-1.5 bg-dark-950/50 rounded-2xl w-fit mx-auto border border-white/5 shadow-inner backdrop-blur-sm">
                     <button
                         onClick={() => setActiveTab('upload')}
-                        className={`px-6 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'upload' ? 'bg-primary-500 text-white shadow-lg' : 'text-dark-400 hover:text-dark-200'}`}
+                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center gap-3 ${activeTab === 'upload' ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20' : 'text-dark-500 hover:text-dark-300'}`}
                     >
                         <Upload className="w-4 h-4" />
-                        Upload File
+                        Uplink File
                     </button>
                     <button
                         onClick={() => setActiveTab('link')}
-                        className={`px-6 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'link' ? 'bg-primary-500 text-white shadow-lg' : 'text-dark-400 hover:text-dark-200'}`}
+                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center gap-3 ${activeTab === 'link' ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20' : 'text-dark-500 hover:text-dark-300'}`}
                     >
                         <LinkIcon className="w-4 h-4" />
-                        Add Link
+                        External URL
                     </button>
                 </div>
+            )}
+
+            {error && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold uppercase tracking-widest text-center"
+                >
+                    {error}
+                </motion.div>
             )}
 
             {activeTab === 'upload' ? (
@@ -115,37 +127,51 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
                     <div
                         {...getRootProps()}
                         className={`
-                            border-2 border-dashed rounded-2xl p-12 text-center transition-all cursor-pointer
-                            ${isDragActive ? 'border-primary-500 bg-primary-500/10' : 'border-white/10 hover:border-white/20 hover:bg-white/5'}
+                            border-2 border-dashed rounded-[2rem] p-16 text-center transition-all cursor-pointer group relative overflow-hidden
+                            ${isDragActive ? 'border-primary-500 bg-primary-500/5 scale-[1.01]' : 'border-white/5 hover:border-white/10 hover:bg-white/[0.02]'}
                         `}
                     >
                         <input {...getInputProps()} />
-                        <div className="mx-auto w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
-                            <Upload className="w-8 h-8 text-dark-400" />
+                        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-primary-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                        <div className="relative z-10">
+                            <div className="mx-auto w-20 h-20 rounded-2xl bg-dark-950 border border-white/5 flex items-center justify-center mb-6 shadow-xl group-hover:scale-105 transition-transform">
+                                <Upload className="w-8 h-8 text-primary-400" />
+                            </div>
+                            <h3 className="text-xl font-black text-white mb-2 tracking-tight">Initialize Ingestion</h3>
+                            <p className="text-dark-500 font-bold uppercase tracking-[0.2em] text-[9px] leading-relaxed">
+                                PDF • IMAGE • MARKDOWN • TEXT<br />
+                                <span className="opacity-40">MAX PAYLOAD: 50MB</span>
+                            </p>
                         </div>
-                        <p className="text-lg font-medium">Click or drag document here</p>
-                        <p className="text-sm text-dark-500 mt-1">Supports PDF, Image, Markdown, Text (Max 50MB)</p>
                     </div>
                 ) : (
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-6 relative">
-                        <button
-                            onClick={() => setFile(null)}
-                            className="absolute top-4 right-4 p-1 hover:bg-white/10 rounded-full transition-colors"
-                        >
-                            <X className="w-5 h-5 text-dark-400" />
-                        </button>
+                    <div className="bg-dark-900/60 border border-white/5 rounded-[2rem] p-8 relative overflow-hidden shadow-xl backdrop-blur-sm">
+                        <div className="absolute top-0 right-0 p-6">
+                            <button
+                                onClick={() => setFile(null)}
+                                className="p-3 bg-white/5 hover:bg-rose-500/10 rounded-xl text-dark-500 hover:text-rose-400 transition-all border border-white/5"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
 
-                        <div className="flex items-center gap-4 mb-6">
-                            <div className="p-3 rounded-xl bg-primary-500/20">
+                        <div className="flex items-center gap-6 mb-10">
+                            <div className="p-6 rounded-2xl bg-dark-950 border border-white/5 shadow-xl">
                                 {file.type === 'application/pdf' ? (
-                                    <FileText className="w-8 h-8 text-primary-400" />
+                                    <FileText className="w-10 h-10 text-primary-400" />
                                 ) : (
-                                    <ImageIcon className="w-8 h-8 text-primary-400" />
+                                    <ImageIcon className="w-10 h-10 text-primary-400" />
                                 )}
                             </div>
-                            <div className="flex-1 overflow-hidden">
-                                <p className="font-semibold truncate text-white">{file.name}</p>
-                                <p className="text-xs text-dark-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                            <div className="flex-1 overflow-hidden space-y-2">
+                                <p className="text-2xl font-black truncate text-white tracking-tight">{file.name}</p>
+                                <div className="flex items-center gap-4">
+                                    <span className="text-[10px] font-black text-primary-500 uppercase tracking-widest bg-primary-500/10 px-3 py-1 rounded-lg">
+                                        {(file.size / (1024 * 1024)).toFixed(2)} MB
+                                    </span>
+                                    <span className="text-[10px] font-black text-dark-500 uppercase tracking-[0.2em]">Ready for synthesis</span>
+                                </div>
                             </div>
                         </div>
 
@@ -159,34 +185,36 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
                             folders={folders}
                             handleUpload={handleUpload}
                             isUploading={isUploading}
-                            buttonText="Upload and Start Learning"
+                            buttonText="Begin Neural Uplink"
                         />
                     </div>
                 )
             ) : (
-                <div className="bg-dark-900 border border-white/10 rounded-2xl p-8 space-y-6 shadow-2xl relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary-600 via-primary-400 to-primary-600 opacity-50" />
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 rounded-lg bg-primary-500/10">
-                                <Globe className="w-5 h-5 text-primary-400" />
-                            </div>
-                            <div>
-                                <h4 className="text-sm font-black text-white uppercase tracking-widest">External Resource</h4>
-                                <p className="text-[10px] text-dark-500 font-bold uppercase tracking-widest">Add ArXiv, Blog posts, or Wiki pages</p>
-                            </div>
+                <div className="bg-dark-900/60 border border-white/5 rounded-[2rem] p-8 space-y-8 shadow-xl relative overflow-hidden backdrop-blur-sm">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-primary-500 opacity-40" />
+
+                    <div className="flex items-center gap-5 mb-2">
+                        <div className="p-4 rounded-xl bg-dark-950 border border-white/5 shadow-xl">
+                            <Globe className="w-6 h-6 text-cyan-400" />
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-black text-dark-400 uppercase tracking-widest mb-2 opacity-70">Resource URL</label>
+                        <div className="space-y-0.5">
+                            <h4 className="text-lg font-black text-white uppercase tracking-wider">External Synapse</h4>
+                            <p className="text-[9px] text-dark-500 font-black uppercase tracking-[0.2em] opacity-40">ArXiv • Research • Open Knowledge</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-10">
+                        <div className="space-y-4">
+                            <label className="block text-[10px] font-black text-primary-400 uppercase tracking-[0.3em] ml-2">Remote Resource Address</label>
                             <div className="relative group">
-                                <div className="absolute inset-0 bg-primary-500/5 rounded-xl blur-lg group-focus-within:bg-primary-500/10 transition-all" />
-                                <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-500 group-focus-within:text-primary-400 transition-colors z-10" />
+                                <div className="absolute inset-0 bg-primary-500/5 rounded-[1.5rem] blur-xl group-focus-within:bg-primary-500/10 transition-all" />
+                                <Globe className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-dark-600 group-focus-within:text-cyan-400 transition-colors z-10" />
                                 <input
                                     type="url"
                                     value={url}
                                     onChange={(e) => setUrl(e.target.value)}
-                                    placeholder="https://arxiv.org/pdf/..."
-                                    className="relative w-full bg-dark-800 border-white/10 text-white pl-12 h-14 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500/50 transition-all z-10"
+                                    placeholder="https://research-gateway.org/protocol/..."
+                                    className="relative w-full bg-dark-900/80 border-white/10 text-white pl-16 h-20 rounded-[1.5rem] text-lg font-bold focus:ring-[12px] focus:ring-primary-500/10 focus:border-cyan-500/40 transition-all z-10 shadow-2xl"
                                 />
                             </div>
                         </div>
@@ -201,7 +229,7 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
                             folders={folders}
                             handleUpload={handleUpload}
                             isUploading={isUploading}
-                            buttonText="Add Resource to Library"
+                            buttonText="Synthesize Resource"
                             isLink={true}
                             url={url}
                         />
@@ -213,61 +241,63 @@ const FileUpload = ({ onComplete, selectedFolderId: initialFolderId }) => {
 };
 
 const FormInputs = ({ title, setTitle, category, setCategory, folderId, setFolderId, folders, handleUpload, isUploading, buttonText, isLink, url }) => (
-    <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label className="block text-xs font-bold text-dark-500 uppercase tracking-widest mb-2">Document Title</label>
+    <div className="space-y-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-3">
+                <label className="block text-[10px] font-black text-dark-500 uppercase tracking-[0.3em] ml-1">Label</label>
                 <input
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Enter document title"
-                    className="w-full bg-dark-800 border-white/10 text-white"
+                    placeholder="Document title"
+                    className="w-full bg-dark-950 border border-white/5 text-white h-14 px-6 rounded-xl font-medium focus:border-primary-500/50 transition-all placeholder:text-dark-600 shadow-inner"
                 />
             </div>
-            <div>
-                <label className="block text-xs font-bold text-dark-500 uppercase tracking-widest mb-2">Move to Folder</label>
+            <div className="space-y-3">
+                <label className="block text-[10px] font-black text-dark-500 uppercase tracking-[0.3em] ml-1">Destination</label>
                 <select
                     value={folderId}
                     onChange={(e) => setFolderId(e.target.value)}
-                    className="w-full bg-dark-800 border-white/10 text-white h-[42px] px-3 rounded-xl focus:outline-none focus:border-primary-500 transition-colors"
+                    className="w-full bg-dark-950 border border-white/5 text-white h-14 px-6 rounded-xl font-medium focus:outline-none focus:border-primary-500/50 transition-all appearance-none cursor-pointer shadow-inner"
                 >
-                    <option value="">Unfiled</option>
+                    <option value="">UNCATEGORIZED</option>
                     {folders.map(f => (
-                        <option key={f.id} value={f.id}>{f.name}</option>
+                        <option key={f.id} value={f.id}>{f.name.toUpperCase()}</option>
                     ))}
                 </select>
             </div>
         </div>
 
-        <div>
-            <label className="block text-xs font-bold text-dark-500 uppercase tracking-widest mb-2">Category (Optional tags)</label>
+        <div className="space-y-3">
+            <label className="block text-[10px] font-black text-dark-500 uppercase tracking-[0.3em] ml-1">Category (Optional)</label>
             <input
                 type="text"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Mathematics, History"
-                className="w-full bg-dark-800 border-white/10 text-white"
+                placeholder="e.g. Physics, Cognitive Science"
+                className="w-full bg-dark-950 border border-white/5 text-white h-14 px-6 rounded-xl font-medium focus:border-primary-500/50 transition-all placeholder:text-dark-600 shadow-inner"
             />
         </div>
 
-        <button
+        <motion.button
+            whileHover={{ scale: 1.01, y: -1 }}
+            whileTap={{ scale: 0.99 }}
             onClick={handleUpload}
             disabled={isUploading || !title || (isLink && !url)}
-            className="btn-primary w-full mt-6 h-14 flex items-center justify-center gap-3 shadow-2xl shadow-primary-500/20 text-sm font-black uppercase tracking-[0.2em]"
+            className="w-full mt-8 h-14 rounded-xl bg-primary-500 hover:bg-primary-600 text-white flex items-center justify-center gap-3 shadow-lg shadow-primary-500/20 text-[11px] font-black uppercase tracking-[0.3em] transition-all disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed"
         >
             {isUploading ? (
                 <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Syncing...
+                    Ingesting...
                 </>
             ) : (
                 <>
-                    {isLink ? <LinkIcon className="w-5 h-5" /> : <Upload className="w-5 h-5" />}
+                    {isLink ? <Globe className="w-5 h-5" /> : <Upload className="w-5 h-5" />}
                     {buttonText}
                 </>
             )}
-        </button>
+        </motion.button>
     </div>
 );
 

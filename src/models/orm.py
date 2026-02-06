@@ -38,6 +38,7 @@ class Document(Base):
     folder_id = Column(String, ForeignKey("folders.id"), nullable=True)
     
     extracted_text = Column(Text, nullable=True)
+    ai_summary = Column(Text, nullable=True)
     page_count = Column(Integer, default=0)
     
     # Time tracking

@@ -508,3 +508,375 @@ class GraphStorage:
 
 # Global graph storage instance
 graph_storage = GraphStorage()
+
+
+# ========== Multi-Document Graph Handling ==========
+
+
+class MultiDocGraphStorage:
+    """
+    Handles multi-document knowledge graph storage with document isolation.
+    
+    Each document gets its own concept namespace (doc{id}_{concept_name}) while
+    maintaining a global semantic index for cross-document discovery.
+    """
+    
+    def __init__(self):
+        self.connection = neo4j_conn
+        self.graph_storage = graph_storage
+    
+    @staticmethod
+    def generate_scoped_id(document_id: int, concept_name: str) -> str:
+        """Generate a document-scoped concept ID."""
+        normalized = concept_name.strip().lower().replace(" ", "_")
+        return f"doc{document_id}_{normalized}"
+    
+    def store_document_concept(
+        self,
+        document_id: int,
+        concept_name: str,
+        description: Optional[str] = None,
+        depth_level: Optional[int] = None,
+        chunk_ids: Optional[List[int]] = None
+    ) -> bool:
+        """
+        Store a concept scoped to a specific document.
+        
+        Creates: doc{id}_concept_name node with document relationship.
+        """
+        scoped_id = self.generate_scoped_id(document_id, concept_name)
+        normalized = concept_name.strip().lower()
+        
+        try:
+            query = """
+                MERGE (dc:DocumentConcept {id: $scoped_id})
+                ON CREATE SET
+                    dc.global_name = $global_name,
+                    dc.normalized_name = $normalized,
+                    dc.description = $description,
+                    dc.depth_level = $depth_level,
+                    dc.chunk_ids = COALESCE($chunk_ids, []),
+                    dc.is_merged = false,
+                    dc.created_at = datetime()
+                ON MATCH SET
+                    dc.description = COALESCE($description, dc.description),
+                    dc.depth_level = COALESCE($depth_level, dc.depth_level),
+                    dc.chunk_ids = CASE
+                        WHEN $chunk_ids IS NOT NULL THEN dc.chunk_ids + $chunk_ids
+                        ELSE dc.chunk_ids
+                    END,
+                    dc.updated_at = datetime()
+                
+                WITH dc
+                MERGE (d:Document {id: $document_id})
+                MERGE (d)-[:CONTAINS]->(dc)
+                RETURN dc.id as id
+            """
+            
+            result = self.connection.execute_query(query, {
+                "scoped_id": scoped_id,
+                "global_name": concept_name.strip(),
+                "normalized_name": normalized,
+                "description": description,
+                "depth_level": depth_level,
+                "chunk_ids": chunk_ids,
+                "document_id": document_id
+            })
+            
+            return bool(result)
+            
+        except Exception as e:
+            logger.error(f"Error storing document concept: {e}")
+            return False
+    
+    def store_document_relationship(
+        self,
+        document_id: int,
+        source_concept: str,
+        target_concept: str,
+        weight: float,
+        reasoning: str
+    ) -> bool:
+        """
+        Store a prerequisite relationship within a document.
+        
+        Uses scoped IDs to maintain document isolation.
+        """
+        source_scoped = self.generate_scoped_id(document_id, source_concept)
+        target_scoped = self.generate_scoped_id(document_id, target_concept)
+        
+        try:
+            query = """
+                MATCH (source:DocumentConcept {id: $source_id})
+                MATCH (target:DocumentConcept {id: $target_id})
+                MERGE (source)-[r:PREREQUISITE {
+                    document_id: $document_id,
+                    weight: $weight,
+                    reasoning: $reasoning
+                }]->(target)
+                ON CREATE SET r.created_at = datetime()
+                ON MATCH SET r.updated_at = datetime()
+                RETURN r.weight as weight
+            """
+            
+            result = self.connection.execute_query(query, {
+                "source_id": source_scoped,
+                "target_id": target_scoped,
+                "document_id": document_id,
+                "weight": weight,
+                "reasoning": reasoning
+            })
+            
+            return bool(result)
+            
+        except Exception as e:
+            logger.error(f"Error storing document relationship: {e}")
+            return False
+    
+    def get_document_graph(self, document_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve complete graph for a specific document.
+        
+        Returns all concepts and relationships scoped to this document.
+        """
+        try:
+            concepts_query = """
+                MATCH (d:Document {id: $doc_id})-[:CONTAINS]->(dc:DocumentConcept)
+                RETURN dc.id as scoped_id, dc.global_name as name,
+                       dc.normalized_name as normalized, dc.description,
+                       dc.depth_level, dc.chunk_ids, dc.is_merged
+                ORDER BY dc.global_name
+            """
+            
+            relationships_query = """
+                MATCH (dc1:DocumentConcept)-[r:PREREQUISITE]->(dc2:DocumentConcept)
+                WHERE r.document_id = $doc_id
+                RETURN dc1.id as source, dc2.id as target,
+                       r.weight, r.reasoning
+                ORDER BY r.weight DESC
+            """
+            
+            concepts = self.connection.execute_query(concepts_query, {"doc_id": document_id})
+            relationships = self.connection.execute_query(relationships_query, {"doc_id": document_id})
+            
+            doc_info_query = """
+                MATCH (d:Document {id: $doc_id})
+                RETURN d.id as id, properties(d) as props
+            """
+            doc_info = self.connection.execute_query(doc_info_query, {"doc_id": document_id})
+            
+            return {
+                "document_id": document_id,
+                "document_name": doc_info[0]["props"].get("name", f"Document {document_id}") if doc_info else f"Document {document_id}",
+                "concepts": [
+                    {
+                        "scoped_id": c["scoped_id"],
+                        "name": c["name"],
+                        "normalized": c["normalized"],
+                        "description": c["description"],
+                        "depth_level": c["depth_level"],
+                        "chunk_ids": c["chunk_ids"],
+                        "is_merged": c["is_merged"]
+                    }
+                    for c in concepts
+                ],
+                "relationships": [
+                    {
+                        "source": r["source"],
+                        "target": r["target"],
+                        "weight": r["weight"],
+                        "reasoning": r["reasoning"]
+                    }
+                    for r in relationships
+                ],
+                "node_count": len(concepts),
+                "relationship_count": len(relationships)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting document graph: {e}")
+            return None
+    
+    def find_cross_document_concepts(self, normalized_name: str) -> List[Dict[str, Any]]:
+        """
+        Find all occurrences of a concept across different documents.
+        
+        Useful for discovering when the same concept appears in multiple sources.
+        """
+        try:
+            query = """
+                MATCH (dc:DocumentConcept {normalized_name: $normalized_name})
+                MATCH (d:Document)-[:CONTAINS]->(dc)
+                RETURN d.id as document_id, dc.id as scoped_id,
+                       dc.global_name as name, dc.description,
+                       dc.chunk_ids, dc.is_merged, dc.merged_with
+                ORDER BY d.id
+            """
+            
+            result = self.connection.execute_query(query, {"normalized_name": normalized_name.lower()})
+            
+            return [
+                {
+                    "document_id": r["document_id"],
+                    "scoped_id": r["scoped_id"],
+                    "name": r["name"],
+                    "description": r["description"],
+                    "chunk_ids": r["chunk_ids"],
+                    "is_merged": r["is_merged"],
+                    "merged_with": r["merged_with"]
+                }
+                for r in result
+            ]
+            
+        except Exception as e:
+            logger.error(f"Error finding cross-document concepts: {e}")
+            return []
+    
+    def merge_cross_document_concepts(
+        self,
+        scoped_ids: List[str],
+        global_name: str
+    ) -> bool:
+        """
+        Mark multiple document-scoped concepts as the same global concept.
+        
+        Creates cross-document connections for semantic discovery.
+        """
+        if len(scoped_ids) < 2:
+            return False
+        
+        try:
+            # Create merge mapping
+            merge_mapping = {}
+            for scoped_id in scoped_ids:
+                # Extract document ID from scoped_id
+                doc_id = int(scoped_id.split("_")[0].replace("doc", ""))
+                merge_mapping[doc_id] = scoped_id
+            
+            # Update each concept to mark as merged
+            for scoped_id in scoped_ids:
+                query = """
+                    MATCH (dc:DocumentConcept {id: $scoped_id})
+                    SET dc.is_merged = true,
+                        dc.merged_with = $mapping,
+                        dc.updated_at = datetime()
+                """
+                self.connection.execute_query(query, {
+                    "scoped_id": scoped_id,
+                    "mapping": merge_mapping
+                })
+            
+            # Create global concept index node
+            global_id = f"global_{global_name.strip().lower().replace(' ', '_')}"
+            index_query = """
+                MERGE (gc:GlobalConcept {id: $global_id})
+                ON CREATE SET
+                    gc.global_name = $global_name,
+                    gc.occurrence_count = 0,
+                    gc.created_at = datetime()
+                ON MATCH SET
+                    gc.occurrence_count = gc.occurrence_count + 1,
+                    gc.updated_at = datetime()
+                RETURN gc.id as id
+            """
+            self.connection.execute_query(index_query, {
+                "global_id": global_id,
+                "global_name": global_name
+            })
+            
+            # Link all document concepts to global index
+            for scoped_id in scoped_ids:
+                link_query = """
+                    MATCH (dc:DocumentConcept {id: $scoped_id})
+                    MATCH (gc:GlobalConcept {id: $global_id})
+                    MERGE (dc)-[:MERGED_INTO]->(gc)
+                """
+                self.connection.execute_query(link_query, {
+                    "scoped_id": scoped_id,
+                    "global_id": global_id
+                })
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error merging cross-document concepts: {e}")
+            return False
+    
+    def search_global_concepts(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Search global concepts across all documents.
+        
+        Returns concepts that appear in multiple documents.
+        """
+        try:
+            search_query = """
+                MATCH (gc:GlobalConcept)
+                WHERE toLower(gc.global_name) CONTAINS toLower($query)
+                MATCH (dc:DocumentConcept)-[:MERGED_INTO]->(gc)
+                MATCH (d:Document)-[:CONTAINS]->(dc)
+                RETURN gc.id as global_id, gc.global_name as name,
+                       gc.occurrence_count,
+                       collect(DISTINCT d.id) as document_ids,
+                       collect(DISTINCT dc.global_name) as local_names
+                ORDER BY gc.occurrence_count DESC
+                LIMIT $limit
+            """
+            
+            result = self.connection.execute_query(search_query, {
+                "query": query,
+                "limit": limit
+            })
+            
+            return [
+                {
+                    "global_id": r["global_id"],
+                    "name": r["name"],
+                    "occurrence_count": r["occurrence_count"],
+                    "document_ids": r["document_ids"],
+                    "local_names": r["local_names"]
+                }
+                for r in result
+            ]
+            
+        except Exception as e:
+            logger.error(f"Error searching global concepts: {e}")
+            return []
+    
+    def get_graph_statistics(self) -> Dict[str, int]:
+        """Get overall statistics for the multi-document graph."""
+        try:
+            doc_count = self.connection.execute_query(
+                "MATCH (d:Document) RETURN count(d) as count"
+            )[0]["count"]
+            
+            concept_count = self.connection.execute_query(
+                "MATCH (dc:DocumentConcept) RETURN count(dc) as count"
+            )[0]["count"]
+            
+            global_concept_count = self.connection.execute_query(
+                "MATCH (gc:GlobalConcept) RETURN count(gc) as count"
+            )[0]["count"]
+            
+            relationship_count = self.connection.execute_query(
+                "MATCH ()-[r:PREREQUISITE]->() RETURN count(r) as count"
+            )[0]["count"]
+            
+            merged_count = self.connection.execute_query(
+                "MATCH (dc:DocumentConcept {is_merged: true}) RETURN count(dc) as count"
+            )[0]["count"]
+            
+            return {
+                "document_count": doc_count,
+                "concept_count": concept_count,
+                "global_concept_count": global_concept_count,
+                "relationship_count": relationship_count,
+                "merged_concepts": merged_count
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting graph statistics: {e}")
+            return {}
+
+
+# Global multi-document graph storage instance
+multi_doc_graph_storage = MultiDocGraphStorage()

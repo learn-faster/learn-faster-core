@@ -40,6 +40,53 @@ The system operates as a synchronized trio of specialized engines:
 - **uv** (Python package manager)
 - **Ollama** (Running locally with your preferred LLM and embedding models)
 
+## 🚀 Quick Start
+
+### For Linux/macOS Users
+
+```bash
+# 1. Start database containers
+docker compose up -d
+
+# 2. Install dependencies
+uv sync
+
+# 3. Run the application
+uv run python main.py
+```
+
+### For Windows Users (WSL Recommended)
+
+The recommended approach is to run everything within WSL:
+
+```bash
+# 1. Open WSL terminal and navigate to the project
+wsl -d Ubuntu
+cd /mnt/d/Opensource_repos/learn-faster-core
+
+# 2. Start database containers (in WSL)
+docker compose up -d
+
+# 3. Install dependencies (in WSL)
+uv sync
+
+# 4. Run the application (in WSL)
+uv run python main.py
+```
+
+### Alternative: Docker Desktop for Windows
+
+If you prefer using Docker Desktop (Windows native):
+
+1. Ensure Docker Desktop is running with **WSL 2 integration enabled**
+2. Update `.env` to use `host.docker.internal` for database connections:
+```env
+NEO4J_URI=bolt://host.docker.internal:7688
+POSTGRES_HOST=host.docker.internal
+POSTGRES_PORT=5433
+```
+3. Run the Python app from Windows command prompt or VS Code
+
 ## ⚙️ Configuration
 
 The system is configured via environment variables in a `.env` file. Pydantic is used to validate and cast these values at runtime.

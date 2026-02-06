@@ -2,7 +2,8 @@
 Application configuration using Pydantic Settings.
 Handles environment variables and global application parameters.
 """
-from pydantic_settings import BaseSettings, ConfigDict
+from pydantic import ConfigDict
+from pydantic_settings import BaseSettings
 from typing import List, Optional
 
 

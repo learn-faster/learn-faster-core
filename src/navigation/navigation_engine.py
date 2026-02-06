@@ -354,3 +354,246 @@ class NavigationEngine:
         except Exception as e:
             logger.error(f"Error getting full graph: {str(e)}")
             return {"nodes": [], "links": []}
+
+
+# ========== Multi-Document Navigation ==========
+
+
+class MultiDocNavigationEngine:
+    """
+    Handles navigation through document-specific knowledge graphs.
+    
+    Provides methods to query concepts within a document's scope
+    and discover cross-document connections.
+    """
+    
+    def __init__(self):
+        self.connection = neo4j_conn
+        from src.database.graph_storage import multi_doc_graph_storage
+        self.graph_storage = multi_doc_graph_storage
+    
+    def get_document_root_concepts(self, document_id: int) -> List[Dict[str, Any]]:
+        """
+        Find root concepts within a specific document.
+        
+        Root concepts have no incoming PREREQUISITE relationships within the document.
+        
+        Args:
+            document_id: The document to query
+            
+        Returns:
+            List of concept dictionaries with scoped_id, name, and metadata
+        """
+        try:
+            query = """
+                MATCH (dc:DocumentConcept)
+                MATCH (d:Document {id: $doc_id})-[:CONTAINS]->(dc)
+                WHERE NOT ()-[:PREREQUISITE {document_id: $doc_id}]->(dc)
+                RETURN dc.id as scoped_id, dc.global_name as name,
+                       dc.normalized_name as normalized, dc.description,
+                       dc.depth_level, dc.chunk_ids
+                ORDER BY dc.global_name
+            """
+            
+            result = self.connection.execute_query(query, {"doc_id": document_id})
+            
+            return [
+                {
+                    "scoped_id": r["scoped_id"],
+                    "name": r["name"],
+                    "normalized": r["normalized"],
+                    "description": r["description"],
+                    "depth_level": r["depth_level"],
+                    "chunk_ids": r["chunk_ids"]
+                }
+                for r in result
+            ]
+            
+        except Exception as e:
+            logger.error(f"Error getting document roots for doc {document_id}: {e}")
+            return []
+    
+    def get_document_path_preview(self, document_id: int, root_concept: str, depth: int = 3) -> List[str]:
+        """
+        Get a preview of the learning path within a document.
+        
+        Args:
+            document_id: The document to query
+            root_concept: Starting concept name (not scoped)
+            depth: Maximum depth to traverse
+            
+        Returns:
+            List of scoped concept names in order
+        """
+        try:
+            normalized_root = root_concept.strip().lower()
+            scoped_root = self.graph_storage.generate_scoped_id(document_id, root_concept)
+            
+            query = """
+                MATCH path = (root:DocumentConcept {id: $scoped_root})-[:PREREQUISITE {document_id: $doc_id}*0..$depth]->(c:DocumentConcept)
+                WHERE (d:Document {id: $doc_id})-[:CONTAINS]->(root)
+                AND (d:Document {id: $doc_id})-[:CONTAINS]->(c)
+                RETURN c.id as scoped_id, c.global_name as name
+                ORDER BY length(path), c.global_name
+            """
+            
+            result = self.connection.execute_query(query, {
+                "scoped_root": scoped_root,
+                "doc_id": document_id,
+                "depth": depth
+            })
+            
+            seen = set()
+            path = []
+            for r in result:
+                if r["scoped_id"] not in seen:
+                    path.append(r["scoped_id"])
+                    seen.add(r["scoped_id"])
+            
+            return path
+            
+        except Exception as e:
+            logger.error(f"Error getting document path preview: {e}")
+            return []
+    
+    def get_document_neighborhood(self, document_id: int, concept_name: str) -> Dict[str, Any]:
+        """
+        Get local neighborhood for a concept within a document.
+        
+        Args:
+            document_id: The document to query
+            concept_name: Concept name (not scoped)
+            
+        Returns:
+            Dict with nodes and edges for visualization
+        """
+        try:
+            scoped_id = self.graph_storage.generate_scoped_id(document_id, concept_name)
+            
+            query = """
+                MATCH (target:DocumentConcept {id: $scoped_id})
+                OPTIONAL MATCH (pre:DocumentConcept)-[r1:PREREQUISITE {document_id: $doc_id}]->(target)
+                OPTIONAL MATCH (target)-[r2:PREREQUISITE {document_id: $doc_id}]->(post:DocumentConcept)
+                RETURN 
+                    target.id as target_id, target.global_name as target_name,
+                    collect(DISTINCT {id: pre.id, name: pre.global_name, type: 'prerequisite'}) as prerequisites,
+                    collect(DISTINCT {id: post.id, name: post.global_name, type: 'dependent'}) as dependents
+            """
+            
+            result = self.connection.execute_query(query, {
+                "scoped_id": scoped_id,
+                "doc_id": document_id
+            })
+            
+            if not result:
+                return {"nodes": [], "edges": []}
+            
+            data = result[0]
+            nodes = [{"id": data["target_id"], "name": data["target_name"], "group": "target"}]
+            edges = []
+            seen = {data["target_id"]}
+            
+            for p in data["prerequisites"]:
+                if p["id"] and p["id"] not in seen:
+                    nodes.append({"id": p["id"], "name": p["name"], "group": "prerequisite"})
+                    seen.add(p["id"])
+                    edges.append({"source": p["id"], "target": data["target_id"], "type": "prerequisite"})
+            
+            for d in data["dependents"]:
+                if d["id"] and d["id"] not in seen:
+                    nodes.append({"id": d["id"], "name": d["name"], "group": "dependent"})
+                    seen.add(d["id"])
+                    edges.append({"source": data["target_id"], "target": d["id"], "type": "dependent"})
+            
+            return {"nodes": nodes, "edges": edges}
+            
+        except Exception as e:
+            logger.error(f"Error getting document neighborhood: {e}")
+            return {"nodes": [], "edges": []}
+    
+    def get_cross_document_connections(self, document_id: int) -> List[Dict[str, Any]]:
+        """
+        Find concepts in this document that connect to other documents.
+        
+        Args:
+            document_id: The document to check
+            
+        Returns:
+            List of cross-document connection info
+        """
+        try:
+            query = """
+                MATCH (dc:DocumentConcept)
+                MATCH (d:Document {id: $doc_id})-[:CONTAINS]->(dc)
+                OPTIONAL MATCH (dc)-[:MERGED_INTO]->(gc:GlobalConcept)
+                OPTIONAL MATCH (other:DocumentConcept)-[:MERGED_INTO]->(gc)
+                WHERE other.document_id <> $doc_id
+                RETURN 
+                    dc.id as scoped_id, dc.global_name as name,
+                    gc.id as global_id, gc.global_name as global_name,
+                    collect(DISTINCT other.document_id) as other_doc_ids
+            """
+            
+            result = self.connection.execute_query(query, {"doc_id": document_id})
+            
+            connections = []
+            for r in result:
+                if r["other_doc_ids"]:
+                    connections.append({
+                        "scoped_id": r["scoped_id"],
+                        "local_name": r["name"],
+                        "global_id": r["global_id"],
+                        "global_name": r["global_name"],
+                        "other_documents": r["other_doc_ids"],
+                        "connection_count": len(r["other_doc_ids"])
+                    })
+            
+            return sorted(connections, key=lambda x: x["connection_count"], reverse=True)
+            
+        except Exception as e:
+            logger.error(f"Error getting cross-document connections: {e}")
+            return []
+    
+    def find_concept_across_documents(self, concept_name: str) -> List[Dict[str, Any]]:
+        """
+        Find all occurrences of a concept across all documents.
+        
+        Args:
+            concept_name: Concept to search for
+            
+        Returns:
+            List of {document_id, scoped_id, name, chunk_ids}
+        """
+        normalized = concept_name.strip().lower()
+        
+        try:
+            query = """
+                MATCH (dc:DocumentConcept {normalized_name: $normalized})
+                MATCH (d:Document)-[:CONTAINS]->(dc)
+                RETURN d.id as document_id, dc.id as scoped_id,
+                       dc.global_name as name, dc.description,
+                       dc.chunk_ids, dc.is_merged
+                ORDER BY d.id
+            """
+            
+            result = self.connection.execute_query(query, {"normalized_name": normalized})
+            
+            return [
+                {
+                    "document_id": r["document_id"],
+                    "scoped_id": r["scoped_id"],
+                    "name": r["name"],
+                    "description": r["description"],
+                    "chunk_ids": r["chunk_ids"],
+                    "is_merged": r["is_merged"]
+                }
+                for r in result
+            ]
+            
+        except Exception as e:
+            logger.error(f"Error finding concept across documents: {e}")
+            return []
+
+
+# Global instance
+multi_doc_navigation = MultiDocNavigationEngine()

@@ -1,6 +1,8 @@
 """Database connection utilities for Neo4j and PostgreSQL."""
 
 import os
+import subprocess
+import socket
 from typing import Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -12,11 +14,70 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _get_wsl_ip() -> Optional[str]:
+    """
+    Get the WSL2 virtual IP address.
+    Returns None if not running in WSL or if detection fails.
+    """
+    try:
+        # Check if we're in WSL
+        wsl_distro = os.environ.get("WSL_DISTRO_NAME")
+        if not wsl_distro:
+            # Check via /proc/version for WSL indicator
+            with open("/proc/version", "r") as f:
+                if "microsoft" not in f.read().lower():
+                    return None
+        
+        # Get WSL IP by querying the gateway
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            # Parse the gateway IP from the default route
+            lines = result.stdout.strip().split("\n")
+            for line in lines:
+                if "default via" in line:
+                    parts = line.split()
+                    gateway_idx = parts.index("via") + 1
+                    if gateway_idx < len(parts):
+                        return parts[gateway_idx]
+        return None
+    except Exception:
+        return None
+
+
+def _get_connection_host() -> str:
+    """
+    Get the appropriate host for database connections.
+    Automatically detects WSL and returns the correct IP.
+    """
+    # Check for explicit override first
+    explicit_host = os.getenv("DOCKER_HOST_OVERRIDE")
+    if explicit_host:
+        return explicit_host
+    
+    # Detect environment
+    is_windows = os.name == "nt"
+    wsl_ip = _get_wsl_ip()
+    
+    if is_windows and wsl_ip:
+        # Running on Windows, Docker is in WSL - use WSL IP
+        return wsl_ip
+    
+    # Default to localhost or environment variable
+    return os.getenv("NEO4J_HOST", "localhost")
+
+
 class Neo4jConnection:
     """Neo4j database connection manager."""
     
     def __init__(self, uri: Optional[str] = None, user: Optional[str] = None, password: Optional[str] = None):
-        self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7688")
+        host = _get_connection_host()
+        default_uri = f"bolt://{host}:7688"
+        self.uri = uri or os.getenv("NEO4J_URI", default_uri)
         self.user = user or os.getenv("NEO4J_USER", "neo4j")
         self.password = password or os.getenv("NEO4J_PASSWORD", "password")
         self._driver: Optional[Driver] = None
@@ -55,7 +116,9 @@ class PostgreSQLConnection:
     def __init__(self, host: Optional[str] = None, port: Optional[int] = None, 
                  database: Optional[str] = None, user: Optional[str] = None, 
                  password: Optional[str] = None):
-        self.host = host or os.getenv("POSTGRES_HOST", "localhost")
+        # Auto-detect host for WSL
+        db_host = host or _get_connection_host()
+        self.host = os.getenv("POSTGRES_HOST", db_host)
         self.port = port or int(os.getenv("POSTGRES_PORT", "5433"))
         self.database = database or os.getenv("POSTGRES_DB", "learnfast")
         self.user = user or os.getenv("POSTGRES_USER", "learnfast")
@@ -78,53 +141,57 @@ class PostgreSQLConnection:
         return cls._pool
     
     def connect(self):
-        """Establish connection to PostgreSQL database using pool."""
+        """Get a connection from the pool."""
         pool = self._get_pool(self.host, self.port, self.database, self.user, self.password)
-        self._connection = pool.getconn()
-        return self._connection
+        return pool.getconn()
     
-    def close(self):
-        """Return connection to pool."""
-        if self._connection:
-            pool = self._get_pool(self.host, self.port, self.database, self.user, self.password)
-            pool.putconn(self._connection)
-            self._connection = None
+    def close(self, conn):
+        """Return a connection to the pool."""
+        if self._pool:
+            self._pool.putconn(conn)
     
-    def execute_query(self, query: str, parameters: Optional[tuple] = None):
-        """Execute a SQL query and return results."""
+    def close_all(self):
+        """Close all pooled connections."""
+        if self._pool:
+            self._pool.closeall()
+            self._pool = None
+    
+    def execute_query(self, query: str, parameters: Optional[dict] = None):
+        """Execute a query and return results. Auto-commits for INSERT/UPDATE/DELETE."""
+        conn = self.connect()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(query, parameters or {})
+                # Check if the query returns rows (SELECT) or not (UPDATE/INSERT/DELETE)
+                try:
+                    result = cursor.fetchall()
+                    # Auto-commit for non-SELECT queries
+                    if query.strip().upper().startswith(('INSERT', 'UPDATE', 'DELETE')):
+                        conn.commit()
+                    return result
+                except psycopg2.ProgrammingError:
+                    # No results to fetch (e.g., UPDATE/DELETE without RETURNING)
+                    # Still commit for these queries
+                    if query.strip().upper().startswith(('INSERT', 'UPDATE', 'DELETE')):
+                        conn.commit()
+                    return []
+        finally:
+            self.close(conn)
+    
+    def execute_write(self, query: str, parameters: Optional[dict] = None):
+        """Execute a write query."""
         conn = self.connect()
         try:
             with conn.cursor() as cursor:
-                cursor.execute(query, parameters or ())
-                
-                # Check if it's a SELECT query to avoid unnecessary commits
-                is_select = query.strip().upper().startswith("SELECT")
-                
-                if cursor.description:
-                    result = cursor.fetchall()
-                    # If it returns data but isn't a SELECT (e.g., INSERT ... RETURNING), we must commit
-                    if not is_select:
-                        conn.commit()
-                    return result
-                else:
-                    conn.commit()
-                    return cursor.rowcount
-        except Exception as e:
+                cursor.execute(query, parameters or {})
+                conn.commit()
+        except Exception:
             conn.rollback()
-            # If transaction is aborted, close connection to force reconnect
-            if "transaction is aborted" in str(e):
-                self.close()
-            raise e
-    
-    def execute_many(self, query: str, parameters_list: list):
-        """Execute a SQL query with multiple parameter sets."""
-        conn = self.connect()
-        with conn.cursor() as cursor:
-            cursor.executemany(query, parameters_list)
-            conn.commit()
-            return cursor.rowcount
+            raise
+        finally:
+            self.close(conn)
 
 
-# Global connection instances
-neo4j_conn = Neo4jConnection()
+# Module-level instances for convenience
 postgres_conn = PostgreSQLConnection()
+neo4j_conn = Neo4jConnection()
