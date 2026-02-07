@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     
     # Uploads
     upload_dir: str = "./data/documents"
+    open_notebook_dir: Optional[str] = None
     
     # CORS
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
