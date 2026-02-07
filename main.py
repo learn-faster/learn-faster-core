@@ -1,6 +1,7 @@
 import os
 import shutil
 import logging
+import subprocess
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query
@@ -39,6 +40,9 @@ from src.routers import (
     multidoc_graph as multidoc_graph_router
 )
 
+# Import Open Notebook components
+from on_api.router_main import router as notebook_router, init_surrealdb
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -66,6 +70,13 @@ async def lifespan(app: FastAPI):
     if not initialize_databases():
         logger.error("Failed to initialize databases")
     
+    # Initialize Open Notebook (SurrealDB)
+    try:
+        await init_surrealdb()
+    except Exception as e:
+        logger.error(f"Failed to initialize Open Notebook: {e}")
+        # Continue execution, but Open Notebook features might fail
+    
     # Initialize components
     ingestion_engine = IngestionEngine()
     navigation_engine = NavigationEngine()
@@ -87,8 +98,37 @@ async def lifespan(app: FastAPI):
     
     logger.info("Components initialized successfully")
     
+    # Start Open Notebook Command Worker
+    worker_process = None
+    try:
+        logger.info("Starting Open Notebook Command Worker...")
+        # Check if commands module exists at expected path
+        if os.path.exists("open_notebook/commands"):
+            worker_command = ["uv", "run", "surreal-commands-worker", "--import-modules", "open_notebook.commands"]
+            worker_process = subprocess.Popen(
+                worker_command,
+                cwd=os.getcwd(),
+                # stdout=subprocess.DEVNULL, # Keep stdout for debugging for now
+                env=os.environ.copy()
+            )
+            logger.info(f"Worker started with PID {worker_process.pid}")
+        else:
+            logger.warning("open_notebook/commands not found, skipping worker startup")
+    except Exception as e:
+        logger.error(f"Failed to start worker: {e}")
+
     yield
     
+    # Shutdown worker
+    if worker_process:
+        logger.info("Stopping Open Notebook Command Worker...")
+        worker_process.terminate()
+        try:
+            worker_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            worker_process.kill()
+        logger.info("Worker stopped")
+        
     logger.info("Shutting down LearnFast Core Engine...")
 
 
@@ -122,6 +162,7 @@ app.include_router(resources_router.router)
 app.include_router(goals_router.router)
 app.include_router(notifications_router.router)
 app.include_router(multidoc_graph_router.router)
+app.include_router(notebook_router)
 
 
 # Mount static files

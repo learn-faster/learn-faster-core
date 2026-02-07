@@ -27,6 +27,22 @@ services:
       retries: 5
       start_period: 60s
 
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    container_name: learnfast-surrealdb
+    volumes:
+      - surreal_data:/mydata
+    environment:
+      - SURREAL_EXPERIMENTAL_GRAPHQL=true
+    ports:
+      - "8000:8000"
+    command: start --log info --user root --pass root rocksdb:/mydata/mydatabase.db
+    pull_policy: always
+    user: root
+    restart: always
+    networks:
+      - learnfast-network
+
   postgres:
     image: pgvector/pgvector:pg16
     container_name: learnfast-postgres
@@ -52,6 +68,7 @@ volumes:
   neo4j_data:
   neo4j_logs:
   postgres_data:
+  surreal_data:
 
 networks:
   learnfast-network:

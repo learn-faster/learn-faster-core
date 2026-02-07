@@ -25,6 +25,7 @@ from src.ingestion.youtube_utils import extract_video_id, fetch_transcript
 from src.dependencies import get_ingestion_engine, get_document_store
 from src.config import settings
 from src.services.reading_time import reading_time_estimator
+from src.services.open_notebook_sync import sync_document_to_notebook
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -98,6 +99,18 @@ async def process_extraction_background(
             db.commit()
             
             print(f"DEBUG: Extraction complete for {doc_id}")
+
+            # Sync to Open Notebook
+            try:
+                await sync_document_to_notebook(
+                    doc_id, 
+                    document.title, 
+                    extracted_text, 
+                    file_path, 
+                    str(file_type) if file_type else "text"
+                )
+            except Exception as e:
+                print(f"ERROR: Sync to Open Notebook failed: {e}")
 
     except Exception as e:
         print(f"Critical Failure in Extraction: {e}")
