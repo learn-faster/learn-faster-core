@@ -76,6 +76,9 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
     React.useEffect(() => {
         if (!setExternalFront && selectedText) {
             setInternalFront(selectedText);
+        } else if (setExternalFront && selectedText && (!front || front.trim() === "")) {
+            // Proactive fill for controlled inputs if currently empty
+            setExternalFront(selectedText);
         }
     }, [selectedText, setExternalFront]);
 
@@ -436,18 +439,32 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                         <p className="text-[10px] text-dark-500 mt-1 uppercase">Separate tags with commas</p>
                     </div>
 
-                    {selectedText && (
-                        <div className="p-3 rounded-lg bg-primary-500/10 border border-primary-500/20 text-xs text-primary-200/70 flex gap-2">
+                    {selectedText && !success && (
+                        <div className="p-3 rounded-lg bg-primary-500/10 border border-primary-500/20 text-xs text-primary-200/70 flex gap-2 animate-fade-in">
                             <AlertCircle className="w-4 h-4 flex-shrink-0" />
                             Creating card from selected text
                         </div>
                     )}
 
-                    <div className="mt-auto pt-4">
+                    <div className="mt-auto pt-4 relative">
+                        <AnimatePresence>
+                            {success && (
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    className="absolute inset-0 bg-emerald-500 rounded-xl flex items-center justify-center gap-2 z-10 shadow-lg shadow-emerald-500/20"
+                                >
+                                    <CheckCircle2 className="w-6 h-6 text-white" />
+                                    <span className="text-white font-black uppercase tracking-widest text-sm">Successfully Added</span>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
                         <button
                             type="submit"
-                            disabled={isCreating || !front || !back}
-                            className="btn-primary w-full"
+                            disabled={isCreating || !front || !back || success}
+                            className={`btn-primary w-full transition-all ${success ? 'opacity-0 scale-95' : ''}`}
                         >
                             {isCreating ? (
                                 <Loader2 className="w-5 h-5 animate-spin" />

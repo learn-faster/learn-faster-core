@@ -1,4 +1,3 @@
-# ... (existing imports)
 import os
 import shutil
 import logging
@@ -7,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware  # Added
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.storage.document_store import DocumentStore
@@ -33,7 +32,10 @@ from src.routers import (
     ai as ai_router,
     navigation as navigation_router,
     cognitive as cognitive_router,
-    curriculum as curriculum_router
+    curriculum as curriculum_router,
+    resources as resources_router,
+    goals as goals_router,
+    notifications as notifications_router
 )
 
 
@@ -99,8 +101,8 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -115,6 +117,9 @@ app.include_router(ai_router.router)
 app.include_router(navigation_router.router)
 app.include_router(cognitive_router.router)
 app.include_router(curriculum_router.router)
+app.include_router(resources_router.router)
+app.include_router(goals_router.router)
+app.include_router(notifications_router.router)
 
 
 # Mount static files

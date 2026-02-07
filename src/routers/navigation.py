@@ -37,6 +37,15 @@ async def get_concept_neighborhood(
     return navigation_engine.get_neighborhood(concept_name)
 
 
+@router.get("/concepts/graph", summary="Get full concept graph")
+async def get_concept_graph(
+    user_id: str = Query("default_user"),
+    navigation_engine: NavigationEngine = Depends(get_navigation_engine)
+):
+    """Get the entire concept graph including all nodes and prerequisite relationships."""
+    return navigation_engine.get_full_graph(user_id=user_id)
+
+
 # --- Content Retrieval Endpoints ---
 
 @router.get("/learning/lesson/{user_id}/{target_concept}", summary="Get formatted lesson content with flashcards")

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -20,17 +20,32 @@ import {
     Globe,
     FileText,
     Network,
-    Loader2
+    Loader2,
+    Layout,
+    PanelRightClose,
+    PanelRightOpen,
+    Sparkles,
+    Zap,
+    BookOpen,
+    Menu,
+    Plus,
+    Flame
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import useDocumentStore from '../stores/useDocumentStore';
+import useFlashcardStore from '../stores/useFlashcardStore';
 import ConceptService from '../services/concepts';
 import api from '../services/api';
-import { useTimer } from '../hooks/useTimer';
+import useTimerStore from '../stores/useTimerStore';
 import FlashcardCreator from '../components/flashcards/FlashcardCreator';
 import { Document, Page, pdfjs } from 'react-pdf';
 import ReactMarkdown from 'react-markdown';
 
-// Register PDF worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Register PDF worker - Using Vite-compatible URL resolution
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url,
+).toString();
 
 // Required CSS for react-pdf text layer
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -127,12 +142,23 @@ const DocumentViewer = () => {
     // Sidebar & Flashcard State
     const [sidebarWidth, setSidebarWidth] = useState(384);
     const [isResizing, setIsResizing] = useState(false);
+    const scrollTimeoutRef = React.useRef(null);
     const [flashcardFront, setFlashcardFront] = useState('');
     const [flashcardBack, setFlashcardBack] = useState('');
     const [isExtracting, setIsExtracting] = useState(false);
 
     const flashcardCreatorRef = React.useRef(null);
-    const { seconds, formatTime } = useTimer(true);
+    const { seconds, formatTime: formatPassiveTime } = useTimer(true);
+    const {
+        timeLeft, isActive: isTimerActive, mode: timerMode,
+        togglePlayPause, activeSessionId: timerSessionId
+    } = useTimerStore();
+
+    const formatFocusTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
 
     useEffect(() => {
         const startSession = async () => {
@@ -212,13 +238,32 @@ const DocumentViewer = () => {
         fetchDoc();
     }, [id, navigate]);
 
+    // Auto-trigger extraction if text is missing but file is available
+    useEffect(() => {
+        if (!isLoading && studyDoc && !studyDoc.extracted_text && studyDoc.file_path && !isExtracting) {
+            console.log("Empty document text detected, triggering auto-synthesis...");
+            handleExtractConcepts();
+        }
+    }, [isLoading, studyDoc]);
+
     const handleScroll = useCallback((e) => {
         const container = e.target;
-        const scrollPercentage = container.scrollTop / (container.scrollHeight - container.clientHeight);
-        if (Math.abs(scrollPercentage * 100 - progress) > 1) {
-            setProgress(Math.round(scrollPercentage * 100));
-        }
-    }, [progress]);
+
+        if (scrollTimeoutRef.current) return;
+
+        scrollTimeoutRef.current = setTimeout(() => {
+            const scrollPercentage = container.scrollTop / (container.scrollHeight - container.clientHeight);
+            const newProgress = Math.round(scrollPercentage * 100);
+
+            setProgress(prev => {
+                if (Math.abs(newProgress - prev) > 1) {
+                    return newProgress;
+                }
+                return prev;
+            });
+            scrollTimeoutRef.current = null;
+        }, 300); // Update every 300ms
+    }, []);
 
     const onDocumentLoadSuccess = ({ numPages }) => {
         setNumPages(numPages);
@@ -258,11 +303,16 @@ const DocumentViewer = () => {
     const handleExtractConcepts = async () => {
         setIsExtracting(true);
         try {
-            await ConceptService.extractConcepts(id);
-            showToast('Knowledge graph updated!', 'success');
+            const response = await ConceptService.extractConcepts(id);
+            if (response.status === 'success') {
+                showToast('Knowledge graph updated!', 'success');
+            } else {
+                showToast(response.message || 'Synthesis complete with warnings', 'info');
+            }
         } catch (err) {
             console.error(err);
-            showToast('Concept extraction failed', 'error');
+            const errorMessage = err.response?.data?.detail || err.message || 'Extraction failed';
+            showToast(errorMessage, 'error');
         } finally {
             setIsExtracting(false);
         }
@@ -372,136 +422,99 @@ const DocumentViewer = () => {
                 </div>
             )}
 
-            {/* Header */}
+            {/* Top Fixed Progress Bar */}
+            <div className="fixed top-0 left-0 right-0 h-1 z-[110] bg-dark-950/20">
+                <motion.div
+                    className="h-full bg-gradient-to-r from-primary-600 via-primary-500 to-primary-400 shadow-[0_0_10px_rgba(244,63,94,0.6)]"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ duration: 0.3 }}
+                />
+            </div>
+
+            {/* Streamlined Header */}
             {!isFocusMode && (
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-dark-900 p-4 border-b border-white/10 shrink-0">
-                    <div className="flex items-center gap-4">
-                        <Link to="/documents" className="p-2 hover:bg-white/10 rounded-lg transition-colors text-dark-200">
+                <div className="flex items-center justify-between gap-4 px-6 py-3 bg-dark-900/60 backdrop-blur-xl border-b border-white/5 shrink-0 z-50">
+                    <div className="flex items-center gap-4 min-w-0">
+                        <Link to="/documents" className="p-2.5 hover:bg-white/5 rounded-xl transition-all text-dark-300 active:scale-95 border border-transparent hover:border-white/5">
                             <ArrowLeft className="w-5 h-5" />
                         </Link>
-                        <div>
-                            <h1 className="text-sm font-bold uppercase tracking-tight truncate max-w-[200px] md:max-w-md text-white">{studyDoc?.title}</h1>
-                            <p className="text-[10px] text-dark-400 uppercase font-bold tracking-widest">{studyDoc?.category || 'No Category'}</p>
+                        <div className="min-w-0">
+                            <h1 className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] md:max-w-md text-white/90 leading-tight">
+                                {studyDoc?.title}
+                            </h1>
+                            <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[9px] text-primary-400 font-black uppercase tracking-[0.2em]">
+                                    {studyDoc?.category || 'General Study'}
+                                </span>
+                                <span className="w-1 h-1 rounded-full bg-white/10" />
+                                <span className="text-[9px] text-dark-500 font-bold uppercase tracking-widest">
+                                    {progress}% READ
+                                </span>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 md:gap-4 overflow-x-auto pb-2 md:pb-0">
-                        <div className="flex items-center gap-1 bg-dark-800 p-1 rounded-lg border border-white/5">
-                            <button onClick={handleZoomOut} className="p-2 hover:bg-white/5 rounded-md text-dark-400 hover:text-white transition-colors" title="Zoom Out">
-                                <ZoomOut className="w-4 h-4" />
+                    <div className="flex items-center gap-4">
+                        {/* Zoom Controls (Compact) */}
+                        <div className="hidden lg:flex items-center gap-0.5 bg-white/5 p-1 rounded-xl border border-white/5">
+                            <button onClick={handleZoomOut} className="p-1.5 hover:bg-white/10 rounded-lg text-dark-400 transition-colors">
+                                <ZoomOut className="w-3.5 h-3.5" />
                             </button>
-                            <span className="text-[11px] font-bold w-12 text-center text-dark-200">{Math.round(zoom * 100)}%</span>
-                            <button onClick={handleZoomIn} className="p-2 hover:bg-white/5 rounded-md text-dark-400 hover:text-white transition-colors" title="Zoom In">
-                                <ZoomIn className="w-4 h-4" />
-                            </button>
-                            <button onClick={handleResetZoom} className="p-2 hover:bg-white/5 rounded-md text-dark-400 hover:text-white transition-colors" title="Reset Zoom">
-                                <RotateCcw className="w-4 h-4" />
+                            <span className="text-[10px] font-black w-10 text-center text-dark-200">{Math.round(zoom * 100)}%</span>
+                            <button onClick={handleZoomIn} className="p-1.5 hover:bg-white/10 rounded-lg text-dark-400 transition-colors">
+                                <ZoomIn className="w-3.5 h-3.5" />
                             </button>
                         </div>
 
-                        <div className="flex items-center gap-1 bg-dark-800 p-1 rounded-lg border border-white/5">
+                        {/* Stats Dashboard (Compact) */}
+                        <div className="hidden xl:flex items-center gap-6 px-4 py-1.5 bg-white/5 rounded-xl border border-white/5 mx-2">
+                            <div className="flex flex-col">
+                                <span className="text-[8px] text-dark-500 font-black uppercase tracking-widest leading-none">Est. Left</span>
+                                <span className="text-[11px] font-black text-dark-200 mt-1">
+                                    {studyDoc.completion_estimate ?
+                                        (studyDoc.completion_estimate > 3600 ?
+                                            `${Math.round(studyDoc.completion_estimate / 3600)}h ${Math.round((studyDoc.completion_estimate % 3600) / 60)}m` :
+                                            `${Math.round(studyDoc.completion_estimate / 60)}m`)
+                                        : '--'}
+                                </span>
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-[8px] text-dark-500 font-black uppercase tracking-widest leading-none">Focus Session</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <button
+                                        onClick={togglePlayPause}
+                                        className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${isTimerActive ? 'bg-amber-500/10 text-amber-500' : 'bg-primary-500/10 text-primary-500'}`}
+                                    >
+                                        {isTimerActive ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                                    </button>
+                                    <span className={`text-[11px] font-black ${isTimerActive ? 'text-primary-400' : 'text-dark-400'} font-mono tracking-tight`}>
+                                        {formatFocusTime(timeLeft)}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-1.5">
                             <button
                                 onClick={handleExtractConcepts}
                                 disabled={isExtracting}
-                                className={`p-2 rounded-md transition-colors ${isExtracting ? 'text-primary-400 animate-pulse' : 'text-dark-400 hover:bg-white/5'}`}
+                                className={`p-2.5 rounded-xl transition-all border border-transparent ${isExtracting ? 'text-primary-400 animate-pulse' : 'text-dark-400 hover:bg-white/5 hover:border-white/10'}`}
                                 title="Map Concepts (AI)"
                             >
-                                {isExtracting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Network className="w-4 h-4" />}
+                                {isExtracting ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <Network className="w-4.5 h-4.5" />}
                             </button>
-                            <button onClick={toggleFocusMode} className={`p-2 rounded-md transition-colors ${isFocusMode ? 'text-primary-400 bg-primary-500/10' : 'text-dark-400 hover:bg-white/5'}`} title="Focus Mode">
-                                <Maximize2 className="w-4 h-4" />
+                            <button onClick={toggleFocusMode} className="p-2.5 rounded-xl text-dark-400 hover:bg-white/5 hover:border-white/10 border border-transparent transition-all" title="Focus Mode">
+                                <Maximize2 className="w-4.5 h-4.5" />
                             </button>
-                            <button onClick={() => setShowCreator(!showCreator)} className={`p-2 rounded-md transition-colors ${showCreator ? 'text-primary-400 bg-primary-500/10' : 'text-dark-400 hover:bg-white/5'}`} title="Flashcard Panel">
-                                {showCreator ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+                            <button
+                                onClick={() => setShowCreator(!showCreator)}
+                                className={`p-2.5 rounded-xl transition-all border ${showCreator ? 'bg-primary-500/20 text-primary-400 border-primary-500/30' : 'text-dark-400 hover:bg-white/5 border-transparent'}`}
+                                title="Flashcard Creator"
+                            >
+                                {showCreator ? <PanelRightClose className="w-4.5 h-4.5" /> : <PanelRightOpen className="w-4.5 h-4.5" />}
                             </button>
-                        </div>
-
-                        <div className="flex items-center gap-2 bg-dark-800 px-3 py-1.5 rounded-lg border border-white/5">
-                            <Clock className="w-3.5 h-3.5 text-primary-400" />
-                            <span className="text-xs font-bold text-primary-400 font-mono">{formatTime()}</span>
-                        </div>
-
-                        {/* Link Actions (New) */}
-                        {isLink && (
-                            <div className="flex items-center gap-2 pl-4 border-l border-white/10 ml-2">
-                                <div className="hidden lg:flex flex-col items-end mr-2">
-                                    <span className="text-[10px] font-black text-primary-400 uppercase tracking-widest leading-none">Link</span>
-                                    <span className="text-[9px] text-dark-500 font-bold uppercase tracking-tighter">External</span>
-                                </div>
-                                <a
-                                    href={fileUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-2 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 rounded-lg transition-all border border-primary-500/20 group/link"
-                                    title="Open Full Page"
-                                >
-                                    <Globe className="w-4 h-4 group-hover/link:rotate-12 transition-transform" />
-                                </a>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Focus HUD */}
-            {isFocusMode && (
-                <div className="fixed top-0 left-0 right-0 h-20 z-[100] flex justify-center group pointer-events-none hover:pointer-events-auto">
-                    <div className="mt-4 px-6 py-3 bg-dark-900/90 backdrop-blur-md border border-white/10 rounded-full shadow-2xl flex items-center gap-6 translate-y-[-150%] group-hover:translate-y-0 transition-all duration-300 pointer-events-auto">
-                        <div className="flex flex-col">
-                            <span className="text-[10px] uppercase font-bold text-dark-400 tracking-widest truncate max-w-[150px]">{studyDoc?.title}</span>
-                            <span className="text-xs font-bold text-primary-400">{progress}% Complete</span>
-                        </div>
-                        <div className="h-8 w-px bg-white/10 mx-2"></div>
-                        <div className="flex items-center gap-1">
-                            <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 rounded-full text-dark-200 hover:text-white transition-colors">
-                                <ZoomOut className="w-4 h-4" />
-                            </button>
-                            <button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-full text-dark-200 hover:text-white transition-colors">
-                                <ZoomIn className="w-4 h-4" />
-                            </button>
-                        </div>
-                        <div className="h-8 w-px bg-white/10 mx-2"></div>
-                        <button onClick={toggleFocusMode} className="p-2 bg-white/10 hover:bg-red-500/20 text-white hover:text-red-400 rounded-full transition-colors">
-                            <Minimize2 className="w-5 h-5" />
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Progress Bar Area */}
-            {!isFocusMode && (
-                <div className="flex items-center gap-6 bg-dark-900 border-b border-white/10 px-6 py-3 shrink-0">
-                    <div className="flex-1 flex items-center gap-4">
-                        <span className="text-[10px] font-bold text-dark-400 uppercase tracking-widest">Progress</span>
-                        <div className="flex-1 h-1.5 bg-dark-800 rounded-full overflow-hidden relative group">
-                            <div className="absolute inset-y-0 left-0 bg-primary-600 transition-all duration-300" style={{ width: `${progress}%` }} />
-                            <input
-                                type="range" min="0" max="100" value={progress}
-                                onChange={(e) => {
-                                    const val = parseInt(e.target.value);
-                                    setProgress(val);
-                                    const container = window.document.getElementById('document-scroll-container');
-                                    if (container) container.scrollTop = (container.scrollHeight - container.clientHeight) * (val / 100);
-                                }}
-                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            />
-                        </div>
-                        <span className="text-[10px] font-bold text-primary-400 w-8">{progress}%</span>
-                    </div>
-                    <div className="flex items-center gap-6 border-l border-white/10 pl-6">
-                        <div className="flex flex-col">
-                            <span className="text-[9px] text-dark-500 uppercase font-bold tracking-widest">Est. Remaining</span>
-                            <span className="text-xs font-bold text-dark-200">
-                                {studyDoc.completion_estimate ?
-                                    (studyDoc.completion_estimate > 3600 ?
-                                        `${Math.round(studyDoc.completion_estimate / 3600)}h ${Math.round((studyDoc.completion_estimate % 3600) / 60)}m` :
-                                        `${Math.round(studyDoc.completion_estimate / 60)}m`)
-                                    : '--'}
-                            </span>
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-[9px] text-dark-500 uppercase font-bold tracking-widest">Time Spent</span>
-                            <span className="text-xs font-bold text-dark-200">{Math.round((studyDoc.time_spent_reading || 0) / 60)}m</span>
                         </div>
                     </div>
                 </div>
@@ -510,10 +523,9 @@ const DocumentViewer = () => {
             {/* Main Content + Sidebar Wrapper */}
             <div className="flex-1 flex overflow-hidden relative">
                 {/* Main Content Column */}
-                <div className="flex-1 flex flex-col min-w-0 bg-dark-900/50">
+                <div className="flex-1 flex flex-col min-w-0 bg-dark-900/50 relative">
                     <div id="document-scroll-container" className="flex-1 overflow-auto custom-scrollbar" onScroll={handleScroll}>
-                        <div className={`min-w-full min-h-full flex flex-col ${['pdf', 'image'].includes(studyDoc?.file_type) ? 'items-center justify-center' : ''}`}
-                            style={['pdf', 'image'].includes(studyDoc?.file_type) ? { transform: `scale(${zoom})`, transformOrigin: 'top center' } : {}}>
+                        <div className={`min-w-full min-h-full flex flex-col ${['pdf', 'image'].includes(studyDoc?.file_type) ? 'items-center py-12' : ''}`}>
 
                             {studyDoc?.file_type === 'pdf' ? (
                                 <div className="w-full flex flex-col items-center py-8">
@@ -577,34 +589,71 @@ const DocumentViewer = () => {
                     </div>
                 </div>
 
-                {/* Sidebar */}
-                {showCreator && !isFocusMode && (
-                    <div className="bg-dark-900 flex flex-col gap-4 overflow-y-auto p-4 custom-scrollbar z-10 shrink-0 relative border-l border-white/10" style={{ width: sidebarWidth }}>
-                        <div className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary-500 transition-colors z-20" onMouseDown={startResizing} />
-                        <FlashcardCreator
-                            ref={flashcardCreatorRef}
-                            studyDoc={studyDoc}
-                            selectedText={selectedText}
-                            onComplete={() => {
-                                setSelectedText('');
-                                setFlashcardFront('');
-                                setFlashcardBack('');
-                            }}
-                            externalFront={flashcardFront}
-                            externalBack={flashcardBack}
-                            setExternalFront={setFlashcardFront}
-                            setExternalBack={setFlashcardBack}
-                        />
-                        {studyDoc?.extracted_text && (
-                            <div className="bg-dark-800 rounded-xl p-4 border border-white/5">
-                                <h4 className="text-[10px] font-bold text-dark-400 mb-2 uppercase tracking-widest flex items-center gap-2">Doc Content</h4>
-                                <div className="text-sm text-dark-300 leading-relaxed font-serif italic max-h-[400px] overflow-y-auto custom-scrollbar" onMouseUp={handleTextSelection}>
-                                    {studyDoc.extracted_text}
+                {/* Floating Sidebar Container */}
+                <AnimatePresence>
+                    {showCreator && !isFocusMode && (
+                        <motion.div
+                            initial={{ x: '100%' }}
+                            animate={{ x: 0 }}
+                            exit={{ x: '100%' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                            className="absolute top-0 right-0 bottom-0 z-40 bg-dark-900/80 backdrop-blur-3xl border-l border-white/10 flex flex-col shadow-[-20px_0_50px_rgba(0,0,0,0.5)] overflow-hidden"
+                            style={{ width: sidebarWidth }}
+                        >
+                            <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col p-6 space-y-6">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center border border-primary-500/30">
+                                            <Sparkles className="w-4 h-4 text-primary-400" />
+                                        </div>
+                                        <h3 className="text-sm font-black uppercase tracking-widest text-white/80">Creator</h3>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowCreator(false)}
+                                        className="p-2 hover:bg-white/5 rounded-xl text-dark-500 transition-colors"
+                                    >
+                                        <PanelRightClose className="w-5 h-5" />
+                                    </button>
                                 </div>
+
+                                <FlashcardCreator
+                                    ref={flashcardCreatorRef}
+                                    studyDoc={studyDoc}
+                                    selectedText={selectedText}
+                                    onComplete={() => {
+                                        setSelectedText('');
+                                        setFlashcardFront('');
+                                        setFlashcardBack('');
+                                    }}
+                                    externalFront={flashcardFront}
+                                    externalBack={flashcardBack}
+                                    setExternalFront={setFlashcardFront}
+                                    setExternalBack={setFlashcardBack}
+                                />
+
+                                {studyDoc?.extracted_text && (
+                                    <div className="bg-white/5 rounded-2xl p-5 border border-white/5 group hover:border-white/10 transition-colors">
+                                        <h4 className="text-[10px] font-black text-dark-400 mb-4 uppercase tracking-[0.2em] flex items-center gap-2">
+                                            <FileText className="w-3.5 h-3.5" />
+                                            Live Source
+                                        </h4>
+                                        <div className="text-xs text-dark-300 leading-relaxed font-serif italic max-h-[300px] overflow-y-auto custom-scrollbar pr-2" onMouseUp={handleTextSelection}>
+                                            {studyDoc.extracted_text}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
-                )}
+
+                            {/* Resize Handle */}
+                            <div
+                                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-primary-500/50 transition-colors group"
+                                onMouseDown={startResizing}
+                            >
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-0.5 h-10 bg-white/10 rounded-full group-hover:bg-white/30 transition-colors" />
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         </div>
     );

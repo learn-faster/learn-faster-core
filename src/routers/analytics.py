@@ -282,3 +282,138 @@ def calculate_retention_rate(db: Session) -> float:
         .scalar()
     
     return round((successful_reviews / total_reviews) * 100, 2)
+
+
+@router.get("/velocity")
+def get_learning_velocity(db: Session = Depends(get_db)):
+    """
+    Calculates learning velocity: cards mastered per study hour.
+    
+    This is a key indicator of personal learning rate, allowing users
+    to track their efficiency over time.
+    """
+    
+    # Count mastered cards (interval > 21 days = long-term memory)
+    mastered_cards = db.query(func.count(Flashcard.id))\
+        .filter(Flashcard.interval > 21)\
+        .scalar() or 0
+    
+    # Total study hours from document reading + session time
+    total_reading_seconds = db.query(func.sum(Document.time_spent_reading)).scalar() or 0
+    
+    # Also count session durations
+    sessions = db.query(StudySession).filter(StudySession.end_time.isnot(None)).all()
+    total_session_seconds = sum(
+        (s.end_time - s.start_time).total_seconds() 
+        for s in sessions if s.end_time and s.start_time
+    )
+    
+    total_hours = (total_reading_seconds + total_session_seconds) / 3600
+    velocity = mastered_cards / max(total_hours, 0.1)  # Avoid division by zero
+    
+    return {
+        "mastered_cards": mastered_cards,
+        "study_hours": round(total_hours, 1),
+        "velocity": round(velocity, 1),
+        "description": f"You master ~{round(velocity, 1)} cards per study hour"
+    }
+
+
+@router.get("/forgetting-curve")
+def get_forgetting_curve(days: int = 30, db: Session = Depends(get_db)):
+    """
+    Returns data for visualizing the forgetting curve.
+    
+    Shows theoretical memory decay vs. actual retention based on review ratings.
+    This helps users understand *why* spaced repetition works.
+    """
+    
+    start_date = datetime.utcnow() - timedelta(days=days)
+    
+    # Get reviews with their intervals and ratings
+    reviews = db.query(StudyReview)\
+        .filter(StudyReview.reviewed_at >= start_date)\
+        .order_by(StudyReview.reviewed_at)\
+        .all()
+    
+    if not reviews:
+        # Return sample theoretical curve for new users
+        return {
+            "has_data": False,
+            "theoretical": [
+                {"day": 0, "retention": 100},
+                {"day": 1, "retention": 58},
+                {"day": 2, "retention": 44},
+                {"day": 7, "retention": 33},
+                {"day": 14, "retention": 27},
+                {"day": 30, "retention": 21}
+            ],
+            "message": "Complete some reviews to see your personal curve"
+        }
+    
+    # Calculate actual retention by day offset
+    retention_by_day = {}
+    for review in reviews:
+        # Get the flashcard's interval to determine "days since last review"
+        flashcard = db.query(Flashcard).filter(Flashcard.id == review.flashcard_id).first()
+        if flashcard and flashcard.interval:
+            day_bucket = min(flashcard.interval, 30)  # Cap at 30 days
+            if day_bucket not in retention_by_day:
+                retention_by_day[day_bucket] = {"success": 0, "total": 0}
+            retention_by_day[day_bucket]["total"] += 1
+            if review.rating >= 3:
+                retention_by_day[day_bucket]["success"] += 1
+    
+    # Convert to curve data
+    actual_curve = []
+    for day, data in sorted(retention_by_day.items()):
+        retention = (data["success"] / data["total"]) * 100 if data["total"] > 0 else 0
+        actual_curve.append({"day": day, "retention": round(retention, 1)})
+    
+    # Theoretical Ebbinghaus curve (simplified)
+    theoretical = [
+        {"day": 0, "retention": 100},
+        {"day": 1, "retention": 58},
+        {"day": 2, "retention": 44},
+        {"day": 7, "retention": 33},
+        {"day": 14, "retention": 27},
+        {"day": 30, "retention": 21}
+    ]
+    
+    return {
+        "has_data": True,
+        "theoretical": theoretical,
+        "actual": actual_curve,
+        "average_retention": round(
+            sum(p["retention"] for p in actual_curve) / max(len(actual_curve), 1), 1
+        )
+    }
+
+
+@router.get("/streak-status")
+def get_streak_status(db: Session = Depends(get_db)):
+    """
+    Returns current streak status and whether it's at risk.
+    
+    A streak is "at risk" if the user hasn't studied today but has an active streak.
+    """
+    
+    streak = calculate_study_streak(db)
+    
+    # Check if user studied today
+    today = datetime.utcnow().date()
+    studied_today = db.query(StudySession)\
+        .filter(func.date(StudySession.start_time) == today)\
+        .first() is not None
+    
+    at_risk = streak > 0 and not studied_today
+    
+    return {
+        "streak": streak,
+        "studied_today": studied_today,
+        "at_risk": at_risk,
+        "message": "🔥 Study now to protect your streak!" if at_risk else (
+            f"🔥 {streak} day streak!" if streak > 0 else "Start your streak today!"
+        )
+    }
+

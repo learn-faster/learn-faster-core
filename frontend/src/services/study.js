@@ -9,8 +9,8 @@ import api from './api';
  * @async
  * @returns {Promise<Object>} The newly created session record.
  */
-const startSession = async () => {
-    return await api.post('/study/session');
+const startSession = async (sessionData = {}) => {
+    return await api.post('/study/session', sessionData);
 };
 
 /**
@@ -30,8 +30,8 @@ const submitReview = async (sessionId, reviewData) => {
  * @param {string} sessionId - ID of the session to end.
  * @returns {Promise<Object>} Post-session summary statistics.
  */
-const endSession = async (sessionId) => {
-    return await api.post(`/study/session/${sessionId}/end`);
+const endSession = async (sessionId, endData = {}) => {
+    return await api.post(`/study/session/${sessionId}/end`, endData);
 };
 
 /**

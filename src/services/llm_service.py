@@ -9,7 +9,7 @@ import traceback
 import re
 from openai import AsyncOpenAI
 from src.config import settings
-from src.services.prompts import FLASHCARD_PROMPT_TEMPLATE, QUESTION_PROMPT_TEMPLATE, LEARNING_PATH_PROMPT_TEMPLATE
+from src.services.prompts import FLASHCARD_PROMPT_TEMPLATE, QUESTION_PROMPT_TEMPLATE, LEARNING_PATH_PROMPT_TEMPLATE, CONCEPT_EXTRACTION_PROMPT_TEMPLATE
 from opik import configure, track
 
 class LLMService:
@@ -201,10 +201,13 @@ class LLMService:
         text = re.sub(r',\s*}', '}', text)
         text = re.sub(r',\s*\]', ']', text)
         
+        if not text or not text.strip():
+            raise ValueError("LLM returned an empty or whitespace-only response.")
+
         # Attempt to parse
         try:
             return json.loads(text)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             # Last ditch effort: if single quotes were used instead of double quotes
             # This is risky but often fixes LLM "JSON"
             try:
@@ -213,9 +216,13 @@ class LLMService:
                 # Replace : 'value' with : "value"
                 text_fixed = re.sub(r":\s*'([^']*)'", r': "\1"', text_fixed)
                 return json.loads(text_fixed)
-            except:
-                # Re-raise original error if fix fails
-                raise
+            except Exception:
+                # Re-raise original error with additional context if possible
+                raise json.JSONDecodeError(
+                    f"Failed to parse LLM response as JSON. Original error: {e.msg}\nRaw Text Preview: {text[:200]}...",
+                    e.doc,
+                    e.pos
+                ) from None
 
     def _get_embedding_client(self):
         """
@@ -316,6 +323,19 @@ class LLMService:
         """
         prompt = LEARNING_PATH_PROMPT_TEMPLATE.format(text=text, goal=goal)
         response_text = await self._get_completion(prompt, system_prompt="You are a JSON-speaking curriculum designer.", config=config)
+        return self._extract_and_parse_json(response_text)
+
+    @track
+    async def extract_concepts(self, text: str, config=None):
+        """
+        Extracts structured concept data (nodes and edges) from text.
+        """
+        # Limit context to avoid overflow and extremely slow/empty responses
+        # Most documents will have their core concepts in the first 20k characters
+        prompt_text = text[:20000] if text else ""
+        
+        prompt = CONCEPT_EXTRACTION_PROMPT_TEMPLATE.format(text=prompt_text)
+        response_text = await self._get_completion(prompt, system_prompt="You are a JSON-speaking knowledge engineer.", config=config)
         return self._extract_and_parse_json(response_text)
 
 # Local singleton for global use

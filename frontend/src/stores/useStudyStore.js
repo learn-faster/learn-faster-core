@@ -22,10 +22,10 @@ const useStudyStore = create((set, get) => ({
      * @async
      * @returns {Promise<Object>} The started session object.
      */
-    startSession: async () => {
+    startSession: async (sessionData) => {
         set({ isLoading: true, error: null });
         try {
-            const session = await api.post('/study/session');
+            const session = await api.post('/study/session', sessionData);
             set({ currentSession: session, isLoading: false });
             return session;
         } catch (err) {
@@ -57,13 +57,13 @@ const useStudyStore = create((set, get) => ({
      * @async
      * @returns {Promise<Object>} The session summary statistics.
      */
-    endSession: async () => {
+    endSession: async (endData) => {
         const { currentSession } = get();
         if (!currentSession) return;
 
         set({ isLoading: true });
         try {
-            const stats = await api.post(`/study/session/${currentSession.id}/end`);
+            const stats = await api.post(`/study/session/${currentSession.id}/end`, endData);
             set({ currentSession: null, sessionStats: stats, isLoading: false });
             return stats;
         } catch (err) {

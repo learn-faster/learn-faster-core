@@ -11,8 +11,10 @@ import {
     Map,
     Scan,
     FileText,
-    Settings
+    Settings,
+    Clock
 } from 'lucide-react';
+import useTimerStore from '../../stores/useTimerStore';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion } from 'framer-motion';
@@ -23,6 +25,47 @@ import { motion } from 'framer-motion';
 function cn(...inputs) {
     return twMerge(clsx(inputs));
 }
+
+const FocusStatus = () => {
+    const { timeLeft, isActive, activeSessionId, mode, studyType, goal } = useTimerStore();
+
+    if (!activeSessionId && !isActive) return null;
+
+    const formatTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 mx-2 p-3 rounded-2xl bg-primary-500/10 border border-primary-500/20 group/focus"
+        >
+            <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-500/20 flex items-center justify-center shrink-0">
+                    <Clock className={cn("w-5 h-5 text-primary-400", isActive && "animate-pulse")} />
+                </div>
+                <div className="hidden md:block min-w-0">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-primary-400 font-mono">
+                            {formatTime(timeLeft)}
+                        </span>
+                        <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    </div>
+                    <p className="text-[10px] font-bold text-white/50 uppercase tracking-tighter truncate mt-0.5">
+                        {goal || (mode === 'WORK' ? 'Deep Work' : 'Break')}
+                    </p>
+                </div>
+            </div>
+            {/* Tiny progress dot indicator for collapsed mode */}
+            <div className="md:hidden flex justify-center mt-2">
+                <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-primary-500 animate-pulse' : 'bg-dark-500'}`} />
+            </div>
+        </motion.div>
+    );
+};
 
 /**
  * Global Navigation Sidebar Component.
@@ -97,6 +140,9 @@ const Navbar = ({ onOpenSettings }) => {
             </div>
 
             <div className="px-4 mt-auto">
+                {/* Focus Session Indicator */}
+                <FocusStatus />
+
                 <button
                     onClick={onOpenSettings}
                     className="flex items-center gap-4 px-4 py-4 rounded-2xl text-dark-500 hover:text-white hover:bg-white/[0.03] border border-transparent w-full transition-all group cursor-pointer"
@@ -107,7 +153,7 @@ const Navbar = ({ onOpenSettings }) => {
                     <span className="hidden md:block font-bold tracking-tight text-sm">AI Configuration</span>
                 </button>
             </div>
-        </nav>
+        </nav >
     );
 };
 

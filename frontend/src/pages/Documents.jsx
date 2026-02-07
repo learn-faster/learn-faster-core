@@ -17,12 +17,23 @@ import {
     Check,
     Link as LinkIcon,
     Globe,
-    FileCode
+    FileCode,
+    Sparkles
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import useDocumentStore from '../stores/useDocumentStore';
 import Card from '../components/ui/Card';
 import FileUpload from '../components/documents/FileUpload';
+import { motion, AnimatePresence } from 'framer-motion';
+import useDocumentStore from '../stores/useDocumentStore';
+
+// Mesh gradients for cards based on file types
+const TYPE_MESHES = {
+    pdf: 'from-primary-600/30 via-indigo-500/10 to-transparent',
+    link: 'from-emerald-500/30 via-teal-500/10 to-transparent',
+    markdown: 'from-amber-500/30 via-orange-500/10 to-transparent',
+    image: 'from-purple-500/30 via-pink-500/10 to-transparent',
+    default: 'from-dark-600/30 via-dark-500/10 to-transparent'
+};
 
 // Color options for folders
 const FOLDER_COLORS = [
@@ -105,21 +116,29 @@ const Documents = () => {
 
     return (
         <div className="flex flex-col lg:flex-row gap-8 h-full min-h-[calc(100vh-6rem)]">
-            {/* Sidebar */}
-            <div className="w-full lg:w-72 shrink-0 flex flex-col gap-6">
-                <div className="glass-morphism rounded-3xl p-4 flex flex-col h-[500px] lg:h-[calc(100vh-12rem)] sticky top-6">
-                    <div className="flex items-center justify-between mb-6 px-2 pt-2">
-                        <h3 className="text-xs font-bold text-primary-300 uppercase tracking-[0.2em]">Folders</h3>
-                        <button
+            {/* Sidebar Folder Navigation */}
+            <div className="w-full lg:w-80 shrink-0 flex flex-col gap-6">
+                <div className="glass-morphism rounded-[2.5rem] p-5 flex flex-col h-full lg:h-[calc(100vh-10rem)] sticky top-6 border border-white/5 shadow-2xl overflow-hidden">
+                    {/* Interior glow effect */}
+                    <div className="absolute top-0 left-0 w-full h-32 bg-primary-500/5 blur-[50px] -z-10" />
+
+                    <div className="flex items-center justify-between mb-8 px-3 pt-4">
+                        <div className="flex flex-col">
+                            <h3 className="text-xs font-black text-primary-400 uppercase tracking-[0.3em]">Knowledge</h3>
+                            <span className="text-[10px] text-dark-500 font-bold uppercase tracking-widest mt-0.5">Collections</span>
+                        </div>
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => setShowFolderModal(true)}
-                            className="p-2 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 rounded-xl transition-all active:scale-90 border border-primary-500/20 group"
+                            className="p-3 bg-white/5 hover:bg-white/10 text-primary-400 rounded-2xl transition-all border border-white/10 group shadow-lg"
                             title="New Folder"
                         >
-                            <FolderPlus className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                        </button>
+                            <FolderPlus className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                        </motion.button>
                     </div>
 
-                    <div className="space-y-1.5 px-1 pb-4 border-b border-white/10">
+                    <div className="space-y-2 px-1 pb-6 border-b border-white/5">
                         {/* All Documents */}
                         <button
                             onClick={() => setSelectedFolder(null)}
@@ -196,41 +215,60 @@ const Documents = () => {
                 </div>
             </div>
 
-            {/* Main Content */}
-            <div className="flex-1 space-y-8">
-                {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-bold text-primary-400 uppercase tracking-widest">
-                            <Link to="/documents" className="hover:text-primary-300 transition-colors">Library</Link>
-                            <ChevronRight className="w-3 h-3 text-dark-600" />
-                            <span className="text-dark-400">
-                                {selectedFolderId === null ? 'All Documents' :
-                                    selectedFolderId === 'unfiled' ? 'Unfiled' :
-                                        folders.find(f => f.id === selectedFolderId)?.name || 'Folder'}
+            {/* Main Library View */}
+            <div className="flex-1 space-y-12">
+                {/* Immersive Header */}
+                <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 pt-4">
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                            <div className="px-3 py-1 rounded-full bg-primary-500/10 border border-primary-500/20">
+                                <span className="text-[10px] font-black text-primary-400 uppercase tracking-[0.2em]">
+                                    My Research
+                                </span>
+                            </div>
+                            <span className="w-1 h-1 rounded-full bg-white/10" />
+                            <span className="text-[10px] text-dark-500 font-bold uppercase tracking-widest">
+                                {documents.length} Items Total
                             </span>
                         </div>
-                        <h1 className="text-4xl font-black tracking-tight text-white drop-shadow-sm">
-                            {selectedFolderId === null ? 'Documents' :
-                                selectedFolderId === 'unfiled' ? 'Unfiled Files' :
+                        <h1 className="text-6xl font-black tracking-tighter text-white drop-shadow-2xl">
+                            {selectedFolderId === null ? 'The Archive' :
+                                selectedFolderId === 'unfiled' ? 'Drifting Files' :
                                     folders.find(f => f.id === selectedFolderId)?.name}
                         </h1>
+                        <p className="text-dark-400 text-sm font-medium max-w-lg">
+                            {selectedFolderId === null ? 'Your centralized knowledge base for documents, web links, and study materials.' :
+                                `Organized focus on ${folders.find(f => f.id === selectedFolderId)?.name || 'this collection'}.`}
+                        </p>
                     </div>
 
-                    <div className="flex gap-3">
-                        <button
-                            onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-                            className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/5 text-dark-300 transition-all active:scale-95"
-                        >
-                            {viewMode === 'grid' ? <List className="w-5 h-5" /> : <Grid3X3 className="w-5 h-5" />}
-                        </button>
-                        <button
+                    <div className="flex items-center gap-4">
+                        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
+                            <button
+                                onClick={() => setViewMode('grid')}
+                                className={`p-3 rounded-xl transition-all ${viewMode === 'grid' ? 'bg-primary-500 text-white shadow-xl' : 'text-dark-400 hover:text-white'}`}
+                            >
+                                <Grid3X3 className="w-5 h-5" />
+                            </button>
+                            <button
+                                onClick={() => setViewMode('list')}
+                                className={`p-3 rounded-xl transition-all ${viewMode === 'list' ? 'bg-primary-500 text-white shadow-xl' : 'text-dark-400 hover:text-white'}`}
+                            >
+                                <List className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
                             onClick={() => setIsUploadOpen(!isUploadOpen)}
-                            className={`btn-primary px-6 py-3 rounded-2xl shadow-primary-500/20 shadow-xl ${isUploadOpen ? 'from-dark-700 to-dark-600 hover:from-dark-600' : ''}`}
+                            className={`flex items-center gap-3 px-8 py-4 rounded-[1.5rem] font-black text-sm uppercase tracking-widest transition-all shadow-2xl
+                                ${isUploadOpen
+                                    ? 'bg-dark-800 text-white border border-white/10 shadow-black/50'
+                                    : 'bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-primary-500/20'}`}
                         >
                             {isUploadOpen ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                            <span>{isUploadOpen ? 'Close' : 'Add Document'}</span>
-                        </button>
+                            <span>{isUploadOpen ? 'Close' : 'Import Brain'}</span>
+                        </motion.button>
                     </div>
                 </div>
 
@@ -286,331 +324,358 @@ const Documents = () => {
                 ) : filteredDocs.length > 0 ? (
                     <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                         {viewMode === 'grid' ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                                {filteredDocs.map((doc) => (
-                                    <div
-                                        key={doc.id}
-                                        className="group relative glass-morphism rounded-[2.5rem] p-6 pt-8 transition-all duration-500 hover:translate-y-[-8px] hover:shadow-2xl hover:shadow-primary-950/40 border-white/5 hover:border-primary-500/30 overflow-hidden"
-                                    >
-                                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary-500/5 blur-[60px] group-hover:bg-primary-500/10 transition-colors -z-10" />
+                            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8">
+                                <AnimatePresence mode="popLayout">
+                                    {filteredDocs.map((doc, idx) => (
+                                        <motion.div
+                                            key={doc.id}
+                                            initial={{ opacity: 0, y: 20 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            transition={{ delay: idx * 0.05 }}
+                                            className="group relative glass-morphism rounded-[3rem] p-8 transition-all duration-500 border-white/5 hover:border-primary-500/30 overflow-hidden"
+                                        >
+                                            {/* Mesh Background */}
+                                            <div className={`absolute top-0 right-0 w-64 h-64 bg-gradient-to-br ${TYPE_MESHES[doc.file_type] || TYPE_MESHES.default} blur-[80px] group-hover:opacity-100 opacity-60 transition-opacity -z-10`} />
 
-                                        <div className="flex items-start justify-between mb-8">
-                                            <div className="p-4 rounded-[1.5rem] bg-gradient-to-br from-primary-600/20 to-primary-500/5 border border-primary-500/20 group-hover:border-primary-400/40 transition-all shadow-inner">
-                                                {doc.file_type === 'pdf' ? (
-                                                    <FileText className="w-8 h-8 text-primary-400 group-hover:scale-110 transition-transform" />
-                                                ) : doc.file_type === 'link' ? (
-                                                    <Globe className="w-8 h-8 text-primary-400 group-hover:scale-110 transition-transform" />
-                                                ) : (doc.file_type === 'markdown' || doc.file_type === 'text') ? (
-                                                    <FileCode className="w-8 h-8 text-primary-400 group-hover:scale-110 transition-transform" />
-                                                ) : (
-                                                    <ImageIcon className="w-8 h-8 text-primary-400 group-hover:scale-110 transition-transform" />
-                                                )}
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setContextMenu({ docId: doc.id, x: e.clientX, y: e.clientY });
-                                                    }}
-                                                    className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-dark-500 hover:text-white transition-all border border-white/5 active:scale-90"
-                                                >
-                                                    <MoreVertical className="w-4.5 h-4.5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        if (window.confirm("Delete this document?")) deleteDocument(doc.id);
-                                                    }}
-                                                    className="p-2.5 bg-white/5 hover:bg-red-500/20 rounded-xl text-dark-500 hover:text-red-400 transition-all border border-white/5 active:scale-90"
-                                                >
-                                                    <Trash2 className="w-4.5 h-4.5" />
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <h3 className="font-bold text-xl text-white leading-tight line-clamp-2 group-hover:text-primary-300 transition-colors min-h-[3.5rem]">
-                                                {doc.title}
-                                            </h3>
-                                            <div className="flex flex-wrap gap-2 items-center">
-                                                {doc.folder_id && folders.find(f => f.id === doc.folder_id) && (
-                                                    <div
-                                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border border-white/5"
-                                                        style={{ backgroundColor: (folders.find(f => f.id === doc.folder_id)?.color + '15'), color: folders.find(f => f.id === doc.folder_id)?.color }}
+                                            {/* Top Actions HUD */}
+                                            <div className="flex items-start justify-between mb-10 translate-y-2 group-hover:translate-y-0 transition-transform">
+                                                <div className="p-5 rounded-[2rem] bg-dark-900/50 backdrop-blur-md border border-white/10 shadow-2xl group-hover:border-primary-500/30 transition-colors">
+                                                    {doc.file_type === 'pdf' ? (
+                                                        <FileText className="w-10 h-10 text-primary-400 group-hover:scale-110 transition-transform" />
+                                                    ) : doc.file_type === 'link' ? (
+                                                        <Globe className="w-10 h-10 text-emerald-400 group-hover:scale-110 transition-transform" />
+                                                    ) : (doc.file_type === 'markdown' || doc.file_type === 'text') ? (
+                                                        <FileCode className="w-10 h-10 text-amber-400 group-hover:scale-110 transition-transform" />
+                                                    ) : (
+                                                        <ImageIcon className="w-10 h-10 text-purple-400 group-hover:scale-110 transition-transform" />
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-col gap-2">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setContextMenu({ docId: doc.id, x: e.clientX, y: e.clientY });
+                                                        }}
+                                                        className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-dark-500 hover:text-white transition-all border border-white/10 active:scale-90"
                                                     >
-                                                        <Folder className="w-3 h-3" />
-                                                        {folders.find(f => f.id === doc.folder_id)?.name}
-                                                    </div>
-                                                )}
-                                                <div className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/5 text-dark-500 border border-white/5">
-                                                    {doc.file_type}
+                                                        <MoreVertical className="w-5 h-5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            if (window.confirm("Purge this unit from memory?")) deleteDocument(doc.id);
+                                                        }}
+                                                        className="p-3 bg-white/5 hover:bg-red-500/20 rounded-2xl text-dark-500 hover:text-red-400 transition-all border border-white/10 active:scale-90"
+                                                    >
+                                                        <Trash2 className="w-5 h-5" />
+                                                    </button>
                                                 </div>
                                             </div>
-                                        </div>
 
-                                        <div className="mt-10 pt-6 border-t border-white/5 flex items-center justify-between">
-                                            {(doc.status === 'processing' || doc.status === 'pending' || doc.status === 'uploading') ? (
-                                                <div className="flex flex-col gap-2 flex-1 max-w-[140px]">
-                                                    <div className="flex justify-between items-center text-[10px] font-black tracking-tighter uppercase">
-                                                        <span className={`animate-pulse ${doc.status === 'uploading' ? 'text-blue-400' : 'text-primary-400'}`}>
-                                                            {doc.status === 'uploading' ? 'Uploading...' : 'Processing...'}
-                                                        </span>
-                                                    </div>
-                                                    <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                                                        <div className={`h-full rounded-full w-full animate-indeterminate-bar ${doc.status === 'uploading' ? 'bg-blue-500/50' : 'bg-primary-500/50'}`} />
-                                                    </div>
+                                            {/* Content Body */}
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] font-black text-primary-500 uppercase tracking-[0.2em] leading-none">
+                                                        {doc.file_type} Unit
+                                                    </span>
+                                                    {doc.status !== 'completed' && doc.status !== 'success' && (
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-ping" />
+                                                    )}
                                                 </div>
-                                            ) : (
-                                                <div className="flex flex-col gap-2 flex-1 max-w-[140px]">
-                                                    <div className="flex justify-between items-center text-[10px] font-black tracking-tighter uppercase">
-                                                        <span className="text-dark-500">Progress</span>
-                                                        <span className="text-primary-400">{Math.round((doc.reading_progress || 0) * 100)}%</span>
+                                                <h3 className="font-black text-2xl text-white leading-tight line-clamp-2 min-h-[4rem] tracking-tight group-hover:text-primary-300 transition-colors">
+                                                    {doc.title}
+                                                </h3>
+
+                                                {/* AI Insight Preview Placeholder */}
+                                                <div className="bg-white/5 rounded-2xl p-4 border border-white/5 mt-4 min-h-[4rem] group-hover:bg-white/[0.08] transition-colors overflow-hidden relative">
+                                                    <div className="absolute top-0 right-0 p-2 opacity-20">
+                                                        <Sparkles className="w-4 h-4 text-primary-400" />
                                                     </div>
-                                                    <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                                                        <div
-                                                            className="h-full bg-gradient-to-r from-primary-600 to-primary-400 rounded-full transition-all duration-1000 ease-out shadow-[0_0_12px_rgba(244,63,94,0.4)]"
-                                                            style={{ width: `${(doc.reading_progress || 0) * 100}%` }}
+                                                    <p className="text-[11px] text-dark-400 italic font-serif leading-relaxed line-clamp-2">
+                                                        {doc.ai_summary || "Analyzing document structure to synthesize core learning concepts..."}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Progress Footer */}
+                                            <div className="mt-10 pt-8 border-t border-white/5 flex items-center justify-between gap-6">
+                                                <div className="flex-1 space-y-3">
+                                                    <div className="flex justify-between items-center px-1">
+                                                        <span className="text-[9px] font-black text-dark-500 uppercase tracking-[0.15em]">Assimilation</span>
+                                                        <span className="text-[10px] font-black text-primary-400">{Math.round((doc.reading_progress || 0) * 100)}%</span>
+                                                    </div>
+                                                    <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5 relative shadow-inner">
+                                                        <motion.div
+                                                            initial={{ width: 0 }}
+                                                            animate={{ width: `${(doc.reading_progress || 0) * 100}%` }}
+                                                            className="h-full bg-gradient-to-r from-primary-600 via-primary-500 to-primary-400 rounded-full shadow-[0_0_15px_rgba(244,63,94,0.3)]"
                                                         />
                                                     </div>
                                                 </div>
-                                            )}
-                                            <Link
-                                                to={doc.status === 'processing' || doc.status === 'pending' ? '#' : `/documents/${doc.id}`}
-                                                className={`btn-primary py-3 px-6 rounded-2xl text-xs font-black uppercase tracking-[0.15em] flex items-center gap-2 group/btn shadow-lg ${(doc.status === 'processing' || doc.status === 'pending') ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                                            >
-                                                <span>Study</span>
-                                                <ChevronRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                                            </Link>
-                                        </div>
-                                    </div>
-                                ))}
+
+                                                <Link
+                                                    to={doc.status === 'processing' || doc.status === 'pending' ? '#' : `/documents/${doc.id}`}
+                                                    className={`aspect-square p-5 rounded-[2rem] flex items-center justify-center transition-all shadow-2xl
+                                                        ${(doc.status === 'processing' || doc.status === 'pending' || doc.status === 'uploading')
+                                                            ? 'bg-dark-800 text-dark-600 cursor-not-allowed grayscale'
+                                                            : 'bg-primary-500 text-white hover:scale-110 hover:shadow-primary-500/40 active:scale-95'}`}
+                                                >
+                                                    <BookOpen className="w-6 h-6" />
+                                                </Link>
+                                            </div>
+                                        </motion.div>
+                                    ))}
+                                </AnimatePresence>
                             </div>
                         ) : (
-                            <div className="space-y-4">
-                                {filteredDocs.map((doc) => (
-                                    <div
-                                        key={doc.id}
-                                        className="group flex items-center gap-6 p-5 rounded-[2rem] bg-white/5 border border-white/5 hover:border-primary-500/20 hover:bg-white/[0.07] transition-all duration-300"
-                                    >
-                                        <div className="p-4 rounded-2xl bg-gradient-to-br from-primary-600/10 to-primary-500/5 border border-white/5 shrink-0 shadow-inner">
-                                            {doc.file_type === 'pdf' ? (
-                                                <FileText className="w-6 h-6 text-primary-400" />
-                                            ) : doc.file_type === 'link' ? (
-                                                <Globe className="w-6 h-6 text-primary-400" />
-                                            ) : (doc.file_type === 'markdown' || doc.file_type === 'text') ? (
-                                                <FileCode className="w-6 h-6 text-primary-400" />
-                                            ) : (
-                                                <ImageIcon className="w-6 h-6 text-primary-400" />
-                                            )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <h3 className="font-bold text-lg text-white truncate group-hover:text-primary-300 transition-colors">{doc.title}</h3>
-                                            <div className="flex items-center gap-4 mt-2">
-                                                <div className="flex items-center gap-3 w-40 shrink-0">
-                                                    <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden border border-white/5">
-                                                        <div
-                                                            className="h-full bg-primary-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]"
-                                                            style={{ width: `${(doc.reading_progress || 0) * 100}%` }}
-                                                        />
-                                                    </div>
-                                                    <span className="text-[10px] font-bold text-dark-500">{Math.round((doc.reading_progress || 0) * 100)}%</span>
-                                                </div>
-                                                {doc.folder_id && folders.find(f => f.id === doc.folder_id) && (
-                                                    <span
-                                                        className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border border-white/5 flex items-center gap-2"
-                                                        style={{ backgroundColor: folders.find(f => f.id === doc.folder_id)?.color + '15', color: folders.find(f => f.id === doc.folder_id)?.color }}
-                                                    >
-                                                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: folders.find(f => f.id === doc.folder_id)?.color }} />
-                                                        {folders.find(f => f.id === doc.folder_id)?.name}
-                                                    </span>
+                            <div className="space-y-6">
+                                <AnimatePresence mode="popLayout">
+                                    {filteredDocs.map((doc, idx) => (
+                                        <motion.div
+                                            key={doc.id}
+                                            initial={{ opacity: 0, x: -20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            transition={{ delay: idx * 0.03 }}
+                                            className="group flex items-center gap-8 p-6 rounded-[2.5rem] bg-white/5 border border-white/5 hover:border-primary-500/20 hover:bg-white/[0.08] transition-all duration-300 relative overflow-hidden"
+                                        >
+                                            {/* Subtle Glow */}
+                                            <div className="absolute left-0 top-0 w-1 h-full bg-primary-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                                            <div className="p-5 rounded-2xl bg-dark-900 border border-white/5 shrink-0 shadow-2xl group-hover:border-primary-500/30 transition-colors">
+                                                {doc.file_type === 'pdf' ? (
+                                                    <FileText className="w-8 h-8 text-primary-400" />
+                                                ) : doc.file_type === 'link' ? (
+                                                    <Globe className="w-8 h-8 text-emerald-400" />
+                                                ) : (doc.file_type === 'markdown' || doc.file_type === 'text') ? (
+                                                    <FileCode className="w-8 h-8 text-amber-400" />
+                                                ) : (
+                                                    <ImageIcon className="w-8 h-8 text-purple-400" />
                                                 )}
                                             </div>
-                                        </div>
-                                        {(doc.status === 'processing' || doc.status === 'pending' || doc.status === 'uploading') ? (
-                                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0 duration-300">
-                                                <span className={`text-xs font-bold px-4 py-2 rounded-xl border ${doc.status === 'uploading' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : 'text-primary-400 bg-primary-500/10 border-primary-500/20 animate-pulse'}`}>
-                                                    {doc.status === 'uploading' ? 'Uploading...' : 'Processing...'}
-                                                </span>
+
+                                            <div className="flex-1 min-w-0 space-y-2">
+                                                <div className="flex items-center gap-3">
+                                                    <h3 className="font-black text-xl text-white truncate group-hover:text-primary-300 transition-colors tracking-tight">
+                                                        {doc.title}
+                                                    </h3>
+                                                    {doc.ai_summary && <Sparkles className="w-4 h-4 text-primary-400 animate-pulse" />}
+                                                </div>
+
+                                                <div className="flex items-center gap-6">
+                                                    <div className="flex items-center gap-3 w-48 shrink-0">
+                                                        <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5 shadow-inner">
+                                                            <div
+                                                                className="h-full bg-gradient-to-r from-primary-600 to-primary-400 shadow-[0_0_8px_rgba(244,63,94,0.4)]"
+                                                                style={{ width: `${(doc.reading_progress || 0) * 100}%` }}
+                                                            />
+                                                        </div>
+                                                        <span className="text-[10px] font-black text-primary-400 tracking-tighter">
+                                                            {Math.round((doc.reading_progress || 0) * 100)}%
+                                                        </span>
+                                                    </div>
+
+                                                    {doc.folder_id && folders.find(f => f.id === doc.folder_id) && (
+                                                        <div
+                                                            className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5 flex items-center gap-2"
+                                                            style={{ backgroundColor: folders.find(f => f.id === doc.folder_id)?.color + '10', color: folders.find(f => f.id === doc.folder_id)?.color }}
+                                                        >
+                                                            <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: folders.find(f => f.id === doc.folder_id)?.color }} />
+                                                            {folders.find(f => f.id === doc.folder_id)?.name}
+                                                        </div>
+                                                    )}
+
+                                                    <span className="text-[10px] text-dark-500 font-bold uppercase tracking-widest">
+                                                        {doc.file_type} Unit
+                                                    </span>
+                                                </div>
                                             </div>
-                                        ) : (
-                                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0 duration-300">
+
+                                            <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0 duration-300">
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setContextMenu({ docId: doc.id, x: e.clientX, y: e.clientY });
                                                     }}
-                                                    className="p-3 bg-white/5 hover:bg-white/10 rounded-xl text-dark-400 border border-white/5"
+                                                    className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-dark-400 border border-white/5 hover:text-white"
                                                 >
                                                     <MoreVertical className="w-5 h-5" />
                                                 </button>
-                                                <button
-                                                    onClick={() => {
-                                                        if (window.confirm("Delete document?")) deleteDocument(doc.id);
-                                                    }}
-                                                    className="p-3 bg-white/5 hover:bg-red-500/20 rounded-xl text-red-500 border border-white/5"
-                                                >
-                                                    <Trash2 className="w-5 h-5" />
-                                                </button>
                                                 <Link
-                                                    to={`/documents/${doc.id}`}
-                                                    className="btn-primary ml-2 px-6 py-2 rounded-xl text-sm font-bold shadow-lg"
+                                                    to={doc.status === 'processing' || doc.status === 'pending' ? '#' : `/documents/${doc.id}`}
+                                                    className={`px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl
+                                                        ${(doc.status === 'processing' || doc.status === 'pending' || doc.status === 'uploading')
+                                                            ? 'bg-dark-800 text-dark-600 cursor-not-allowed'
+                                                            : 'bg-primary-500 text-white hover:shadow-primary-500/30'}`}
                                                 >
-                                                    Read
+                                                    {doc.status === 'processing' ? 'Processing' : 'Read Unit'}
                                                 </Link>
                                             </div>
-                                        )}
-                                    </div>
-                                ))}
+                                        </motion.div>
+                                    ))}
+                                </AnimatePresence>
                             </div>
                         )}
                     </div>
                 ) : (
-                    <div className="text-center py-16 glass-morphism rounded-[3rem] border-2 border-dashed border-white/10 animate-in zoom-in duration-500">
-                        <div className="relative inline-block mb-8">
-                            <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary-500/20 to-primary-600/10 flex items-center justify-center mx-auto">
-                                <BookOpen className="w-16 h-16 text-primary-400" />
-                            </div>
-                            <div className="absolute -bottom-2 -right-2 w-12 h-12 rounded-full bg-primary-500 flex items-center justify-center shadow-lg shadow-primary-500/40">
-                                <Plus className="w-6 h-6 text-white" />
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="text-center py-24 glass-morphism rounded-[4rem] border border-white/5 relative overflow-hidden flex flex-col items-center justify-center min-h-[500px]"
+                    >
+                        {/* Background Decor */}
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary-500/5 blur-[120px] rounded-full -z-10" />
+
+                        <div className="relative mb-12">
+                            <div className="w-40 h-40 rounded-full bg-dark-900 border border-white/10 flex items-center justify-center shadow-2xl relative">
+                                <BookOpen className="w-20 h-20 text-primary-400" />
+                                <div className="absolute -top-4 -right-4 p-4 rounded-3xl bg-primary-500 text-white shadow-2xl shadow-primary-500/40">
+                                    <Sparkles className="w-8 h-8" />
+                                </div>
                             </div>
                         </div>
 
-                        <h3 className="text-3xl font-black text-white mb-3">
+                        <h3 className="text-5xl font-black text-white mb-6 tracking-tighter">
                             {selectedFolderId && selectedFolderId !== 'unfiled'
-                                ? "This folder is empty"
-                                : "Start Your Study Journey"}
+                                ? "This Collection is Untouched"
+                                : "The Archive Awaits Your Brain"}
                         </h3>
-                        <p className="text-dark-400 max-w-md mx-auto text-lg font-medium mb-10 px-6">
+                        <p className="text-dark-400 max-w-xl mx-auto text-xl font-medium mb-16 px-6 leading-relaxed">
                             {selectedFolderId && selectedFolderId !== 'unfiled'
-                                ? "Add documents to this folder to keep your study materials organized."
-                                : "Upload PDFs, add web links, or paste text to create your personalized study library."}
+                                ? "Initialize this segment by importing documents or research units into this collection."
+                                : "Transform raw information into permanent knowledge. Start by importing PDFs, research papers, or web-based knowledge units."}
                         </p>
 
-                        {/* Feature highlights for new users */}
-                        {!selectedFolderId && (
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto mb-10 px-6">
-                                <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
-                                    <FileText className="w-8 h-8 text-primary-400 mx-auto mb-2" />
-                                    <p className="text-xs font-bold text-white">Upload PDFs</p>
-                                    <p className="text-[10px] text-dark-500 mt-1">Research papers, textbooks, notes</p>
-                                </div>
-                                <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
-                                    <Globe className="w-8 h-8 text-primary-400 mx-auto mb-2" />
-                                    <p className="text-xs font-bold text-white">Add Web Links</p>
-                                    <p className="text-[10px] text-dark-500 mt-1">ArXiv papers, articles, blogs</p>
-                                </div>
-                                <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
-                                    <FileCode className="w-8 h-8 text-primary-400 mx-auto mb-2" />
-                                    <p className="text-xs font-bold text-white">Paste Text</p>
-                                    <p className="text-[10px] text-dark-500 mt-1">Markdown, plain text, notes</p>
-                                </div>
-                            </div>
-                        )}
+                        <div className="flex flex-col sm:flex-row gap-6 items-center">
+                            <motion.button
+                                whileHover={{ scale: 1.05, y: -5 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => setIsUploadOpen(true)}
+                                className="px-12 py-5 rounded-[2rem] bg-primary-500 text-white font-black text-xl uppercase tracking-widest shadow-2xl shadow-primary-500/30 flex items-center gap-4 group"
+                            >
+                                <Plus className="w-8 h-8 group-hover:rotate-90 transition-transform" />
+                                Initialize Memory
+                            </motion.button>
+                        </div>
 
-                        <button
-                            onClick={() => setIsUploadOpen(true)}
-                            className="btn-primary mx-auto px-10 py-4 rounded-2xl text-lg font-black shadow-2xl shadow-primary-500/30 group"
-                        >
-                            <Plus className="w-6 h-6 group-hover:rotate-90 transition-transform" />
-                            Add Your First Document
-                        </button>
-                    </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mt-24">
+                            <div className="p-6 rounded-3xl bg-white/5 border border-white/5 backdrop-blur-sm">
+                                <div className="text-3xl font-black text-white/20 mb-2">01</div>
+                                <h4 className="text-sm font-bold text-white mb-1">Import Units</h4>
+                                <p className="text-xs text-dark-500">PDFs, Articles, Text Files</p>
+                            </div>
+                            <div className="p-6 rounded-3xl bg-white/5 border border-white/5 backdrop-blur-sm">
+                                <div className="text-3xl font-black text-white/20 mb-2">02</div>
+                                <h4 className="text-sm font-bold text-white mb-1">Synthesize</h4>
+                                <p className="text-xs text-dark-500">AI-Driven Insights & Extraction</p>
+                            </div>
+                            <div className="p-6 rounded-3xl bg-white/5 border border-white/5 backdrop-blur-sm">
+                                <div className="text-3xl font-black text-white/20 mb-2">03</div>
+                                <h4 className="text-sm font-bold text-white mb-1">Ascend</h4>
+                                <p className="text-xs text-dark-500">Master Concepts with Flashcards</p>
+                            </div>
+                        </div>
+                    </motion.div>
                 )}
             </div>
 
             {/* Context Menu */}
-            {contextMenu && (
-                <>
-                    <div className="fixed inset-0 z-[60] cursor-default" onClick={() => setContextMenu(null)} />
-                    <div
-                        className="fixed z-[70] glass-morphism bg-dark-900 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 rounded-2xl py-3 min-w-[220px] animate-in fade-in zoom-in-95 duration-200"
-                        style={{ left: Math.min(contextMenu.x, window.innerWidth - 240), top: contextMenu.y }}
-                    >
-                        <p className="px-5 py-2 text-[10px] font-black text-primary-400 uppercase tracking-[0.2em] mb-1">Organize</p>
-                        <button
-                            onClick={() => handleMoveToFolder(contextMenu.docId, null)}
-                            className={`w-full px-5 py-3 text-left text-sm font-semibold hover:bg-white/5 flex items-center gap-3 transition-colors ${!documents.find(d => d.id === contextMenu.docId)?.folder_id ? 'text-primary-400' : 'text-dark-300'}`}
+            {
+                contextMenu && (
+                    <>
+                        <div className="fixed inset-0 z-[60] cursor-default" onClick={() => setContextMenu(null)} />
+                        <div
+                            className="fixed z-[70] glass-morphism bg-dark-900 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 rounded-2xl py-3 min-w-[220px] animate-in fade-in zoom-in-95 duration-200"
+                            style={{ left: Math.min(contextMenu.x, window.innerWidth - 240), top: contextMenu.y }}
                         >
-                            <FileText className="w-4 h-4 opacity-70" />
-                            Move to Unfiled
-                        </button>
-                        <div className="my-2 border-t border-white/5" />
-                        <div className="max-h-[250px] overflow-y-auto custom-scrollbar">
-                            {folders.map((folder) => (
-                                <button
-                                    key={folder.id}
-                                    onClick={() => handleMoveToFolder(contextMenu.docId, folder.id)}
-                                    className={`w-full px-5 py-3 text-left text-sm font-semibold hover:bg-white/5 flex items-center gap-3 transition-colors ${documents.find(d => d.id === contextMenu.docId)?.folder_id === folder.id ? 'text-primary-400' : 'text-dark-300'}`}
-                                >
-                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: folder.color }} />
-                                    {folder.name}
-                                </button>
-                            ))}
+                            <p className="px-5 py-2 text-[10px] font-black text-primary-400 uppercase tracking-[0.2em] mb-1">Organize</p>
+                            <button
+                                onClick={() => handleMoveToFolder(contextMenu.docId, null)}
+                                className={`w-full px-5 py-3 text-left text-sm font-semibold hover:bg-white/5 flex items-center gap-3 transition-colors ${!documents.find(d => d.id === contextMenu.docId)?.folder_id ? 'text-primary-400' : 'text-dark-300'}`}
+                            >
+                                <FileText className="w-4 h-4 opacity-70" />
+                                Move to Unfiled
+                            </button>
+                            <div className="my-2 border-t border-white/5" />
+                            <div className="max-h-[250px] overflow-y-auto custom-scrollbar">
+                                {folders.map((folder) => (
+                                    <button
+                                        key={folder.id}
+                                        onClick={() => handleMoveToFolder(contextMenu.docId, folder.id)}
+                                        className={`w-full px-5 py-3 text-left text-sm font-semibold hover:bg-white/5 flex items-center gap-3 transition-colors ${documents.find(d => d.id === contextMenu.docId)?.folder_id === folder.id ? 'text-primary-400' : 'text-dark-300'}`}
+                                    >
+                                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: folder.color }} />
+                                        {folder.name}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                </>
-            )}
+                    </>
+                )
+            }
 
             {/* New Folder Modal */}
-            {showFolderModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setShowFolderModal(false)}>
-                    <div className="glass-morphism bg-dark-900 border border-white/10 rounded-[2.5rem] p-10 w-full max-w-lg shadow-[0_0_100px_rgba(0,0,0,0.7)] animate-in zoom-in-95 duration-500" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between mb-10">
-                            <div className="space-y-1">
-                                <h2 className="text-3xl font-black text-white">New Folder</h2>
-                                <p className="text-dark-500 text-sm font-medium">Categorize your study material</p>
-                            </div>
-                            <button onClick={() => setShowFolderModal(false)} className="p-3 hover:bg-white/5 rounded-2xl text-dark-500 transition-all active:rotate-90">
-                                <X className="w-6 h-6" />
-                            </button>
-                        </div>
-
-                        <div className="space-y-8">
-                            <div className="space-y-3">
-                                <label className="block text-xs font-black text-primary-400 uppercase tracking-widest ml-1">Name Your Collection</label>
-                                <input
-                                    type="text"
-                                    value={newFolderName}
-                                    onChange={(e) => setNewFolderName(e.target.value)}
-                                    placeholder="e.g., Organic Chemistry"
-                                    className="w-full bg-white/5 border-white/10 text-xl font-bold py-4 px-6 rounded-2xl focus:border-primary-500/50 focus:ring-4 focus:ring-primary-500/10 placeholder:text-dark-700 transition-all"
-                                    autoFocus
-                                />
+            {
+                showFolderModal && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setShowFolderModal(false)}>
+                        <div className="glass-morphism bg-dark-900 border border-white/10 rounded-[2.5rem] p-10 w-full max-w-lg shadow-[0_0_100px_rgba(0,0,0,0.7)] animate-in zoom-in-95 duration-500" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-between mb-10">
+                                <div className="space-y-1">
+                                    <h2 className="text-3xl font-black text-white">New Folder</h2>
+                                    <p className="text-dark-500 text-sm font-medium">Categorize your study material</p>
+                                </div>
+                                <button onClick={() => setShowFolderModal(false)} className="p-3 hover:bg-white/5 rounded-2xl text-dark-500 transition-all active:rotate-90">
+                                    <X className="w-6 h-6" />
+                                </button>
                             </div>
 
-                            <div className="space-y-4">
-                                <label className="block text-xs font-black text-primary-400 uppercase tracking-widest ml-1">Visual Identity</label>
-                                <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
-                                    {FOLDER_COLORS.map((color) => (
-                                        <button
-                                            key={color}
-                                            onClick={() => setNewFolderColor(color)}
-                                            className={`aspect-square rounded-2xl transition-all relative overflow-hidden group ${newFolderColor === color ? 'ring-4 ring-white/20' : 'hover:scale-110'}`}
-                                            style={{ backgroundColor: color }}
-                                        >
-                                            <div className={`absolute inset-0 flex items-center justify-center bg-black/10 transition-opacity ${newFolderColor === color ? 'opacity-100' : 'opacity-0'}`}>
-                                                <Check className="w-6 h-6 text-white" />
-                                            </div>
-                                        </button>
-                                    ))}
+                            <div className="space-y-8">
+                                <div className="space-y-3">
+                                    <label className="block text-xs font-black text-primary-400 uppercase tracking-widest ml-1">Name Your Collection</label>
+                                    <input
+                                        type="text"
+                                        value={newFolderName}
+                                        onChange={(e) => setNewFolderName(e.target.value)}
+                                        placeholder="e.g., Organic Chemistry"
+                                        className="w-full bg-white/5 border-white/10 text-xl font-bold py-4 px-6 rounded-2xl focus:border-primary-500/50 focus:ring-4 focus:ring-primary-500/10 placeholder:text-dark-700 transition-all"
+                                        autoFocus
+                                    />
+                                </div>
+
+                                <div className="space-y-4">
+                                    <label className="block text-xs font-black text-primary-400 uppercase tracking-widest ml-1">Visual Identity</label>
+                                    <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
+                                        {FOLDER_COLORS.map((color) => (
+                                            <button
+                                                key={color}
+                                                onClick={() => setNewFolderColor(color)}
+                                                className={`aspect-square rounded-2xl transition-all relative overflow-hidden group ${newFolderColor === color ? 'ring-4 ring-white/20' : 'hover:scale-110'}`}
+                                                style={{ backgroundColor: color }}
+                                            >
+                                                <div className={`absolute inset-0 flex items-center justify-center bg-black/10 transition-opacity ${newFolderColor === color ? 'opacity-100' : 'opacity-0'}`}>
+                                                    <Check className="w-6 h-6 text-white" />
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="flex gap-4 mt-12">
-                            <button onClick={() => setShowFolderModal(false)} className="btn-secondary flex-1 py-4 text-sm font-bold uppercase tracking-widest">
-                                Discard
-                            </button>
-                            <button
-                                onClick={handleCreateFolder}
-                                className="btn-primary flex-1 py-4 text-sm font-black uppercase tracking-[0.2em] shadow-2xl shadow-primary-500/20"
-                                disabled={!newFolderName.trim()}
-                            >
-                                Create Folder
-                            </button>
+                            <div className="flex gap-4 mt-12">
+                                <button onClick={() => setShowFolderModal(false)} className="btn-secondary flex-1 py-4 text-sm font-bold uppercase tracking-widest">
+                                    Discard
+                                </button>
+                                <button
+                                    onClick={handleCreateFolder}
+                                    className="btn-primary flex-1 py-4 text-sm font-black uppercase tracking-[0.2em] shadow-2xl shadow-primary-500/20"
+                                    disabled={!newFolderName.trim()}
+                                >
+                                    Create Folder
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
         </div>
     );
 };

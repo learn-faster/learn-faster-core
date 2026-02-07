@@ -10,7 +10,13 @@ from datetime import datetime
 
 from src.database.orm import get_db
 from src.models.orm import StudySession, StudyReview, Flashcard
-from src.models.schemas import StudyReviewCreate, StudySessionResponse, FlashcardResponse
+from src.models.schemas import (
+    StudyReviewCreate, 
+    StudySessionResponse, 
+    FlashcardResponse,
+    StudySessionCreate,
+    StudySessionEnd
+)
 from src.services.srs_service import SRSService
 
 router = APIRouter(prefix="/api/study", tags=["study"])
@@ -18,18 +24,21 @@ srs_service = SRSService()
 
 
 @router.post("/session", response_model=StudySessionResponse)
-def start_study_session(db: Session = Depends(get_db)):
+def start_study_session(
+    session_data: StudySessionCreate = None,
+    db: Session = Depends(get_db)
+):
     """
-    Initializes a new study session to track a group of card reviews.
-    
-    Args:
-        db (Session): Database session.
-        
-    Returns:
-        StudySessionResponse: The newly created session object.
+    Initializes a new study session.
     """
     import uuid
-    session = StudySession(id=str(uuid.uuid4()))
+    session_id = str(uuid.uuid4())
+    
+    session = StudySession(
+        id=session_id,
+        goal=session_data.goal if session_data else None,
+        study_type=session_data.study_type if session_data else "deep"
+    )
     
     db.add(session)
     db.commit()
@@ -129,7 +138,11 @@ def submit_review(
 
 
 @router.post("/session/{session_id}/end", response_model=StudySessionResponse)
-def end_study_session(session_id: str, db: Session = Depends(get_db)):
+def end_study_session(
+    session_id: str, 
+    end_data: StudySessionEnd = None,
+    db: Session = Depends(get_db)
+):
     """
     Finalizes a study session and calculates aggregate performance stats.
     """
@@ -140,6 +153,13 @@ def end_study_session(session_id: str, db: Session = Depends(get_db)):
     
     # Set end time
     session.end_time = datetime.utcnow()
+    
+    # Update reflection and rating if provided
+    if end_data:
+        if end_data.reflection:
+            session.reflection = end_data.reflection
+        if end_data.effectiveness_rating:
+            session.effectiveness_rating = end_data.effectiveness_rating
     
     # Calculate average rating
     if session.reviews:

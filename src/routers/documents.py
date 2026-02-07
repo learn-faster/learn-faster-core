@@ -377,7 +377,7 @@ def move_document(
     return {"message": "Document moved successfully"}
 
 
-@router.post("/{document_id}/session/start")
+@router.post("/{document_id}/start-session")
 def start_reading_session(document_id: int, db: Session = Depends(get_db)):
     """
     Starts a time tracking session for a document.
@@ -388,7 +388,7 @@ def start_reading_session(document_id: int, db: Session = Depends(get_db)):
     return {"message": "Session started", "last_opened": doc.last_opened}
 
 
-@router.post("/{document_id}/session/end")
+@router.post("/{document_id}/end-session")
 def end_reading_session(
     document_id: int,
     request: TimeTrackingRequest,
