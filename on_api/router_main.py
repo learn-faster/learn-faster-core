@@ -1,19 +1,17 @@
 from fastapi import APIRouter
 import logging
-from surrealdb import Surreal
+from surrealdb import AsyncSurreal
 
 logger = logging.getLogger("learnfast-core.on_api")
 
-router = APIRouter(prefix="/api")
+router = APIRouter()
 
-# We'll use a globally shared Surreal instance
-db = Surreal("http://localhost:8000/rpc")
+# Use AsyncSurreal for async compatibility
+db = AsyncSurreal("http://localhost:8000/rpc")
 
 async def init_surrealdb():
-    """Initializes SurrealDB connection and namespace/database."""
     try:
-        await db.connect()
-        await db.signin({"user": "root", "pass": "root"})
+        await db.signin({"username": "root", "password": "root"})
         await db.use("learnfast", "open_notebook")
         logger.info("Connected to SurrealDB successfully")
     except Exception as e:
@@ -38,3 +36,43 @@ async def get_config():
         "version": "0.1.0",
         "dbStatus": "connected"
     }
+
+from pydantic import BaseModel
+from typing import Dict, Any, Optional
+from sqlalchemy.orm import Session
+from fastapi import Depends, HTTPException
+from src.database.orm import get_db
+from src.models.orm import UserSettings
+
+class LLMConfigUpdate(BaseModel):
+    config: Dict[str, Any]
+
+@router.get("/config/llm")
+async def get_llm_config(db: Session = Depends(get_db)):
+    """Get LLM configuration for the default user."""
+    user_settings = db.query(UserSettings).filter(UserSettings.user_id == "default_user").first()
+    if not user_settings:
+        # Create default settings if not exists
+        user_settings = UserSettings(user_id="default_user", llm_config={})
+        db.add(user_settings)
+        db.commit()
+        db.refresh(user_settings)
+    
+    return user_settings.llm_config or {}
+
+@router.post("/config/llm")
+async def update_llm_config(update: LLMConfigUpdate, db: Session = Depends(get_db)):
+    """Update LLM configuration."""
+    user_settings = db.query(UserSettings).filter(UserSettings.user_id == "default_user").first()
+    if not user_settings:
+        user_settings = UserSettings(user_id="default_user", llm_config=update.config)
+        db.add(user_settings)
+    else:
+        user_settings.llm_config = update.config
+    
+    try:
+        db.commit()
+        return {"status": "success", "config": user_settings.llm_config}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

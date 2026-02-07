@@ -176,6 +176,10 @@ class UserSettings(Base):
     email_streak_alert = Column(Boolean, default=True)
     email_weekly_digest = Column(Boolean, default=True)
     
+    # LLM Configuration (JSON)
+    # Stores provider settings and component-specific overrides
+    llm_config = Column(JSON, default=dict)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

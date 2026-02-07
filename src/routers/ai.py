@@ -64,7 +64,20 @@ async def generate_flashcards(request: GenerateRequest, db: Session = Depends(ge
         raise HTTPException(status_code=400, detail="Document has no text content available for generation")
         
     try:
-        flashcards = await llm_service.generate_flashcards(text, request.count, request.llm_config)
+        # Fetch user settings for LLM config overrides
+        from src.models.orm import UserSettings
+        user_settings = db.query(UserSettings).filter(UserSettings.user_id == "default_user").first()
+        
+        # Merge request config with stored config (priority to request if provided, else stored)
+        # For now, we just use stored config if request config is empty
+        config = request.llm_config
+        if not config and user_settings and user_settings.llm_config:
+            # Parse stored JSON into LLMConfig object
+            stored_config = user_settings.llm_config.get("flashcards") or user_settings.llm_config.get("global")
+            if stored_config:
+                config = LLMConfig(**stored_config)
+
+        flashcards = await llm_service.generate_flashcards(text, request.count, config)
         return flashcards
     except Exception as e:
         traceback.print_exc()
@@ -92,7 +105,17 @@ async def generate_questions(request: GenerateRequest, db: Session = Depends(get
         raise HTTPException(status_code=400, detail="Document has no text content")
 
     try:
-        questions = await llm_service.generate_questions(text, request.count, request.llm_config)
+        # Fetch user settings for LLM config
+        from src.models.orm import UserSettings
+        user_settings = db.query(UserSettings).filter(UserSettings.user_id == "default_user").first()
+        
+        config = request.llm_config
+        if not config and user_settings and user_settings.llm_config:
+            stored_config = user_settings.llm_config.get("quiz") or user_settings.llm_config.get("global")
+            if stored_config:
+                config = LLMConfig(**stored_config)
+
+        questions = await llm_service.generate_questions(text, request.count, config)
         return questions
     except Exception as e:
         traceback.print_exc()
@@ -160,7 +183,17 @@ async def generate_learning_path(
 
     try:
         # Mapping target_concept to 'goal' for LLM
-        path = await llm_service.generate_learning_path(text, request.target_concept)
+        # Fetch user settings for LLM config
+        from src.models.orm import UserSettings
+        user_settings = db.query(UserSettings).filter(UserSettings.user_id == "default_user").first()
+        
+        config = None
+        if user_settings and user_settings.llm_config:
+            stored_config = user_settings.llm_config.get("curriculum") or user_settings.llm_config.get("global")
+            if stored_config:
+                config = LLMConfig(**stored_config)
+
+        path = await llm_service.generate_learning_path(text, request.target_concept, config=config)
         return path
     except Exception as e:
         traceback.print_exc()

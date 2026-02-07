@@ -117,6 +117,7 @@ def migrate_user_settings_table():
         ("email_daily_reminder", "BOOLEAN DEFAULT TRUE"),
         ("email_streak_alert", "BOOLEAN DEFAULT TRUE"),
         ("email_weekly_digest", "BOOLEAN DEFAULT TRUE"),
+        ("llm_config", "JSON"),
         ("created_at", "TIMESTAMP"),
         ("updated_at", "TIMESTAMP")
     ]
