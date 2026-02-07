@@ -119,21 +119,10 @@ class LLMService:
     async def get_chat_completion(self, messages: list[dict], response_format: str = None, config=None) -> str:
         """
         Generic method to get chat completions from the configured LLM provider.
-        
-        Args:
-            messages (list[dict]): List of message objects (e.g., [{"role": "user", "content": "..."}]).
-            response_format (str): Optional format, e.g. "json".
-            config: Optional configuration overrides.
-            
-        Returns:
-            str: The content of the response message.
         """
         client, model = self._get_client_for_config(config)
         
         try:
-            # Determine correct response format param based on provider compatibility
-            # OpenAI/Groq/Ollama-via-OpenAI-Client all support { "type": "json_object" } for JSON mode
-            # provided the models support it.
             api_response_format = None
             if response_format == "json":
                 api_response_format = {"type": "json_object"}
@@ -146,8 +135,43 @@ class LLMService:
             return response.choices[0].message.content
         except Exception as e:
             print(f"LLM Chat Error: {e}")
-            traceback.print_exc()
             raise e
+
+    @track
+    async def get_vision_completion(self, prompt: str, image_path: str, config=None) -> str:
+        """
+        Get a completion for a multimodal (text + image) request.
+        """
+        import base64
+        
+        client, model = self._get_client_for_config(config)
+        
+        with open(image_path, "rb") as image_file:
+            base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+        
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"LLM Vision Error: {e}")
+            raise e
+
 
     async def _get_completion(self, prompt: str, system_prompt: str = "You are a helpful study assistant.", config=None):
         """

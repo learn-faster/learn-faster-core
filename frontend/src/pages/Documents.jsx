@@ -18,9 +18,11 @@ import {
     Link as LinkIcon,
     Globe,
     FileCode,
-    Sparkles
+    Sparkles,
+    Network,
+    FolderInput
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Card from '../components/ui/Card';
 import FileUpload from '../components/documents/FileUpload';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -53,10 +55,35 @@ const Documents = () => {
         createFolder,
         deleteFolder,
         setSelectedFolder,
-        moveToFolder
+        moveToFolder,
+        synthesizeDocument,
+        reprocessDocument
     } = useDocumentStore();
 
     const [isUploadOpen, setIsUploadOpen] = useState(false);
+    const [openMenuId, setOpenMenuId] = useState(null);
+    const navigate = useNavigate();
+
+    const handleDelete = async (id) => {
+        if (window.confirm('Are you sure you want to delete this unit? All neural links will be severed.')) {
+            await deleteDocument(id);
+        }
+    };
+
+    const handleMove = (doc) => {
+        // Open the context menu at a default position if triggered from the card
+        setContextMenu({ docId: doc.id, x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    };
+
+    // Handler for manual graph synthesis
+    const handleSynthesize = async (docId) => {
+        await synthesizeDocument(docId);
+    };
+
+    // Handler for re-extracting text when it failed
+    const handleReprocess = async (docId) => {
+        await reprocessDocument(docId);
+    };
     const [searchQuery, setSearchQuery] = useState('');
     const [viewMode, setViewMode] = useState('grid');
     const [sortBy, setSortBy] = useState('date'); // 'date', 'title', 'progress'
@@ -89,7 +116,7 @@ const Documents = () => {
         let interval;
         if (hasProcessingDocs) {
             interval = setInterval(() => {
-                fetchDocuments();
+                fetchDocuments(true);
             }, 3000);
         }
 
@@ -394,49 +421,150 @@ const Documents = () => {
                                 <AnimatePresence mode="popLayout">
                                     {filteredDocs.map((doc, idx) => (
                                         <motion.div
+                                            layout
                                             key={doc.id}
-                                            initial={{ opacity: 0, y: 20 }}
+                                            initial={false} // Disable initial animation on re-renders
                                             animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, scale: 0.95 }}
-                                            transition={{ delay: idx * 0.05 }}
-                                            className="group relative bg-dark-900/60 rounded-[2.5rem] p-8 transition-all duration-500 border border-white/5 hover:border-white/10 overflow-hidden shadow-xl flex flex-col justify-between h-[480px] hover:shadow-2xl hover:translate-y-[-4px] backdrop-blur-sm"
+                                            transition={{ duration: 0.3 }}
+                                            className="group relative bg-dark-900/80 rounded-[2.5rem] p-8 transition-all duration-300 border border-white/5 hover:border-white/10 overflow-hidden shadow-xl flex flex-col justify-between h-[480px] hover:shadow-2xl hover:translate-y-[-4px] backdrop-blur-md"
                                         >
                                             {/* Subtle Accent Glow */}
                                             <div className={`absolute -top-24 -right-24 w-64 h-64 bg-primary-500/5 blur-[100px] group-hover:bg-primary-500/10 transition-colors -z-10`} />
 
                                             {/* Top Actions HUD */}
-                                            <div className="flex items-start justify-between mb-12 translate-y-2 group-hover:translate-y-0 transition-all duration-500">
-                                                <div className="p-5 rounded-2xl bg-dark-800/50 border border-white/5 shadow-lg group-hover:border-white/10 transition-colors">
+                                            <div className="flex justify-between items-start mb-4 relative z-20 w-full">
+                                                <div className={`p-3 rounded-2xl ${doc.status === 'completed' ? 'bg-primary-500/20 text-primary-400' :
+                                                    doc.status === 'extracted' ? 'bg-cyan-500/20 text-cyan-400' :
+                                                        doc.status === 'ingesting' ? 'bg-amber-500/20 text-amber-400' :
+                                                            doc.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                                                                'bg-white/5 text-dark-400'
+                                                    }`}>
                                                     {doc.file_type === 'pdf' ? (
-                                                        <FileText className={`w-10 h-10 ${TYPE_COLORS.pdf} group-hover:scale-110 transition-transform`} />
-                                                    ) : doc.file_type === 'link' ? (
-                                                        <Globe className={`w-10 h-10 ${TYPE_COLORS.link} group-hover:scale-110 transition-transform`} />
-                                                    ) : (doc.file_type === 'markdown' || doc.file_type === 'text') ? (
-                                                        <FileCode className={`w-10 h-10 ${TYPE_COLORS.markdown} group-hover:scale-110 transition-transform`} />
+                                                        <FileText className="w-6 h-6" />
                                                     ) : (
-                                                        <ImageIcon className={`w-10 h-10 ${TYPE_COLORS.image} group-hover:scale-110 transition-transform`} />
+                                                        <FileCode className="w-6 h-6" />
                                                     )}
                                                 </div>
-                                                <div className="flex flex-col gap-3">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setContextMenu({ docId: doc.id, x: e.clientX, y: e.clientY });
-                                                        }}
-                                                        className="p-4 bg-white/5 hover:bg-white/10 rounded-2xl text-dark-500 hover:text-white transition-all border border-white/10 active:scale-90 shadow-lg"
-                                                    >
-                                                        <MoreVertical className="w-5 h-5" />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            if (window.confirm("Purge this unit from memory?")) deleteDocument(doc.id);
-                                                        }}
-                                                        className="p-4 bg-white/5 hover:bg-rose-500/20 rounded-2xl text-dark-500 hover:text-rose-400 transition-all border border-white/10 active:scale-90 shadow-lg"
-                                                    >
-                                                        <Trash2 className="w-5 h-5" />
-                                                    </button>
+                                                <div className="flex gap-2">
+                                                    {/* Synthesize Button for Extracted/Ready Docs */}
+                                                    {(doc.status === 'extracted' || doc.status === 'ready_for_synthesis') && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleSynthesize(doc.id);
+                                                            }}
+                                                            className="p-3 bg-dark-800/80 hover:bg-white/10 rounded-2xl text-cyan-400 transition-colors group/syn border border-white/5 shadow-lg backdrop-blur-sm"
+                                                            title="Synthesize Knowledge Graph"
+                                                        >
+                                                            <Network className="w-4 h-4 group-hover/syn:animate-spin" />
+                                                        </button>
+                                                    )}
+
+                                                    <div className="relative">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setOpenMenuId(openMenuId === doc.id ? null : doc.id);
+                                                            }}
+                                                            className="p-3 bg-dark-800/80 hover:bg-white/10 rounded-2xl text-dark-400 transition-colors border border-white/5 shadow-lg backdrop-blur-sm"
+                                                        >
+                                                            <MoreVertical className="w-4 h-4" />
+                                                        </button>
+
+                                                        {/* Dropdown Menu */}
+                                                        {openMenuId === doc.id && (
+                                                            <div className="absolute right-0 top-full mt-2 w-48 bg-dark-900 border border-white/10 rounded-xl shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleMove(doc);
+                                                                        setOpenMenuId(null);
+                                                                    }}
+                                                                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-dark-300 hover:bg-white/5 hover:text-white transition-colors"
+                                                                >
+                                                                    <FolderInput className="w-4 h-4" />
+                                                                    Move to folder
+                                                                </button>
+                                                                <div className="h-px bg-white/5 my-1" />
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDelete(doc.id);
+                                                                        setOpenMenuId(null);
+                                                                    }}
+                                                                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                                                                >
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                    Delete document
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
+
+                                            <div className="space-y-4 relative z-10 w-full">
+                                                <div>
+                                                    <h3 className="font-bold text-white mb-1 line-clamp-1 group-hover:text-primary-400 transition-colors">
+                                                        {doc.title}
+                                                    </h3>
+                                                    <div className="flex items-center gap-2 text-xs text-dark-400">
+                                                        <span>{new Date(doc.upload_date).toLocaleDateString()}</span>
+                                                        <span>•</span>
+                                                        <span className="uppercase tracking-wider font-bold text-[10px]">
+                                                            {doc.file_type}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Status & Progress */}
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between text-xs">
+                                                        <span className={`font-medium ${doc.status === 'completed' ? 'text-green-400' :
+                                                            doc.status === 'extracted' ? 'text-cyan-400' :
+                                                                doc.status === 'failed' ? 'text-red-400' :
+                                                                    'text-primary-400'
+                                                            }`}>
+                                                            {doc.status === 'completed' ? 'Ready to Study' :
+                                                                doc.status === 'extracted' ? 'Text Ready' :
+                                                                    doc.status === 'ingesting' ? (doc.ingestion_step || 'Ingesting...') :
+                                                                        doc.status === 'failed' ? 'Processing Failed' :
+                                                                            'Processing...'}
+                                                        </span>
+                                                        {(doc.status === 'processing' || doc.status === 'ingesting') && (
+                                                            <span className="text-dark-500">{doc.ingestion_progress || 0}%</span>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Progress Bar for Ingesting/Processing */}
+                                                    {(doc.status === 'processing' || doc.status === 'ingesting') ? (
+                                                        <div className="h-1 bg-dark-800 rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-primary-500 transition-all duration-500"
+                                                                style={{ width: `${doc.ingestion_progress || 10}%` }}
+                                                            />
+                                                        </div>
+                                                    ) : doc.reading_progress > 0 && (
+                                                        <div className="h-1 bg-dark-800 rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-green-500"
+                                                                style={{ width: `${Math.round(doc.reading_progress * 100)}%` }}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Unblock Click for Extracted Docs */}
+                                            <button
+                                                className={`absolute inset-0 z-0 ${(doc.status === 'processing' || doc.status === 'ingesting' || doc.status === 'failed') ? 'cursor-default' : 'cursor-pointer'
+                                                    }`}
+                                                onClick={() => {
+                                                    if (doc.status !== 'processing' && doc.status !== 'ingesting' && doc.status !== 'failed') {
+                                                        navigate(`/documents/${doc.id}`);
+                                                    }
+                                                }}
+                                            />
 
                                             {/* Content Body */}
                                             <div className="space-y-6">
@@ -486,11 +614,8 @@ const Documents = () => {
                                                 </div>
 
                                                 <Link
-                                                    to={doc.status === 'processing' || doc.status === 'pending' ? '#' : `/documents/${doc.id}`}
-                                                    className={`aspect-square p-7 rounded-[2.5rem] flex items-center justify-center transition-all shadow-2xl relative group/btn
-                                                        ${(doc.status === 'processing' || doc.status === 'pending' || doc.status === 'uploading')
-                                                            ? 'bg-dark-800 text-dark-600 cursor-not-allowed'
-                                                            : 'bg-gradient-to-br from-primary-500 to-rose-600 text-white hover:scale-110 hover:shadow-primary-500/40 active:scale-95'}`}
+                                                    to={`/documents/${doc.id}`}
+                                                    className="aspect-square p-7 rounded-[2.5rem] flex items-center justify-center transition-all shadow-2xl relative group/btn bg-gradient-to-br from-primary-500 to-rose-600 text-white hover:scale-110 hover:shadow-primary-500/40 active:scale-95"
                                                 >
                                                     <BookOpen className="w-7 h-7" />
                                                     <div className="absolute inset-0 rounded-[2.5rem] bg-white/20 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
@@ -575,13 +700,10 @@ const Documents = () => {
                                                     <MoreVertical className="w-5 h-5" />
                                                 </button>
                                                 <Link
-                                                    to={doc.status === 'processing' || doc.status === 'pending' ? '#' : `/documents/${doc.id}`}
-                                                    className={`px-10 py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.2em] transition-all shadow-xl
-                                                        ${(doc.status === 'processing' || doc.status === 'pending' || doc.status === 'uploading')
-                                                            ? 'bg-dark-800 text-dark-600 cursor-not-allowed'
-                                                            : 'bg-primary-500 text-white hover:shadow-primary-500/40 hover:scale-105 active:scale-95'}`}
+                                                    to={`/documents/${doc.id}`}
+                                                    className="px-10 py-4 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.2em] transition-all shadow-xl bg-primary-500 text-white hover:shadow-primary-500/40 hover:scale-105 active:scale-95"
                                                 >
-                                                    {doc.status === 'processing' ? 'Syncing...' : 'Access Unit'}
+                                                    {doc.status === 'processing' || doc.status === 'ingesting' || doc.status === 'uploading' ? 'View Progress' : 'Access Unit'}
                                                 </Link>
                                             </div>
                                         </motion.div>

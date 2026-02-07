@@ -67,8 +67,6 @@ Content to analyze:
         """
         self.vector_storage = VectorStorage()
         self.document_processor = DocumentProcessor()
-        from .binder import MultimodalBinder
-        self.multimodal_binder = MultimodalBinder()
     
     def _normalize_concept_name(self, name: Any) -> str:
         """
@@ -182,15 +180,15 @@ Content to analyze:
             concept_mappings=final_mappings
         )
 
-    async def extract_graph_structure(self, content_chunks: List[str]) -> GraphSchema:
+    async def extract_graph_structure(
+        self, 
+        content_chunks: List[str], 
+        on_progress: Optional[Any] = None, # Callable[[str, int], None]
+        on_partial_schema: Optional[Any] = None # Callable[[GraphSchema], None]
+    ) -> GraphSchema:
         """
         Extract knowledge graph structure from content chunks using LLM.
-        
-        Args:
-            content_chunks: List of text chunks
-            
-        Returns:
-            GraphSchema with extracted concepts, prerequisites, and chunk mappings
+        Supports incremental updates via callbacks.
         """
         if not content_chunks:
             raise ValueError("Cannot extract graph from empty content chunks")
@@ -200,9 +198,15 @@ Content to analyze:
         logger.info(f"Split document into {len(windows)} windows for extraction")
         
         schemas = []
+        total_windows = len(windows)
         
         for i, (window_content, start_idx, end_idx) in enumerate(windows):
-            logger.info(f"Processing extraction window {i+1}/{len(windows)}")
+            logger.info(f"Processing extraction window {i+1}/{total_windows}")
+            
+            # Report Progress
+            if on_progress:
+                progress_pct = int(((i) / total_windows) * 80) # Extraction is 80% of work
+                on_progress(f"Extracting concepts from window {i+1}/{total_windows}", progress_pct)
             
             prompt = self.EXTRACTION_PROMPT_TEMPLATE.format(content=window_content)
             
@@ -246,10 +250,6 @@ Content to analyze:
                             prereq['target_concept'] = self._normalize_concept_name(prereq['target_concept'])
 
                 # Normalize mappings and adjust indices
-                # The LLM sees "Chunk 0" but that is relative to the start_idx of the window?
-                # Actually, our _create_chunked_windows formats it as `[Chunk {i}]` where {i} is the GLOBAL index
-                # So the LLM should return the global index if valid.
-                
                 if 'concept_mappings' in data:
                     normalized_mappings = {}
                     for concept, indices in data['concept_mappings'].items():
@@ -262,7 +262,6 @@ Content to analyze:
                 # Validate schema
                 try:
                     # Auto-fix: Ensure all concepts in prerequisites are in concepts list
-                    # This handles the "structural hallucination" we saw earlier
                     if 'concepts' in data and 'prerequisites' in data:
                         concept_set = set(data['concepts'])
                         for p in data['prerequisites']:
@@ -275,6 +274,14 @@ Content to analyze:
 
                     schema = GraphSchema(**data)
                     schemas.append(schema)
+                    
+                    # Incremental Callback
+                    if on_partial_schema:
+                        try:
+                            on_partial_schema(schema)
+                        except Exception as e:
+                            logger.error(f"Partial schema callback failed: {e}")
+
                 except ValidationError as e:
                     logger.error(f"Schema validation failed in window {i+1}: {e}")
                     continue
@@ -391,7 +398,14 @@ Content to analyze:
             logger.error(f"Failed to store vector data: {str(e)}")
             raise ValueError(f"Vector data storage failed: {str(e)}") from e
     
-    async def process_document_complete(self, doc_source: str, markdown: str, content_chunks: List, document_id: Optional[int] = None) -> Tuple[GraphSchema, List[int]]:
+    async def process_document_complete(
+        self, 
+        doc_source: str, 
+        markdown: str, 
+        content_chunks: List, 
+        document_id: Optional[int] = None,
+        on_progress: Optional[Any] = None # Callable[[str, int], None] 
+    ) -> Tuple[GraphSchema, List[int]]:
         """
         Complete document processing: extract graph structure and store both graph and vector data.
         """
@@ -403,10 +417,20 @@ Content to analyze:
             else:
                 final_chunks = [chunk for chunk in content_chunks if chunk.strip()]
 
-            # Extract graph structure from chunks
-            schema = await self.extract_graph_structure(final_chunks)
+            # Define incremental persister
+            def incremental_persist(partial_schema: GraphSchema):
+                if document_id:
+                    self.store_graph_data(partial_schema, document_id)
             
-            # Store graph data in Neo4j with provenance
+            # Extract graph structure from chunks
+            # Pass incremental callbacks
+            schema = await self.extract_graph_structure(
+                final_chunks, 
+                on_progress=on_progress,
+                on_partial_schema=incremental_persist if document_id else None
+            )
+            
+            # Store final unified graph data (ensure everything is consistent)
             self.store_graph_data(schema, document_id)
             
             # Tag chunks based on semantic mapping
@@ -415,13 +439,6 @@ Content to analyze:
             
             # If we have mappings, apply them
             if schema.concept_mappings:
-                # We need to handle 1 chunk having multiple tags? Vector storage usually supports 1 main tag.
-                # For now, let's just pick the last assigned tagging or "multi-tagged"?
-                # Vector storage schema likely expects a single string.
-                # Strategy: Map chunk index to list of concepts. Join with comma? Or just pick primary?
-                # Let's pick the concept with the *longest name* (heuristic for specificity) 
-                # or just the first one found.
-                
                 chunk_to_concepts = {}
                 for concept, indices in schema.concept_mappings.items():
                     for idx in indices:
@@ -431,15 +448,18 @@ Content to analyze:
                 
                 for idx, concepts in chunk_to_concepts.items():
                     if 0 <= idx < len(chunk_tags):
-                        # Use the most specific concept (longest name) or just the first
-                        # Let's use comma-separated for now if supported, else first
-                        # PostgreSQL vector storage column is 'concept_tag' (String)
-                        # Storing "Concept A, Concept B" allows partial matching if ILIKE used.
                         chunk_tags[idx] = concepts[0] # Pick first for simplicity/stability
             
+            # Update Progress for Vector Storage
+            if on_progress:
+                on_progress("Indexing content vectors...", 90)
+
             # Store vector data in PostgreSQL
             chunk_ids = await self.store_vector_data(doc_source, final_chunks, chunk_tags, document_id)
             
+            if on_progress:
+                on_progress("Processing complete", 100)
+
             logger.info(f"Complete document processing finished for '{doc_source}'")
             return schema, chunk_ids
             
@@ -447,23 +467,24 @@ Content to analyze:
             logger.error(f"Complete document processing failed: {str(e)}")
             raise ValueError(f"Document processing failed: {str(e)}") from e
 
-    async def process_document(self, file_path: str, document_id: Optional[int] = None) -> Tuple[GraphSchema, List[int]]:
+    async def process_document(
+        self, 
+        file_path: str, 
+        document_id: Optional[int] = None,
+        on_progress: Optional[Any] = None
+    ) -> Tuple[GraphSchema, List[int]]:
         """
         Process a document file (PDF, DOCX, etc.) from start to finish.
         """
         try:
-            # 1. Convert to markdown and extract multimodal metadata
+            # 1. Convert to markdown
+            if on_progress:
+                on_progress("Converting PDF to Text", 5)
             markdown, image_metadata = self.document_processor.convert_to_markdown(file_path)
             
-            # 1.1 Bind images to database if document_id exists
-            if document_id and image_metadata:
-                from src.database.orm import SessionLocal
-                with SessionLocal() as db:
-                    self.multimodal_binder.bind_images(document_id, image_metadata, db)
-                    # Trigger AI captioning (optional background task, for now sync)
-                    await self.multimodal_binder.caption_images(document_id, db)
-
             # 2. Chunk content
+            if on_progress:
+                on_progress("Chunking content", 10)
             chunks = self.document_processor.chunk_content(markdown)
             
             # 3 & 4. Complete processing
@@ -471,7 +492,8 @@ Content to analyze:
                 doc_source=os.path.basename(file_path),
                 markdown=markdown,
                 content_chunks=chunks,
-                document_id=document_id
+                document_id=document_id,
+                on_progress=on_progress
             )
             
         except Exception as e:
@@ -541,17 +563,9 @@ Content to analyze:
         Process a document using document-scoped graph storage.
         """
         try:
-            # 1. Convert to markdown and extract multimodal metadata
+            # 1. Convert to markdown
             markdown, image_metadata = self.document_processor.convert_to_markdown(file_path)
             
-            # 1.1 Bind images to database
-            if image_metadata:
-                from src.database.orm import SessionLocal
-                with SessionLocal() as db:
-                    self.multimodal_binder.bind_images(document_id, image_metadata, db)
-                    # Trigger AI captioning
-                    await self.multimodal_binder.caption_images(document_id, db)
-
             # 2. Chunk content
             chunks = self.document_processor.chunk_content(markdown)
             

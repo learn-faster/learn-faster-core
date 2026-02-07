@@ -6,7 +6,7 @@ Note: This is the 'App' API. Core engine endpoints are also available at /docume
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form, Body
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Callable
 import os
 import shutil
 import logging
@@ -38,119 +38,160 @@ os.makedirs(settings.upload_dir, exist_ok=True)
 from fastapi import BackgroundTasks
 from src.database.orm import SessionLocal
 
-async def process_document_background(
+async def process_extraction_background(
     doc_id: int,
     file_path: str,
     file_type: FileType,
     document_processor: DocumentProcessor,
-    ingestion_engine: IngestionEngine,
-    document_store: DocumentStore
+    db_session_factory: Callable[[], Session] = SessionLocal
 ):
-    """Background task for document processing."""
-    # Create a fresh database session for this background task
-    db = SessionLocal()
+    """
+    Background task for Phase 1: Text Extraction & Analysis.
+    Fast, enables immediate reading.
+    """
+    db = db_session_factory()
     try:
-        print(f"DEBUG: Background processing started for {doc_id}...")
+        print(f"DEBUG: Extraction started for {doc_id}")
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if not document:
+            return
+
+        document.status = "processing"
+        document.ingestion_step = "extracting"
+        document.ingestion_progress = 10
+        db.commit()
 
         # 1. Extract Text
         extracted_text = ""
         try:
             if file_type == FileType.PDF or os.path.exists(file_path):
-                print(f"DEBUG: File exists at {file_path}, attempting conversion...")
-                extracted_text, image_metadata = document_processor.convert_to_markdown(file_path)
-                print(f"DEBUG: Extraction complete. Text length: {len(extracted_text) if extracted_text else 0}")
-                if not extracted_text:
-                    logging.warning(f"Empty extraction for {doc_id} - file might be image-only or corrupted")
-
-            # Update DB with extracted text
-            document = db.query(Document).filter(Document.id == doc_id).first()
-            if document:
-                document.extracted_text = extracted_text
-                document.page_count = 0 # Placeholder
-                
-                # Analyze reading time
-                print(f"DEBUG: Analyzing reading time for {doc_id}...")
-                analysis = reading_time_estimator.analyze_document(file_path)
-                document.reading_time_min = analysis.get("reading_time_min")
-                document.reading_time_max = analysis.get("reading_time_max")
-                document.reading_time_median = analysis.get("reading_time_median")
-                document.word_count = analysis.get("word_count")
-                document.difficulty_score = analysis.get("difficulty_score")
-                document.language = analysis.get("language")
-                document.scanned_prob = analysis.get("scanned_prob")
-                
-                db.commit()
-
+                extracted_text, _ = document_processor.convert_to_markdown(file_path)
         except Exception as e:
-            print(f"ERROR: Extraction failed for document {doc_id}: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"ERROR: Extraction failed: {e}")
             document = db.query(Document).filter(Document.id == doc_id).first()
             if document:
                 document.status = "failed"
-                document.extracted_text = f"ERROR: Failed to extract text - {str(e)}"
+                document.extracted_text = f"Extraction Failed: {str(e)}"
                 db.commit()
             return
 
-        # 2. Trigger Full Ingestion
-        try:
-            if extracted_text:
-                print(f"DEBUG: Triggering IngestionEngine for document {doc_id}...")
-                chunks = document_processor.chunk_content(extracted_text)
-                print(f"DEBUG: Created {len(chunks)} chunks from document {doc_id}")
-                
-                # Bind images if any (multimodal phase 1)
-                if image_metadata:
-                    from .binder import MultimodalBinder
-                    binder = MultimodalBinder()
-                    binder.bind_images(doc_id, image_metadata, db)
-                    await binder.caption_images(doc_id, db)
-
-                await ingestion_engine.process_document_complete(
-                    doc_source=os.path.basename(file_path),
-                    markdown=extracted_text,
-                    content_chunks=chunks,
-                    document_id=doc_id
-                )
-                print("DEBUG: IngestionEngine processing complete.")
-
-                # Update status to completed
-                # Re-fetch is good practice in long running tasks
-                document = db.query(Document).filter(Document.id == doc_id).first()
-                if document:
-                    document.status = "completed"
-                    document_store.update_status(doc_id, "completed")
-                    db.commit()
-                    print(f"DEBUG: Document {doc_id} marked as completed.")
-            else:
-                # No content extracted, mark as failed
-                document = db.query(Document).filter(Document.id == doc_id).first()
-                if document:
-                    document.status = "failed"
-                    db.commit()
-        except Exception as e:
-            print(f"ERROR: IngestionEngine failed: {e}")
-            import traceback
-            traceback.print_exc()
-            document = db.query(Document).filter(Document.id == doc_id).first()
-            if document:
-                document.status = "failed"
-                db.commit()
+        # 2. Update DB
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if document:
+            document.extracted_text = extracted_text if extracted_text else ""
+            document.page_count = 0 
+            
+            # Analyze reading time
+            analysis = reading_time_estimator.analyze_document(file_path)
+            document.reading_time_min = analysis.get("reading_time_min")
+            document.reading_time_max = analysis.get("reading_time_max")
+            document.reading_time_median = analysis.get("reading_time_median")
+            document.word_count = analysis.get("word_count")
+            document.difficulty_score = analysis.get("difficulty_score")
+            document.language = analysis.get("language")
+            document.scanned_prob = analysis.get("scanned_prob")
+            
+            # Mark as extracted (Ready for reading, but graph pending)
+            document.status = "extracted" 
+            document.ingestion_step = "ready_for_synthesis"
+            document.ingestion_progress = 100
+            db.commit()
+            
+            print(f"DEBUG: Extraction complete for {doc_id}")
 
     except Exception as e:
-        print(f"Background process critical failure: {e}")
+        print(f"Critical Failure in Extraction: {e}")
         import traceback
         traceback.print_exc()
-        # Attempt to mark document as failed
         try:
-            document = db.query(Document).filter(Document.id == doc_id).first()
-            if document:
-                document.status = "failed"
-                db.commit()
-        except Exception as cleanup_error:
-            print(f"Failed to update status during cleanup: {cleanup_error}")
+             document = db.query(Document).filter(Document.id == doc_id).first()
+             if document:
+                 document.status = "failed"
+                 db.commit()
+        except:
+            pass
     finally:
         db.close()
+
+async def process_ingestion_background(
+    doc_id: int,
+    file_path: str, # passed for filename ref
+    document_processor: DocumentProcessor,
+    ingestion_engine: IngestionEngine,
+    document_store: DocumentStore,
+    db_session_factory: Callable[[], Session] = SessionLocal
+):
+    """
+    Background task for Phase 2: Knowledge Graph Ingestion.
+    Slow, builds the graph incrementally.
+    """
+    db = db_session_factory()
+    try:
+        print(f"DEBUG: Ingestion started for {doc_id}")
+        
+        # 1. Load Document State
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if not document or not document.extracted_text:
+            print(f"ERROR: Cannot ingest document {doc_id} - text missing.")
+            return
+
+        document.status = "ingesting" # New status for UI
+        document.ingestion_step = "initializing"
+        document.ingestion_progress = 0
+        db.commit()
+
+        # Callback for real-time updates
+        def on_progress(step: str, progress: int):
+            # We need a fresh session or careful management if async? 
+            # SQLAlchemy sessions are not thread-safe but this is a single async task?
+            # actually usually better to create short-lived sessions or reuse `db` carefully.
+            # `db` is open for this task.
+            try:
+                # We need to refresh/merge?
+                # Simple update statement might be safer to avoid stale object issues
+                db.query(Document).filter(Document.id == doc_id).update({
+                    "ingestion_step": step,
+                    "ingestion_progress": progress
+                })
+                db.commit()
+            except Exception as e:
+                print(f"Progress update failed: {e}")
+                db.rollback()
+
+        # 2. Chunk Content
+        chunks = document_processor.chunk_content(document.extracted_text)
+        
+        # 3. Run Ingestion (With Callbacks)
+        await ingestion_engine.process_document_complete(
+            doc_source=os.path.basename(file_path) if file_path else f"doc_{doc_id}",
+            markdown=document.extracted_text,
+            content_chunks=chunks,
+            document_id=doc_id,
+            on_progress=on_progress
+        )
+
+        # 4. Finalize
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if document:
+            document.status = "completed"
+            document.ingestion_step = "complete"
+            document.ingestion_progress = 100
+            document_store.update_status(doc_id, "completed")
+            db.commit()
+            print(f"DEBUG: Ingestion complete for {doc_id}")
+
+    except Exception as e:
+        print(f"ERROR: Ingestion failed: {e}")
+        import traceback
+        traceback.print_exc()
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if document:
+            document.status = "failed" # Or back to 'extracted'?
+            document.ingestion_step = f"Failed: {str(e)}"
+            db.commit()
+    finally:
+        db.close()
+
 
 
 @router.post("/upload", response_model=DocumentResponse)
@@ -213,15 +254,13 @@ async def upload_document(
         db.commit()
         db.refresh(document)
         
-        # 3. Queue Background Processing
+        # 3. Queue Background Processing (Phase 1: Extraction Only)
         background_tasks.add_task(
-            process_document_background,
+            process_extraction_background,
             doc_id,
             file_path,
             file_type,
-            document_processor,
-            ingestion_engine,
-            document_store
+            document_processor
         )
         
         return document
@@ -295,7 +334,7 @@ async def ingest_youtube(
         raise HTTPException(status_code=500, detail=f"YouTube ingestion failed: {str(e)}")
 
 
-@router.get("/", response_model=List[DocumentResponse])
+@router.get("", response_model=List[DocumentResponse])
 def get_documents(
     folder_id: Optional[str] = None,
     tag: Optional[str] = None,
@@ -440,23 +479,84 @@ async def delete_document(
         logger.error(f"Failed to delete document {document_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal deletion failure")
 
-
-from src.models.orm import DocumentImage
-
-@router.get("/{document_id}/images")
-def get_document_images(document_id: int, db: Session = Depends(get_db)):
+@router.post("/{document_id}/synthesize", response_model=DocumentResponse)
+async def synthesize_document(
+    document_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    ingestion_engine: IngestionEngine = Depends(get_ingestion_engine),
+    document_store: DocumentStore = Depends(get_document_store)
+):
     """
-    Returns a list of all extracted images (diagrams, charts) for a document.
-    These are populated during the multimodal ingestion phase.
+    Triggers the Knowledge Graph ingestion (Phase 2) for a document.
+    Must be in 'extracted' or 'failed' state to retry.
     """
-    images = db.query(DocumentImage).filter(DocumentImage.document_id == document_id).all()
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    if not document.extracted_text:
+        raise HTTPException(status_code=400, detail="Document has no extracted text. Reprocess extraction first.")
+
+    # Queue ingestion
+    background_tasks.add_task(
+        process_ingestion_background,
+        doc_id=document_id,
+        file_path=document.file_path,
+        document_processor=document_processor,
+        ingestion_engine=ingestion_engine,
+        document_store=document_store
+    )
     
-    return [
-        {
-            "id": img.id,
-            "file_path": img.file_path,
-            "caption": img.caption,
-            "page_number": img.page_number
-        }
-        for img in images
-    ]
+    document.status = "ingesting"
+    document.ingestion_step = "queued"
+    document.ingestion_progress = 0
+    db.commit()
+    db.refresh(document)
+    
+    return document
+
+
+@router.post("/{document_id}/reprocess", response_model=DocumentResponse)
+async def reprocess_document(
+    document_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Re-triggers text extraction (Phase 1) for a document.
+    Useful when extraction failed or returned empty text.
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    if not document.file_path:
+        raise HTTPException(status_code=400, detail="Document has no associated file")
+    
+    # Determine file type from extension
+    from pathlib import Path
+    file_ext = Path(document.file_path).suffix.lower()
+    if file_ext == '.pdf':
+        file_type = FileType.PDF
+    elif file_ext in ['.jpg', '.jpeg', '.png']:
+        file_type = FileType.IMAGE
+    else:
+        file_type = FileType.OTHER
+    
+    # Queue re-extraction
+    background_tasks.add_task(
+        process_extraction_background,
+        document_id,
+        document.file_path,
+        file_type,
+        document_processor
+    )
+    
+    document.status = "processing"
+    document.ingestion_step = "queued_extraction"
+    document.ingestion_progress = 0
+    db.commit()
+    db.refresh(document)
+    
+    return document

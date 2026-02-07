@@ -147,6 +147,8 @@ class DocumentBase(BaseModel):
     tags: Optional[List[str]] = []
     category: Optional[str] = None
     ai_summary: Optional[str] = None
+    ingestion_step: Optional[str] = "pending"
+    ingestion_progress: float = 0.0
 
 
 class DocumentCreate(DocumentBase):

@@ -57,6 +57,11 @@ class Document(Base):
     language = Column(String, nullable=True) # e.g. 'en'
     scanned_prob = Column(Float, default=0.0) # Probability of being a scanned doc
 
+    # Ingestion Status (Real-time Construction)
+    ingestion_step = Column(String, default="pending") 
+    ingestion_progress = Column(Float, default=0.0) # 0.0 to 100.0
+
+
     # Relationships
     folder = relationship("Folder", back_populates="documents")
     flashcards = relationship("Flashcard", back_populates="document", cascade="all, delete-orphan")

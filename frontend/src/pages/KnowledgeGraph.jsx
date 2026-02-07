@@ -25,6 +25,7 @@ import {
 import ConceptService from '../services/concepts';
 import ResourceService from '../services/resources';
 import useTimerStore from '../stores/useTimerStore';
+import useDocumentStore from '../stores/useDocumentStore';
 import Card from '../components/ui/Card';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -40,12 +41,59 @@ const Starfield = () => (
 );
 
 /**
+ * Neural Construction HUD
+ * Displays real-time progress of knowledge graph generation.
+ */
+const ConstructionHUD = ({ documents }) => {
+    if (!documents || documents.length === 0) return null;
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-24 left-10 z-30 w-80 flex flex-col gap-2 pointer-events-none"
+        >
+            {documents.map(doc => (
+                <div key={doc.id} className="p-4 glass-morphism rounded-2xl border border-amber-500/20 shadow-[0_0_15px_rgba(251,191,36,0.1)] backdrop-blur-md relative overflow-hidden">
+                    {/* Scanline Effect */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/5 to-transparent animate-scan" />
+
+                    <div className="flex justify-between items-start mb-2 relative z-10">
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">Neural Construction</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-amber-500/70">{doc.ingestion_progress || 0}%</span>
+                    </div>
+
+                    <h4 className="text-sm font-bold text-white mb-1 truncate relative z-10">{doc.title}</h4>
+                    <p className="text-[10px] text-amber-200/60 font-mono mb-3 relative z-10">
+                        {doc.ingestion_step ? `> ${doc.ingestion_step}` : '> INITIALIZING UPLINK...'}
+                    </p>
+
+                    <div className="h-1 bg-dark-900/50 rounded-full overflow-hidden relative z-10">
+                        <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${doc.ingestion_progress || 5}%` }}
+                            transition={{ ease: "linear" }}
+                            className="h-full bg-amber-500/80 shadow-[0_0_10px_rgba(251,191,36,0.5)]"
+                        />
+                    </div>
+                </div>
+            ))}
+        </motion.div>
+    );
+};
+
+/**
  * Knowledge Map Page Component.
  * Optimized for clarity, premium aesthetics, and smart navigation.
  */
 const KnowledgeGraph = () => {
     const navigate = useNavigate();
     const { startSession } = useTimerStore();
+    const { documents, fetchDocuments } = useDocumentStore();
 
     const [graphData, setGraphData] = useState({ nodes: [], links: [] });
     const [isLoading, setIsLoading] = useState(true);
@@ -88,9 +136,35 @@ const KnowledgeGraph = () => {
         fgRef.current.d3Force('center').strength(0.2);
     }, [graphData]);
 
+    // Polling for Construction Updates
+    useEffect(() => {
+        let interval;
+        const checkStatus = async () => {
+            await fetchDocuments();
+            // Check if any doc is ingesting
+            const isIngesting = documents.some(d => d.status === 'ingesting' || d.status === 'processing');
+            if (isIngesting) {
+                // If ingesting, fetch graph incrementally to show partial updates!
+                fetchGraph(false);
+            }
+        };
+
+        // Poll more frequently if something is happening
+        const hasActiveJobs = documents.some(d => d.status === 'ingesting');
+        if (hasActiveJobs) {
+            interval = setInterval(checkStatus, 2000);
+        } else {
+            // Just periodic check or rely on initial load
+            checkStatus(); // Load once
+            interval = setInterval(checkStatus, 10000);
+        }
+
+        return () => clearInterval(interval);
+    }, [documents.length]);
+
     const fetchGraph = async (showSyncEffect = false) => {
         if (showSyncEffect) setIsSyncing(true);
-        else setIsLoading(true);
+        else if (graphData.nodes.length === 0) setIsLoading(true); // Only show loading if empty
 
         try {
             const data = await ConceptService.getGraph("default_user");
@@ -126,17 +200,19 @@ const KnowledgeGraph = () => {
 
             setGraphData({ nodes: sizedNodes, links: sanitizedLinks });
 
-            // Auto-zoom to fit after a short delay
-            setTimeout(() => {
-                if (fgRef.current) {
-                    fgRef.current.zoomToFit(800, 50);
-                }
-            }, 600);
+            // Auto-zoom to fit after a short delay (only on first load)
+            if (graphData.nodes.length === 0) {
+                setTimeout(() => {
+                    if (fgRef.current) {
+                        fgRef.current.zoomToFit(800, 50);
+                    }
+                }, 600);
+            }
 
             if (data.nodes.length === 0 && !showSyncEffect) setShowGuide(true);
         } catch (error) {
             console.error("Failed to fetch graph", error);
-            setGraphData({ nodes: [], links: [] });
+            if (graphData.nodes.length === 0) setGraphData({ nodes: [], links: [] });
         } finally {
             setIsLoading(false);
             if (showSyncEffect) setTimeout(() => setIsSyncing(false), 1000);
@@ -377,7 +453,12 @@ const KnowledgeGraph = () => {
                 </div>
             </header>
 
-            <div className="flex-1 flex gap-6 overflow-hidden">
+            <div className="flex-1 flex gap-6 overflow-hidden relative">
+                {/* Construction HUD */}
+                <AnimatePresence>
+                    <ConstructionHUD documents={documents.filter(d => d.status === 'ingesting')} />
+                </AnimatePresence>
+
                 {/* Main Viewport */}
                 <div ref={containerRef} className="flex-1 relative glass-dark rounded-[3rem] border border-white/5 overflow-hidden shadow-inner-white group">
                     <Starfield />

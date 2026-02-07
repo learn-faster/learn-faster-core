@@ -123,11 +123,15 @@ const useDocumentStore = create((set, get) => ({
      * Fetches all documents from the backend.
      * @async
      */
-    fetchDocuments: async () => {
-        set({ isLoading: true, error: null });
+    fetchDocuments: async (silent = false) => {
+        if (!silent) set({ isLoading: true, error: null });
         try {
             const data = await api.get('/documents');
-            set({ documents: data, isLoading: false });
+            if (!silent) {
+                set({ documents: data, isLoading: false });
+            } else {
+                set({ documents: data });
+            }
         } catch (err) {
             set({ error: err, isLoading: false });
         }
@@ -242,6 +246,62 @@ const useDocumentStore = create((set, get) => ({
             return updatedDoc;
         } catch (err) {
             set({ error: err });
+        }
+    },
+
+    /**
+     * Triggers the knowledge graph synthesis for a document.
+     * @async
+     * @param {string} id - The document ID.
+     */
+    synthesizeDocument: async (id) => {
+        // Optimistic update
+        set((state) => ({
+            documents: state.documents.map(d =>
+                d.id === id ? { ...d, status: 'ingesting', ingestion_step: 'queued' } : d
+            )
+        }));
+
+        try {
+            await api.post(`/documents/${id}/synthesize`);
+            // No need to fetch immediately, the optimistic update holds it until polling takes over
+        } catch (err) {
+            console.error("Failed to start synthesis:", err);
+            // Revert on failure
+            set((state) => ({
+                documents: state.documents.map(d =>
+                    d.id === id ? { ...d, status: 'extracted' } : d
+                ),
+                error: err
+            }));
+        }
+    },
+
+    /**
+     * Triggers text re-extraction (Phase 1) for a document.
+     * Useful when extraction failed or returned empty text.
+     * @async
+     * @param {string} id - The document ID.
+     */
+    reprocessDocument: async (id) => {
+        // Optimistic update
+        set((state) => ({
+            documents: state.documents.map(d =>
+                d.id === id ? { ...d, status: 'processing', ingestion_step: 'queued_extraction' } : d
+            )
+        }));
+
+        try {
+            await api.post(`/documents/${id}/reprocess`);
+            // Polling will update the status
+        } catch (err) {
+            console.error("Failed to start reprocessing:", err);
+            set((state) => ({
+                documents: state.documents.map(d =>
+                    d.id === id ? { ...d, status: 'failed' } : d
+                ),
+                error: err
+            }));
         }
     },
 }));

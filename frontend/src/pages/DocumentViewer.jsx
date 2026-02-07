@@ -29,7 +29,9 @@ import {
     BookOpen,
     Menu,
     Plus,
-    Flame
+    Flame,
+    Play,
+    Pause
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import useDocumentStore from '../stores/useDocumentStore';
@@ -39,15 +41,12 @@ import api from '../services/api';
 import useTimerStore from '../stores/useTimerStore';
 import { useTimer } from '../hooks/useTimer';
 import FlashcardCreator from '../components/flashcards/FlashcardCreator';
-import ImageGallery from '../components/documents/ImageGallery';
 import { Document, Page, pdfjs } from 'react-pdf';
 import ReactMarkdown from 'react-markdown';
 
 // Register PDF worker - Using Vite-compatible URL resolution
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url,
-).toString();
+// Register PDF worker - Using CDN to ensure version match
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 // Required CSS for react-pdf text layer
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -240,13 +239,6 @@ const DocumentViewer = () => {
         fetchDoc();
     }, [id, navigate]);
 
-    // Auto-trigger extraction if text is missing but file is available
-    useEffect(() => {
-        if (!isLoading && studyDoc && !studyDoc.extracted_text && studyDoc.file_path && !isExtracting) {
-            console.log("Empty document text detected, triggering auto-synthesis...");
-            handleExtractConcepts();
-        }
-    }, [isLoading, studyDoc]);
 
     const handleScroll = useCallback((e) => {
         const container = e.target;
@@ -529,7 +521,7 @@ const DocumentViewer = () => {
                     <div id="document-scroll-container" className="flex-1 overflow-auto custom-scrollbar" onScroll={handleScroll}>
                         <div className={`min-w-full min-h-full flex flex-col ${['pdf', 'image'].includes(studyDoc?.file_type) ? 'items-center py-12' : ''}`}>
 
-                            {studyDoc?.file_type === 'pdf' ? (
+                            {(studyDoc?.file_type === 'pdf' || studyDoc?.filename?.toLowerCase().endsWith('.pdf') || studyDoc?.file_path?.toLowerCase().endsWith('.pdf')) ? (
                                 <div className="w-full flex flex-col items-center py-8">
                                     <Document
                                         file={`http://localhost:8000/uploads/${fileName}`}
@@ -580,12 +572,37 @@ const DocumentViewer = () => {
                                     </div>
                                     <div className="h-20 shrink-0" />
                                 </div>
-                            ) : studyDoc.file_type === 'image' ? (
+                            ) : (studyDoc.file_type === 'image' || studyDoc?.filename?.match(/\.(jpg|jpeg|png|gif|webp)$/i)) ? (
                                 <div className="p-8">
                                     <img src={fileUrl} alt={studyDoc.title} className="max-w-full shadow-2xl rounded-lg ring-1 ring-white/10" onMouseUp={handleTextSelection} />
                                 </div>
                             ) : (
-                                <pre className="whitespace-pre-wrap font-sans text-lg leading-relaxed text-dark-100 p-8">{studyDoc.extracted_text}</pre>
+                                studyDoc.extracted_text ? (
+                                    <pre className="whitespace-pre-wrap font-sans text-lg leading-relaxed text-dark-100 p-8">{studyDoc.extracted_text}</pre>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+                                        <div className="p-6 rounded-[2rem] bg-white/5 border border-white/10 mb-6">
+                                            <FileText className="w-12 h-12 text-dark-500" />
+                                        </div>
+                                        <h3 className="text-xl font-black text-white mb-2">Content Not Available</h3>
+                                        <p className="text-dark-400 max-w-md mb-8">
+                                            The text content for this document hasn't been extracted yet or cannot be displayed directly.
+                                        </p>
+
+                                        {fileUrl && (
+                                            <a
+                                                href={fileUrl}
+                                                download={fileName}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="px-8 py-3 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-bold transition-all shadow-lg hover:shadow-primary-500/25 flex items-center gap-2"
+                                            >
+                                                <Download className="w-4 h-4" />
+                                                Download Original
+                                            </a>
+                                        )}
+                                    </div>
+                                )
                             )}
                         </div>
                     </div>
@@ -633,8 +650,7 @@ const DocumentViewer = () => {
                                     setExternalBack={setFlashcardBack}
                                 />
 
-                                {/* Visual Assets Gallery */}
-                                <ImageGallery documentId={id} />
+                                {/* Visual Assets Gallery removed */}
 
                                 {studyDoc?.extracted_text && (
                                     <div className="bg-white/5 rounded-2xl p-5 border border-white/5 group hover:border-white/10 transition-colors">

@@ -25,6 +25,9 @@ class DocumentProcessor:
         """
         Convert a document to clean Markdown and extract image metadata.
         
+        Uses MarkItDown as primary converter, with pypdf fallback for PDFs
+        when MarkItDown returns empty text.
+        
         Returns:
             Tuple of (Markdown text, List of image metadata dicts)
         """
@@ -39,76 +42,40 @@ class DocumentProcessor:
                 f"Supported formats: {', '.join(self.SUPPORTED_FORMATS)}"
             )
 
-        # High-fidelity PDF parsing with MinerU
-        if path.suffix.lower() == '.pdf':
-            try:
-                print(f"DEBUG: MinerU (magic-pdf) converting: {path}")
-                return self._convert_pdf_multimodal(file_path)
-            except Exception as e:
-                print(f"DEBUG: MinerU failure, falling back to MarkItDown: {str(e)}")
+        text = ""
         
-        # Standard conversion for other formats or fallback
+        # Try MarkItDown first
         try:
             print(f"DEBUG: MarkItDown converting: {path}")
             result = self._converter.convert(str(path))
             text = result.text_content or ""
-            # PostgreSQL does not allow NUL (\x00) characters in string literals
-            return text.replace('\x00', ''), []
         except Exception as e:
             print(f"DEBUG: MarkItDown failure: {str(e)}")
-            raise RuntimeError(f"MarkItDown failed to convert {path.name}: {str(e)}") from e
-
-    def _convert_pdf_multimodal(self, file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
-        """
-        Use magic-pdf CLI to extract high-quality markdown and layout meta.
-        """
-        import subprocess
-        import tempfile
-        import json
         
-        # Persistent images dir for the application
-        storage_dir = Path("data/extracted_images") / Path(file_path).stem
-        storage_dir.mkdir(parents=True, exist_ok=True)
-        
-        with tempfile.TemporaryDirectory() as temp_dir:
+        # Fallback: If MarkItDown returned empty and this is a PDF, use pypdf
+        if not text.strip() and path.suffix.lower() == '.pdf':
+            print(f"DEBUG: MarkItDown returned empty, trying pypdf fallback...")
             try:
-                # Run magic-pdf extraction
-                # -p path, -o output_dir, -m method (json/txt/md)
-                cmd = ["uv", "run", "magic-pdf", "-p", file_path, "-o", temp_dir, "-m", "md"]
-                subprocess.run(cmd, capture_output=True, text=True, check=True)
-                
-                base_name = Path(file_path).stem
-                output_folder = Path(temp_dir) / base_name
-                
-                # 1. Read Markdown
-                md_files = list(output_folder.glob("*.md"))
-                text = ""
-                if md_files:
-                    with open(md_files[0], 'r', encoding='utf-8') as f:
-                        text = f.read().replace('\x00', '')
-                
-                # 2. Extract Image Metadata from MinerU output
-                # MinerU typically creates an 'images' folder in its output
-                images_dir = output_folder / "images"
-                image_metadata = []
-                
-                if images_dir.exists():
-                    for img_path in images_dir.glob("*"):
-                        if img_path.suffix.lower() in {'.png', '.jpg', '.jpeg'}:
-                            # Copy to persistent storage
-                            dest_path = storage_dir / img_path.name
-                            shutil.copy(img_path, dest_path)
-                            
-                            image_metadata.append({
-                                "path": str(dest_path),
-                                "name": img_path.name,
-                                "type": "image"
-                            })
-                
-                return text, image_metadata
-                
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"magic-pdf execution failed: {e.stderr}") from e
+                from pypdf import PdfReader
+                reader = PdfReader(str(path))
+                pages_text = []
+                for i, page in enumerate(reader.pages):
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        pages_text.append(f"## Page {i+1}\n\n{page_text}")
+                text = "\n\n".join(pages_text)
+                print(f"DEBUG: pypdf extracted {len(text)} characters from {len(reader.pages)} pages")
+            except Exception as e:
+                print(f"DEBUG: pypdf fallback also failed: {str(e)}")
+        
+        # If still empty, this might be a scanned/image-based PDF
+        if not text.strip():
+            print(f"WARNING: Could not extract text from {path.name}. Document may be scanned/image-based.")
+            # Return a placeholder message instead of empty
+            text = f"[Text extraction failed for {path.name}. This may be a scanned or image-based document that requires OCR processing.]"
+        
+        # PostgreSQL does not allow NUL (\x00) characters in string literals
+        return text.replace('\x00', ''), []
 
 
     

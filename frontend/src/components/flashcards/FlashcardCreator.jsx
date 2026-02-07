@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, Check, Loader2, Sparkles, AlertCircle, BrainCircuit, Settings, CheckCircle2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import useFlashcardStore from '../../stores/useFlashcardStore';
 import useLLMConfig from '../../hooks/useLLMConfig';
 import ApiKeySetup from '../ApiKeySetup';

@@ -318,7 +318,8 @@ class GraphStorage:
             ValueError: If schema is invalid
         """
         if not schema.concepts:
-            raise ValueError("Schema must contain at least one concept")
+            logger.warning("Schema contains no concepts - skipping graph storage")
+            return {"concepts_stored": 0, "relationships_stored": 0}
         
         try:
             # Store concepts first
