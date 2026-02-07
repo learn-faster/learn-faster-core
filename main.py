@@ -12,6 +12,10 @@ from pydantic import BaseModel
 
 from src.storage.document_store import DocumentStore
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("learnfast-core")
+
 # Import core components
 from src.ingestion.ingestion_engine import IngestionEngine
 from src.navigation.navigation_engine import NavigationEngine
@@ -49,9 +53,6 @@ except ImportError:
     HAS_OPEN_NOTEBOOK = False
 
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("learnfast-core")
 
 # Component instances (global)
 ingestion_engine: Optional[IngestionEngine] = None
