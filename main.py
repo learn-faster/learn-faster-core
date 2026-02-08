@@ -2,6 +2,7 @@ import os
 import shutil
 import logging
 import subprocess
+import asyncio
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request
@@ -28,6 +29,7 @@ from src.database.init_db import initialize_databases
 from src.models.schemas import LearningPath
 from src.ingestion.youtube_utils import extract_video_id, fetch_transcript
 from src.config import settings  # Added
+from src.services.weekly_digest_scheduler import run_weekly_digest_scheduler
 
 # Import new routers
 from src.routers import (
@@ -101,6 +103,23 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.upload_dir, exist_ok=True)
     
     logger.info("Components initialized successfully")
+
+    # Start weekly digest scheduler (optional)
+    weekly_task = None
+    weekly_stop_event = None
+    if settings.enable_weekly_digest_scheduler:
+        weekly_stop_event = asyncio.Event()
+        weekly_task = asyncio.create_task(
+            run_weekly_digest_scheduler(
+                settings.weekly_digest_day,
+                settings.weekly_digest_hour,
+                settings.weekly_digest_minute,
+                weekly_stop_event
+            )
+        )
+        app.state.weekly_digest_task = weekly_task
+        app.state.weekly_digest_stop = weekly_stop_event
+        logger.info("Weekly digest scheduler started.")
     
     # Start Open Notebook Command Worker
     worker_process = None
@@ -123,6 +142,14 @@ async def lifespan(app: FastAPI):
 
     yield
     
+    if weekly_stop_event:
+        weekly_stop_event.set()
+    if weekly_task:
+        try:
+            await weekly_task
+        except Exception:
+            pass
+
     # Shutdown worker
     if worker_process:
         logger.info("Stopping Open Notebook Command Worker...")
