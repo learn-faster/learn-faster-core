@@ -207,7 +207,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
     };
 
     return (
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 h-full flex flex-col">
+        <div className="bg-dark-900/60 border border-white/10 rounded-2xl p-6 h-full flex flex-col shadow-xl shadow-black/30">
             <div className="flex items-center justify-between mb-6">
                 <h3 className="font-bold text-lg flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-primary-400" />
@@ -221,17 +221,17 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
             </div>
 
             {/* Toggle Tabs */}
-            <div className="flex bg-white/5 p-1 rounded-lg mb-4">
+            <div className="flex bg-dark-800/60 p-1 rounded-xl mb-4 border border-white/10">
                 <button
                     onClick={() => setView('manual')}
-                    className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${view === 'manual' ? 'bg-primary-500 text-white shadow' : 'text-dark-400 hover:text-white'}`}
+                    className={`flex-1 py-2 text-[11px] font-black uppercase tracking-wider rounded-lg transition-all ${view === 'manual' ? 'bg-primary-500 text-white shadow' : 'text-dark-400 hover:text-white'}`}
                 >
                     Manual
                 </button>
                 {documentId && (
                     <button
                         onClick={() => setView('ai')}
-                        className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${view === 'ai' ? 'bg-primary-500 text-white shadow' : 'text-dark-400 hover:text-white'}`}
+                        className={`flex-1 py-2 text-[11px] font-black uppercase tracking-wider rounded-lg transition-all ${view === 'ai' ? 'bg-primary-500 text-white shadow' : 'text-dark-400 hover:text-white'}`}
                     >
                         AI Auto-Generate
                     </button>
@@ -279,7 +279,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                                 </div>
                             ) : (
                                 <>
-                                    <div className="p-4 bg-primary-500/10 border border-primary-500/20 rounded-xl">
+                                    <div className="p-4 bg-primary-500/10 border border-primary-500/20 rounded-2xl">
                                         <div className="flex items-center justify-between mb-3">
                                             <div className="flex items-center gap-3">
                                                 <BrainCircuit className="w-6 h-6 text-primary-400" />
@@ -320,7 +320,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                                                 rows={3}
                                                 value={requirements}
                                                 onChange={(e) => setRequirements(e.target.value)}
-                                                className="w-full bg-dark-900/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-dark-500"
+                                                className="w-full bg-dark-900/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-dark-500"
                                                 placeholder="e.g. Focus on definitions, explain simply..."
                                             />
                                             {discoveryProfile && retrievalMode === 'rag' && (
@@ -344,7 +344,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                                                             max={pageCount || 999}
                                                             value={startPage}
                                                             onChange={(e) => setStartPage(Math.max(1, Math.min(parseInt(e.target.value) || 1, endPage)))}
-                                                            className="w-full bg-dark-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-center font-bold"
+                                                            className="w-full bg-dark-900/60 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-center font-bold"
                                                         />
                                                     </div>
                                                     <div className="flex-1">
@@ -357,7 +357,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                                                             max={pageCount || 999}
                                                             value={endPage}
                                                             onChange={(e) => setEndPage(Math.max(startPage, parseInt(e.target.value) || startPage))}
-                                                            className="w-full bg-dark-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-center font-bold"
+                                                            className="w-full bg-dark-900/60 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-center font-bold"
                                                         />
                                                     </div>
                                                 </div>
@@ -384,7 +384,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                                     <button
                                         onClick={() => handleGenerate('flashcards')}
                                         disabled={generating || !isConfigured}
-                                        className="btn-secondary w-full py-4 justify-center disabled:opacity-50"
+                                        className="btn-secondary w-full py-3.5 justify-center disabled:opacity-50"
                                     >
                                         {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : "Generate 5 Flashcards"}
                                     </button>
@@ -392,7 +392,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                                     <button
                                         onClick={() => handleGenerate('questions')}
                                         disabled={generating || !isConfigured}
-                                        className="btn-secondary w-full py-4 justify-center disabled:opacity-50"
+                                        className="btn-secondary w-full py-3.5 justify-center disabled:opacity-50"
                                     >
                                         {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : "Generate 5 Quiz Questions"}
                                     </button>
@@ -410,7 +410,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                             rows={4}
                             value={front}
                             onChange={(e) => setFront(e.target.value)}
-                            className="w-full resize-none"
+                            className="w-full resize-none bg-dark-900/60 border border-white/10 rounded-xl px-3 py-2 text-sm"
                             placeholder="Enter the question or concept..."
                             required
                         />
@@ -422,7 +422,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                             rows={4}
                             value={back}
                             onChange={(e) => setBack(e.target.value)}
-                            className="w-full resize-none"
+                            className="w-full resize-none bg-dark-900/60 border border-white/10 rounded-xl px-3 py-2 text-sm"
                             placeholder="Enter the answer or explanation..."
                             required
                         />
@@ -434,7 +434,7 @@ const FlashcardCreator = React.forwardRef(({ studyDoc, selectedText, onComplete,
                             type="text"
                             value={tags}
                             onChange={(e) => setTags(e.target.value)}
-                            className="w-full"
+                            className="w-full bg-dark-900/60 border border-white/10 rounded-xl px-3 py-2 text-sm"
                             placeholder="e.g. math, principle, exam"
                         />
                         <p className="text-[10px] text-dark-500 mt-1 uppercase">Separate tags with commas</p>

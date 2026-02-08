@@ -316,7 +316,7 @@ const SmartTimer = () => {
                             <button
                                 onClick={confirmEndSession}
                                 disabled={isSubmitting}
-                                className="w-full py-4 mt-6 rounded-xl font-bold bg-white text-dark-900 disabled:opacity-50"
+                                className="w-full py-4 mt-6 rounded-xl font-bold bg-gradient-to-r from-primary-500 to-indigo-500 text-white disabled:opacity-50"
                             >
                                 {isSubmitting ? 'Saving...' : 'Complete Session'}
                             </button>

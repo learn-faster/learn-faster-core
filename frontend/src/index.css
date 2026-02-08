@@ -1,7 +1,8 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;700&display=swap");
 
 @theme {
-  /* Premium Deep Dark Theme - Sophisticated Midnight */
+  /* Cosmic Deep Theme - Space + Neon */
   --color-primary-50: #f5f3ff;
   --color-primary-100: #ede9fe;
   --color-primary-200: #ddd6fe;
@@ -14,7 +15,7 @@
   --color-primary-900: #4c1d95;
   --color-primary-950: #2e1065;
 
-  /* Deep Midnight Backgrounds */
+  /* Midnight scale */
   --color-dark-50: #f8fafc;
   --color-dark-100: #f1f5f9;
   --color-dark-200: #e2e8f0;
@@ -26,7 +27,23 @@
   --color-dark-800: #1e293b;
   --color-dark-900: #0f172a;
   --color-dark-950: #020617;
-  /* True Midnight */
+
+  /* Shadcn-compatible semantic tokens (dark) */
+  --color-background: #020617;
+  --color-foreground: #f8fafc;
+  --color-card: #0b1220;
+  --color-card-foreground: #f8fafc;
+  --color-muted: #0f172a;
+  --color-muted-foreground: #94a3b8;
+  --color-accent: #1e293b;
+  --color-accent-foreground: #e2e8f0;
+  --color-secondary: #111827;
+  --color-secondary-foreground: #e2e8f0;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-input: #0f172a;
+  --color-ring: #8b5cf6;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
 }
 
 :root {
@@ -38,32 +55,33 @@ body {
   min-height: 100vh;
   background-color: #020617;
   color: #f8fafc;
-  font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 /* Glassmorphism Classes - Refined for Deep Dark */
 .glass {
-  background: rgba(15, 23, 42, 0.4);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 28px -10px rgba(0, 0, 0, 0.5);
 }
 
 .glass-light {
-  background: rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(2, 6, 23, 0.5);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .glass-morphism {
   background: rgba(2, 6, 23, 0.7);
   backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.6);
 }
 
 /* Custom Scrollbar */
@@ -93,7 +111,7 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(99, 102, 241, 0.25);
   border-radius: 4px;
 }
 
@@ -110,7 +128,14 @@ textarea {
   color: white;
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
   transition: all 0.2s;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(148, 163, 184, 0.8);
 }
 
 input:focus,
@@ -139,7 +164,7 @@ textarea:focus {
   background: rgba(15, 23, 42, 0.6);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.5);
   @apply rounded-2xl p-6 transition-all hover:translate-y-[-4px] hover:shadow-2xl hover:shadow-black/40;
 }
 
@@ -400,6 +425,32 @@ textarea:focus {
   backdrop-filter: blur(40px);
   border: 1px solid rgba(139, 92, 246, 0.1);
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.6), inset 0 0 20px rgba(139, 92, 246, 0.05);
+}
+
+/* Agent Orb Core */
+.agent-orb {
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.9), rgba(139,92,246,0.8) 35%, rgba(8,14,30,0.95) 75%);
+  box-shadow: 0 0 25px rgba(139, 92, 246, 0.6), inset 0 0 15px rgba(255, 255, 255, 0.2);
+  position: relative;
+}
+
+.agent-orb::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  box-shadow: 0 0 24px rgba(139, 92, 246, 0.4);
+  opacity: 0.8;
+}
+
+.agent-orb-core {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #fff, #a78bfa 45%, #1f2937 75%);
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.8);
+  animation: pulse-slow 3.5s ease-in-out infinite;
 }
 
 @keyframes indeterminate-bar {

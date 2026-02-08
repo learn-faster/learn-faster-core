@@ -99,14 +99,14 @@ const Settings = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0f1115]">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      <div className="flex items-center justify-center min-h-screen bg-dark-950">
+        <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f1115] text-gray-100 p-8 pt-24 font-['Inter']">
+    <div className="min-h-screen bg-dark-950 text-gray-100 p-8 pt-24 font-['Inter']">
       <div className="max-w-4xl mx-auto space-y-8">
 
         {/* Header */}
@@ -120,7 +120,7 @@ const Settings = () => {
           <button
             onClick={handleSave}
             disabled={saving}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium transition-all duration-200 ${saving ? 'bg-gray-700 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-900/20'
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium transition-all duration-200 ${saving ? 'bg-dark-700 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-500 shadow-lg shadow-primary-500/20'
               }`}
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -147,10 +147,10 @@ const Settings = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
           {/* Fitbit Section */}
-          <div className="bg-[#1a1d23]/50 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-colors">
+          <div className="bg-dark-900/50 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-colors">
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2.5 rounded-xl bg-blue-500/10">
-                <Watch className="w-5 h-5 text-blue-400" />
+              <div className="p-2.5 rounded-xl bg-primary-500/10">
+                <Watch className="w-5 h-5 text-primary-400" />
               </div>
               <h2 className="text-xl font-semibold">Biometric Sync</h2>
             </div>
@@ -166,7 +166,7 @@ const Settings = () => {
                     Disconnect
                   </button>
                 ) : (
-                  <button onClick={handleConnectFitbit} className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors">
+                  <button onClick={handleConnectFitbit} className="text-primary-400 hover:text-primary-300 text-sm font-medium transition-colors">
                     Connect Fitbit
                   </button>
                 )}
@@ -189,7 +189,7 @@ const Settings = () => {
                         checked={settings.use_biometrics}
                         onChange={(e) => setSettings({ ...settings, use_biometrics: e.target.checked })}
                       />
-                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      <div className="w-11 h-6 bg-dark-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
                     </div>
                   </label>
                 </motion.div>
@@ -198,7 +198,7 @@ const Settings = () => {
           </div>
 
           {/* Email Notifications */}
-          <div className="bg-[#1a1d23]/50 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-colors">
+          <div className="bg-dark-900/50 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-colors">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2.5 rounded-xl bg-purple-500/10">
                 <Bell className="w-5 h-5 text-purple-400" />
@@ -214,14 +214,14 @@ const Settings = () => {
                   placeholder="re_..."
                   value={settings.resend_api_key}
                   onChange={(e) => setSettings({ ...settings, resend_api_key: e.target.value })}
-                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-2.5 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all outline-none"
+                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-2.5 focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-all outline-none"
                 />
               </div>
             </div>
           </div>
 
           {/* Advanced Security */}
-          <div className="md:col-span-2 bg-[#1a1d23]/50 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-colors">
+          <div className="md:col-span-2 bg-dark-900/50 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-colors">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2.5 rounded-xl bg-emerald-500/10">
                 <Shield className="w-5 h-5 text-emerald-400" />

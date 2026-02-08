@@ -4,6 +4,7 @@ import Navbar from './Navbar';
 import Settings from '../Settings';
 import FloatingTimer from '../FloatingTimer';
 import AbstractBackground from '../ui/AbstractBackground';
+import AgentDock from '../GoalAgent/AgentDock';
 
 const Layout = () => {
     const [showSettings, setShowSettings] = useState(false);
@@ -22,6 +23,7 @@ const Layout = () => {
             </main>
 
             <FloatingTimer />
+            <AgentDock />
             <Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
         </div>
     );

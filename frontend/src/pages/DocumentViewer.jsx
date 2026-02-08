@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
     ArrowLeft,
     Maximize2,
@@ -23,21 +23,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import useDocumentStore from '../stores/useDocumentStore';
 import useFlashcardStore from '../stores/useFlashcardStore';
 import ConceptService from '../services/concepts';
-import api, { API_URL } from '../services/api';
+import api from '../services/api';
+import { getApiUrl } from '../lib/config';
 import useTimerStore from '../stores/useTimerStore';
 import { useTimer } from '../hooks/useTimer';
 import FlashcardCreator from '../components/flashcards/FlashcardCreator';
+import RecallStudio from '../components/documents/RecallStudio';
 import { Document, Page, pdfjs } from 'react-pdf';
 import ReactMarkdown from 'react-markdown';
-import { Panel, Group, Separator } from 'react-resizable-panels';
+import { Panel, Group, Separator, usePanelRef } from 'react-resizable-panels';
 
 // Open Notebook Components
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/modules/open-notebook/ui/tabs';
 import { ChatColumn } from '@/modules/open-notebook/components/ChatColumn';
-import { NotesColumn } from '@/modules/open-notebook/components/NotesColumn';
+import NotesColumnContainer from '@/modules/open-notebook/components/NotesColumnContainer';
 
-// Register PDF worker - Using CDN to ensure version match
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Register PDF worker - use local bundled worker for reliability
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+).toString();
 
 // Required CSS for react-pdf text layer
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -51,9 +56,10 @@ const getFileName = (path) => {
     return path.split(/[/\\]/).pop();
 };
 
-const LazyPage = ({ pageNumber, scale, handleTextSelection }) => {
+const LazyPage = ({ pageNumber, pageWidth, handleTextSelection }) => {
     const [isVisible, setIsVisible] = useState(false);
     const elementRef = React.useRef(null);
+    const placeholderHeight = Math.max(400, Math.round(pageWidth * 1.414));
 
     useEffect(() => {
         const observer = new IntersectionObserver(
@@ -81,11 +87,10 @@ const LazyPage = ({ pageNumber, scale, handleTextSelection }) => {
     return (
         <div
             ref={elementRef}
-            className="shadow-2xl mb-8 relative group bg-white rounded-lg overflow-hidden transition-all"
+            className="shadow-2xl mb-8 relative group bg-white rounded-2xl overflow-hidden transition-all border border-black/5"
             style={{
-                minHeight: isVisible ? 'auto' : `${800 * scale}px`,
-                width: '100%', // Allow page to determine width, but placeholder needs constraints
-                maxWidth: 'fit-content'
+                minHeight: isVisible ? 'auto' : `${placeholderHeight}px`,
+                width: '100%'
             }}
             onMouseUp={handleTextSelection}
         >
@@ -93,7 +98,7 @@ const LazyPage = ({ pageNumber, scale, handleTextSelection }) => {
                 <>
                     <Page
                         pageNumber={pageNumber}
-                        scale={scale}
+                        width={pageWidth}
                         renderTextLayer={true}
                         renderAnnotationLayer={true}
                         loading={<div className="h-[800px] w-full bg-white/5 animate-pulse" />}
@@ -106,8 +111,8 @@ const LazyPage = ({ pageNumber, scale, handleTextSelection }) => {
                 <div
                     className="bg-white/5 animate-pulse flex items-center justify-center text-dark-500 text-xs font-bold uppercase tracking-widest"
                     style={{
-                        height: `${800 * scale}px`,
-                        width: `${600 * scale}px` // Rough A4 aspect ratio estimate 
+                        height: `${placeholderHeight}px`,
+                        width: `${Math.max(320, Math.round(pageWidth * 0.74))}px`
                     }}
                 >
                     Loading Page {pageNumber}...
@@ -120,6 +125,7 @@ const LazyPage = ({ pageNumber, scale, handleTextSelection }) => {
 const DocumentViewer = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [studyDoc, setStudyDoc] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -129,10 +135,14 @@ const DocumentViewer = () => {
     const [progress, setProgress] = useState(0);
     const [numPages, setNumPages] = useState(null);
     const [lastSavedTime, setLastSavedTime] = useState(0);
+    const [apiBaseUrl, setApiBaseUrl] = useState('');
+    const [pdfError, setPdfError] = useState(null);
 
     // Open Notebook State
     const [contextSelections, setContextSelections] = useState({ sources: {}, notes: {} });
-    const [activeTab, setActiveTab] = useState("chat");
+    const initialTab = searchParams.get('tab') || "chat";
+    const initialSessionId = searchParams.get('sessionId') || null;
+    const [activeTab, setActiveTab] = useState(initialTab);
     const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
 
     // Flashcard State
@@ -140,7 +150,9 @@ const DocumentViewer = () => {
     const [flashcardBack, setFlashcardBack] = useState('');
     const [isExtracting, setIsExtracting] = useState(false);
     const flashcardCreatorRef = React.useRef(null);
-    const rightPanelRef = useRef(null);
+    const rightPanelRef = usePanelRef();
+    const leftPanelContainerRef = useRef(null);
+    const [panelWidth, setPanelWidth] = useState(0);
 
     const { seconds } = useTimer(true);
     const {
@@ -153,6 +165,36 @@ const DocumentViewer = () => {
         const secs = seconds % 60;
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
+
+    useEffect(() => {
+        let isMounted = true;
+        getApiUrl()
+            .then((url) => {
+                if (isMounted) setApiBaseUrl(url || '');
+            })
+            .catch(() => {
+                if (isMounted) setApiBaseUrl('');
+            });
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    const apiOrigin = apiBaseUrl ? apiBaseUrl.replace(/\/$/, '') : '';
+    const apiPrefix = apiOrigin ? `${apiOrigin}/api` : '/api';
+    const uploadsPrefix = apiOrigin ? `${apiOrigin}/uploads` : '/uploads';
+    const fileName = useMemo(() => getFileName(studyDoc?.file_path), [studyDoc?.file_path]);
+    const encodedFileName = useMemo(() => (fileName ? encodeURIComponent(fileName) : ''), [fileName]);
+    const pdfFile = useMemo(
+        () => (encodedFileName ? `${uploadsPrefix}/${encodedFileName}` : null),
+        [uploadsPrefix, encodedFileName]
+    );
+    const pdfOptions = useMemo(() => ({
+        cMapUrl: new URL('pdfjs-dist/cmaps/', import.meta.url).toString(),
+        cMapPacked: true,
+        standardFontDataUrl: new URL('pdfjs-dist/standard_fonts/', import.meta.url).toString(),
+        wasmUrl: new URL('pdfjs-dist/build/', import.meta.url).toString()
+    }), []);
 
     useEffect(() => {
         const startSession = async () => {
@@ -171,7 +213,7 @@ const DocumentViewer = () => {
                 seconds_spent: 0,
                 reading_progress: progress / 100
             });
-            navigator.sendBeacon(`${API_URL}/api/documents/${id}/end-session`, payload);
+            navigator.sendBeacon(`${apiPrefix}/documents/${id}/end-session`, new Blob([payload], { type: 'application/json' }));
         };
         window.addEventListener('beforeunload', syncOnClose);
         return () => {
@@ -188,7 +230,7 @@ const DocumentViewer = () => {
             };
             endSession();
         };
-    }, [id, progress]);
+    }, [id, progress, apiPrefix]);
 
     useEffect(() => {
         if (seconds > 0 && seconds % 30 === 0 && seconds !== lastSavedTime) {
@@ -232,6 +274,12 @@ const DocumentViewer = () => {
         fetchDoc();
     }, [id, navigate]);
 
+    useEffect(() => {
+        if (initialTab) {
+            setActiveTab(initialTab);
+        }
+    }, [initialTab]);
+
 
     const handleScroll = useCallback((e) => {
         const container = e.target;
@@ -245,6 +293,7 @@ const DocumentViewer = () => {
 
     const onDocumentLoadSuccess = ({ numPages }) => {
         setNumPages(numPages);
+        setPdfError(null);
     };
 
     const handleTextSelection = useCallback(() => {
@@ -280,12 +329,11 @@ const DocumentViewer = () => {
 
     const toggleRightPanel = () => {
         const panel = rightPanelRef.current;
-        if (panel) {
-            if (isRightPanelCollapsed) {
-                panel.expand();
-            } else {
-                panel.collapse();
-            }
+        if (!panel) return;
+        if (panel.isCollapsed()) {
+            panel.expand();
+        } else {
+            panel.collapse();
         }
     };
 
@@ -317,6 +365,19 @@ const DocumentViewer = () => {
         window.document.addEventListener('fullscreenchange', handleFullscreenChange);
         return () => window.document.removeEventListener('fullscreenchange', handleFullscreenChange);
     }, [isFocusMode]);
+
+    useEffect(() => {
+        const node = leftPanelContainerRef.current;
+        if (!node) return;
+        const updateSize = () => {
+            const width = node.clientWidth || 0;
+            setPanelWidth(width);
+        };
+        updateSize();
+        const observer = new ResizeObserver(updateSize);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, []);
 
     // Shortcuts
     useEffect(() => {
@@ -371,9 +432,8 @@ const DocumentViewer = () => {
         );
     }
 
-    const fileName = getFileName(studyDoc.file_path);
     const isLink = studyDoc?.file_type === 'link';
-    const fileUrl = isLink ? studyDoc.file_path : (fileName ? `${API_URL}/uploads/${fileName}` : '');
+    const fileUrl = isLink ? studyDoc.file_path : (encodedFileName ? `${uploadsPrefix}/${encodedFileName}` : '');
 
     return (
         <div className={`flex flex-col bg-dark-950 transition-all duration-300 ${isFocusMode ? 'fixed inset-0 z-[60] p-0 h-screen' : 'h-[calc(100vh-4rem)]'}`}>
@@ -390,28 +450,28 @@ const DocumentViewer = () => {
 
             {/* Header */}
             {!isFocusMode && (
-                <div className="flex items-center justify-between gap-4 px-6 py-3 bg-dark-900/60 backdrop-blur-xl border-b border-white/5 shrink-0 z-50">
+                <div className="flex items-center justify-between gap-4 px-6 py-3.5 bg-dark-900/70 backdrop-blur-xl border-b border-white/5 shrink-0 z-50">
                     <div className="flex items-center gap-4 min-w-0">
                         <Link to="/documents" className="p-2.5 hover:bg-white/5 rounded-xl transition-all text-dark-300 active:scale-95 border border-transparent hover:border-white/5">
                             <ArrowLeft className="w-5 h-5" />
                         </Link>
                         <div className="min-w-0">
-                            <h1 className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] md:max-w-md text-white/90 leading-tight">
+                            <h1 className="text-base md:text-lg font-semibold tracking-tight truncate max-w-[200px] md:max-w-md text-white leading-tight">
                                 {studyDoc?.title}
                             </h1>
                             <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[9px] text-primary-400 font-black uppercase tracking-[0.2em]">
+                                <span className="text-[10px] text-primary-300 font-bold uppercase tracking-[0.18em]">
                                     {studyDoc?.category || 'General Study'}
                                 </span>
                                 <span className="w-1 h-1 rounded-full bg-white/10" />
-                                <span className="text-[9px] text-dark-500 font-bold uppercase tracking-widest">
+                                <span className="text-[10px] text-dark-500 font-semibold uppercase tracking-widest">
                                     {progress}% READ
                                 </span>
                             </div>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
                         <div className="hidden lg:flex items-center gap-0.5 bg-white/5 p-1 rounded-xl border border-white/5">
                             <button onClick={handleZoomOut} className="p-1.5 hover:bg-white/10 rounded-lg text-dark-400 transition-colors">
                                 <ZoomOut className="w-3.5 h-3.5" />
@@ -449,6 +509,13 @@ const DocumentViewer = () => {
                                 {isExtracting ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <Network className="w-4.5 h-4.5" />}
                             </button>
                             <button
+                                onClick={() => navigate(`/knowledge-graph?docId=${id}`)}
+                                className="p-2.5 rounded-xl text-dark-400 hover:bg-white/5 hover:border-white/10 border border-transparent transition-all"
+                                title="Open in Knowledge Graph"
+                            >
+                                <Layers className="w-4.5 h-4.5" />
+                            </button>
+                            <button
                                 onClick={toggleRightPanel}
                                 className="p-2.5 rounded-xl text-dark-400 hover:bg-white/5 hover:border-white/10 border border-transparent transition-all"
                                 title={isRightPanelCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
@@ -468,33 +535,64 @@ const DocumentViewer = () => {
                 <Group direction="horizontal">
                     {/* Left Panel: Document */}
                     <Panel defaultSize={60} minSize={30} className="flex flex-col bg-dark-900/50">
-                        <div id="document-scroll-container" className="flex-1 overflow-auto custom-scrollbar" onScroll={handleScroll}>
-                            <div className={`min-w-full min-h-full flex flex-col ${['pdf', 'image'].includes(studyDoc?.file_type) ? 'items-center py-12' : ''}`}>
+                        <div
+                            id="document-scroll-container"
+                            ref={leftPanelContainerRef}
+                            className="flex-1 overflow-auto custom-scrollbar"
+                            onScroll={handleScroll}
+                        >
+                            <div className={`min-w-full min-h-full flex flex-col ${['pdf', 'image'].includes(studyDoc?.file_type) ? 'items-center py-10' : ''}`}>
                                 {(studyDoc?.file_type === 'pdf' || studyDoc?.filename?.toLowerCase().endsWith('.pdf') || studyDoc?.file_path?.toLowerCase().endsWith('.pdf')) ? (
-                                    <div className="w-full flex flex-col items-center py-8">
-                                        <Document
-                                            file={`${API_URL}/uploads/${fileName}`}
-                                            onLoadSuccess={onDocumentLoadSuccess}
-                                            className="flex flex-col items-center gap-4"
-                                            loading={<div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 my-20"></div>}
-                                        >
-                                            {Array.from(new Array(numPages), (el, index) => (
-                                                <LazyPage
-                                                    key={`page_${index + 1}`}
-                                                    pageNumber={index + 1}
-                                                    scale={zoom}
-                                                    handleTextSelection={handleTextSelection}
-                                                />
-                                            ))}
-                                        </Document>
+                                    <div className="w-full flex flex-col items-center py-8 px-4">
+                                        {pdfFile ? (
+                                            <Document
+                                                file={pdfFile}
+                                                onLoadSuccess={onDocumentLoadSuccess}
+                                                className="flex flex-col items-center gap-4"
+                                                loading={<div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 my-20"></div>}
+                                                onLoadError={(err) => {
+                                                    console.error('PDF load error', err);
+                                                    setPdfError(err?.message || 'Failed to load PDF');
+                                                }}
+                                                onSourceError={(err) => {
+                                                    console.error('PDF source error', err);
+                                                    setPdfError(err?.message || 'Failed to load PDF source');
+                                                }}
+                                                options={pdfOptions}
+                                            >
+                                                {pdfError && (
+                                                    <div className="w-full max-w-2xl bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-xl text-sm">
+                                                        {pdfError}
+                                                    </div>
+                                                )}
+                                                {numPages && !pdfError && Array.from({ length: numPages }, (el, index) => (
+                                                    <LazyPage
+                                                        key={`page_${index + 1}`}
+                                                        pageNumber={index + 1}
+                                                        pageWidth={Math.max(320, Math.floor((panelWidth || 900) * 0.92 * zoom))}
+                                                        handleTextSelection={handleTextSelection}
+                                                    />
+                                                ))}
+                                                {!numPages && !pdfError && (
+                                                    <div className="text-dark-400 text-sm py-10">Preparing pages...</div>
+                                                )}
+                                            </Document>
+                                        ) : (
+                                            <div className="text-dark-400 text-sm py-10">
+                                                PDF file not available.
+                                            </div>
+                                        )}
                                     </div>
                                 ) : studyDoc?.file_type === 'link' ? (
                                     <div className="flex-1 w-full bg-white relative">
                                         <iframe src={fileUrl} className="absolute inset-0 w-full h-full border-none" title={studyDoc.title} />
                                     </div>
                                 ) : (studyDoc.file_type === 'markdown' || studyDoc.file_type === 'text') ? (
-                                    <div className="w-full flex-1 flex flex-col items-center py-12 px-6">
-                                        <div className="w-full max-w-4xl bg-dark-900/40 backdrop-blur-md rounded-[2.5rem] border border-white/10 shadow-2xl p-8 md:p-16 relative" onMouseUp={handleTextSelection}>
+                                    <div className="w-full flex-1 flex flex-col items-center py-10 px-6">
+                                        <div
+                                            className="w-full max-w-5xl bg-dark-900/50 backdrop-blur-md rounded-[2.5rem] border border-white/10 shadow-2xl p-8 md:p-14 relative"
+                                            onMouseUp={handleTextSelection}
+                                        >
                                             <div className="markdown-content">
                                                 {studyDoc.file_type === 'markdown' ? (
                                                     <ReactMarkdown>{studyDoc.extracted_text}</ReactMarkdown>
@@ -519,21 +617,25 @@ const DocumentViewer = () => {
 
                     {/* Right Panel: Open Notebook (Chat/Notes/Flashcards) */}
                     <Panel
-                        ref={rightPanelRef}
+                        panelRef={rightPanelRef}
                         defaultSize={40}
                         minSize={20}
                         collapsible={true}
-                        onCollapse={() => setIsRightPanelCollapsed(true)}
-                        onExpand={() => setIsRightPanelCollapsed(false)}
+                        onResize={() => {
+                            const panel = rightPanelRef.current;
+                            if (!panel) return;
+                            setIsRightPanelCollapsed(panel.isCollapsed());
+                        }}
                         className="bg-dark-900 border-l border-white/5"
                     >
                         <div className="h-full flex flex-col">
                             <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
                                 <div className="px-4 py-3 border-b border-white/5 bg-dark-900/80 backdrop-blur-sm">
-                                    <TabsList className="grid w-full grid-cols-3 bg-white/5">
-                                        <TabsTrigger value="chat" className="text-xs uppercase tracking-wider font-bold"><MessageSquare className="w-3.5 h-3.5 mr-2" />Chat</TabsTrigger>
-                                        <TabsTrigger value="notes" className="text-xs uppercase tracking-wider font-bold"><StickyNote className="w-3.5 h-3.5 mr-2" />Notes</TabsTrigger>
-                                        <TabsTrigger value="flashcards" className="text-xs uppercase tracking-wider font-bold"><Sparkles className="w-3.5 h-3.5 mr-2" />Cards</TabsTrigger>
+                                    <TabsList className="grid w-full grid-cols-4 bg-dark-800/60 border border-white/10 rounded-xl">
+                                        <TabsTrigger value="chat" className="text-[10px] uppercase tracking-wider font-black"><MessageSquare className="w-3.5 h-3.5 mr-2" />Chat</TabsTrigger>
+                                        <TabsTrigger value="notes" className="text-[10px] uppercase tracking-wider font-black"><StickyNote className="w-3.5 h-3.5 mr-2" />Notes</TabsTrigger>
+                                        <TabsTrigger value="flashcards" className="text-[10px] uppercase tracking-wider font-black"><Sparkles className="w-3.5 h-3.5 mr-2" />Cards</TabsTrigger>
+                                        <TabsTrigger value="recall" className="text-[10px] uppercase tracking-wider font-black"><Layers className="w-3.5 h-3.5 mr-2" />Recall</TabsTrigger>
                                     </TabsList>
                                 </div>
 
@@ -542,7 +644,7 @@ const DocumentViewer = () => {
                                 </TabsContent>
 
                                 <TabsContent value="notes" className="flex-1 overflow-hidden m-0 p-0">
-                                    <NotesColumn notebookId={id} contextSelections={contextSelections} />
+                                    <NotesColumnContainer notebookId={id} contextSelections={contextSelections} />
                                 </TabsContent>
 
                                 <TabsContent value="flashcards" className="flex-1 overflow-hidden m-0 p-4">
@@ -560,6 +662,10 @@ const DocumentViewer = () => {
                                         setExternalFront={setFlashcardFront}
                                         setExternalBack={setFlashcardBack}
                                     />
+                                </TabsContent>
+
+                                <TabsContent value="recall" className="flex-1 overflow-hidden m-0 p-0">
+                                    <RecallStudio documentId={id} selectedText={selectedText} initialSessionId={initialSessionId} />
                                 </TabsContent>
                             </Tabs>
                         </div>

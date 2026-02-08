@@ -70,7 +70,7 @@ export function NotesColumn({
         collapsedIcon={StickyNote}
         collapsedLabel={t.common.notes}
       >
-        <Card className="h-full flex flex-col flex-1 overflow-hidden">
+        <Card className="h-full flex flex-col flex-1 overflow-hidden bg-dark-900/60 border-white/10 rounded-none shadow-none">
           <CardHeader className="pb-3 flex-shrink-0">
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="text-lg">{t.common.notes}</CardTitle>

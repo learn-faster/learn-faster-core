@@ -19,8 +19,6 @@ import SmartTimer from '../components/SmartTimer';
 import GoalProgress from '../components/GoalProgress';
 import StreakProtection from '../components/analytics/StreakProtection';
 import AbstractBackground from '../components/ui/AbstractBackground';
-import AgentChat from '../components/GoalAgent/AgentChat';
-import AgentSettings from '../components/GoalAgent/AgentSettings';
 
 /**
  * Dashboard Page Component - Redesigned
@@ -42,8 +40,6 @@ const Dashboard = () => {
     const [activities, setActivities] = useState([]);
     const [streakStatus, setStreakStatus] = useState(null);
 
-    // Agent State
-    const [showAgentSettings, setShowAgentSettings] = useState(false);
 
     useEffect(() => {
         const fetchDashboardData = async () => {
@@ -123,30 +119,7 @@ const Dashboard = () => {
         <>
             <AbstractBackground />
 
-            {/* Agent Settings Modal using AnimatePresence */}
-            <AnimatePresence>
-                {showAgentSettings && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                            onClick={() => setShowAgentSettings(false)}
-                        />
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="relative z-10 w-full max-w-md"
-                        >
-                            <AgentSettings onClose={() => setShowAgentSettings(false)} />
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            <div className="relative z-10 space-y-8 pb-20">
+            <div className="relative z-10 space-y-8 pb-16">
                 {/* Dashboard Grid with Agent */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
 
@@ -159,7 +132,7 @@ const Dashboard = () => {
                                     <motion.p
                                         initial={{ opacity: 0, y: 10 }}
                                         animate={{ opacity: 1, y: 0 }}
-                                        className="text-primary-400 text-sm font-medium mb-2"
+                                        className="text-primary-300 text-xs font-semibold uppercase tracking-[0.2em] mb-2"
                                     >
                                         {getTimeOfDay()}
                                     </motion.p>
@@ -167,7 +140,7 @@ const Dashboard = () => {
                                         initial={{ opacity: 0, y: 10 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: 0.1 }}
-                                        className="text-4xl md:text-5xl font-black tracking-tight text-white"
+                                        className="text-3xl md:text-5xl font-black tracking-tight text-white"
                                     >
                                         Ready to Learn?
                                     </motion.h1>
@@ -175,7 +148,7 @@ const Dashboard = () => {
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         transition={{ delay: 0.2 }}
-                                        className="text-dark-400 mt-3 max-w-md"
+                                        className="text-dark-400 mt-3 max-w-md text-sm md:text-base"
                                     >
                                         {overview?.cards_due_today > 0
                                             ? `You have ${overview.cards_due_today} cards waiting for review.`
@@ -190,7 +163,7 @@ const Dashboard = () => {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.4 }}
-                            className="grid grid-cols-2 gap-4"
+                            className="grid grid-cols-2 md:grid-cols-4 gap-4"
                         >
                             {stats.map((stat, i) => (
                                 <motion.div
@@ -204,7 +177,7 @@ const Dashboard = () => {
                                     <div className={`absolute top-0 right-0 w-24 h-24 bg-gradient-to-br ${stat.color} opacity-10 blur-2xl group-hover:opacity-20 transition-opacity`} />
                                     <div className="relative">
                                         <stat.icon className={`w-5 h-5 mb-3 bg-gradient-to-r ${stat.color} bg-clip-text`} style={{ color: 'transparent', backgroundClip: 'text', WebkitTextFillColor: 'transparent', WebkitBackgroundClip: 'text' }} />
-                                        <p className="text-[10px] font-bold uppercase tracking-widest text-dark-500 mb-1">{stat.label}</p>
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-dark-500 mb-1">{stat.label}</p>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-2xl font-black text-white">{stat.value}</span>
                                             {stat.suffix && <span className="text-sm text-dark-400">{stat.suffix}</span>}
@@ -297,16 +270,14 @@ const Dashboard = () => {
                         </motion.div>
                     </div>
 
-                    {/* Right Column: Agent Chat (Hero placement on Desktop) */}
+                    {/* Right Column reserved for future widgets */}
                     <motion.div
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.5 }}
                         className="lg:col-span-1 relative z-20"
                     >
-                        <div className="sticky top-6">
-                            <AgentChat onSettingsClick={() => setShowAgentSettings(true)} />
-                        </div>
+                        <div className="sticky top-6" />
                     </motion.div>
 
                 </div>

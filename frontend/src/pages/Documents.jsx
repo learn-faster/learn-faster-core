@@ -266,7 +266,7 @@ const Documents = () => {
             </div>
 
             {/* Main Library View */}
-            <div className="flex-1 space-y-12">
+            <div className="flex-1 space-y-10">
                 {/* Immersive Header */}
                 <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8 pt-4">
                     <div className="space-y-4">
@@ -283,12 +283,12 @@ const Documents = () => {
                                 {documents.length} Units Synthetic
                             </span>
                         </div>
-                        <h1 className="text-6xl font-black tracking-tighter text-white leading-tight">
+                        <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white leading-tight">
                             {selectedFolderId === null ? 'The Archive' :
                                 selectedFolderId === 'unfiled' ? 'Drifting' :
                                     folders.find(f => f.id === selectedFolderId)?.name}
                         </h1>
-                        <p className="text-dark-400 text-lg font-medium max-w-xl leading-relaxed opacity-70">
+                        <p className="text-dark-400 text-sm md:text-base font-medium max-w-xl leading-relaxed opacity-70">
                             {selectedFolderId === null ? 'High-fidelity repository for your synthesized intellectual assets.' :
                                 `Recursive analysis of ${folders.find(f => f.id === selectedFolderId)?.name || 'this segment'}.`}
                         </p>
@@ -806,7 +806,7 @@ const Documents = () => {
                             whileHover={{ scale: 1.02, y: -2 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={() => setIsUploadOpen(true)}
-                            className="group flex items-center gap-4 px-12 py-5 rounded-2xl bg-white text-dark-950 font-black text-[11px] uppercase tracking-[0.3em] shadow-xl hover:shadow-primary-500/10 transition-all overflow-hidden"
+                            className="group flex items-center gap-4 px-12 py-5 rounded-2xl bg-gradient-to-r from-primary-500 to-indigo-500 text-white font-black text-[11px] uppercase tracking-[0.3em] shadow-xl hover:shadow-primary-500/30 transition-all overflow-hidden"
                         >
                             <div className="absolute inset-0 bg-gradient-to-r from-primary-400 to-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                             <span className="relative z-10 flex items-center gap-3 group-hover:text-white transition-colors">
