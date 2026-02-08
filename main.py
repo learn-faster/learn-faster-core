@@ -43,7 +43,8 @@ from src.routers import (
     resources as resources_router,
     goals as goals_router,
     notifications as notifications_router,
-    multidoc_graph as multidoc_graph_router
+    multidoc_graph as multidoc_graph_router,
+    fitbit as fitbit_router
 )
 
 # Import Open Notebook components
@@ -174,6 +175,7 @@ app.include_router(resources_router.router)
 app.include_router(goals_router.router)
 app.include_router(notifications_router.router)
 app.include_router(multidoc_graph_router.router)
+app.include_router(fitbit_router.router, prefix="/api/fitbit")
 app.include_router(notebook_router, prefix="/api")
 
 

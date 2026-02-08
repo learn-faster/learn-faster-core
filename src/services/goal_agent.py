@@ -128,7 +128,25 @@ class GoalManifestationAgent:
         else:
             user_email_info = "- User Email: NOT CONFIGURED"
             email_tool_hint = "Email tool unavailable. Ask user to set their email in Global Settings > Notifications."
-        
+
+        biometrics_info = "- Biometrics: DISABLED"
+        if agent_state.user_context.use_biometrics:
+            try:
+                from src.models.fitbit import FitbitToken
+                from src.services.fitbit_service import FitbitService
+                db = SessionLocal()
+                token = db.query(FitbitToken).filter(FitbitToken.user_id == agent_state.user_context.user_id).first()
+                if token:
+                    fb_service = FitbitService(token)
+                    summary = fb_service.get_biometric_summary(datetime.now().strftime('%Y-%m-%d'))
+                    biometrics_info = f"- Biometrics: {summary} (ENABLED)"
+                else:
+                    biometrics_info = "- Biometrics: ENABLED but no Fitbit token found."
+                db.close()
+            except Exception as e:
+                logger.error(f"Error fetching biometrics: {e}")
+                biometrics_info = "- Biometrics: ENABLED but error fetching data."
+
         goals_summary = "\n".join([f"  - {g.title} ({g.status}, {int(g.progress*100)}%)" for g in agent_state.goals]) if agent_state.goals else "  No active goals."
         
         system_prompt = f"""
@@ -138,6 +156,7 @@ class GoalManifestationAgent:
         ===== CURRENT CONTEXT =====
         - Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}
         {user_email_info}
+        {biometrics_info}
         - Scratchpad: {scratchpad if scratchpad else '(empty)'}
         - Active Goals:
 {goals_summary}
@@ -349,7 +368,8 @@ class GoalManifestationAgent:
                     user_id=user_id, 
                     name="User",
                     email=user_settings.email if user_settings else None,
-                    resend_api_key=user_settings.resend_api_key if user_settings else None
+                    resend_api_key=user_settings.resend_api_key if user_settings else None,
+                    use_biometrics=user_settings.use_biometrics if user_settings else False
                 ),
                 llm_config=llm_config,
                 goals=goals

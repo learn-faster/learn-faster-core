@@ -12,8 +12,10 @@ const AgentSettings = ({ onClose }) => {
             api_key: ''
         },
         enable_screenshots: true,
-        check_in_frequency_hours: 4
+        check_in_frequency_hours: 4,
+        use_biometrics: false
     });
+    const [connected, setConnected] = useState(false);
     const [error, setError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -22,13 +24,20 @@ const AgentSettings = ({ onClose }) => {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const data = await api.get('/goals/agent/settings');
-                if (data) {
-                    setSettings(data);
+                const [settingsData, statusData] = await Promise.all([
+                    api.get('/goals/agent/settings'),
+                    api.get('/fitbit/status')
+                ]);
+
+                if (settingsData) {
+                    setSettings(prev => ({
+                        ...prev,
+                        ...settingsData
+                    }));
                 }
+                setConnected(statusData?.connected || false);
             } catch (err) {
                 console.error('Error fetching settings:', err);
-                // Keep defaults if fetch fails, but log it
             } finally {
                 setIsLoading(false);
             }
@@ -157,15 +166,44 @@ const AgentSettings = ({ onClose }) => {
 
                         {/* Behavior */}
                         <div>
-                            <h4 className="text-sm font-medium text-gray-700 mb-3">Capabilities</h4>
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm text-gray-600">Enable Screenshots</span>
-                                <input
-                                    type="checkbox"
-                                    checked={settings.enable_screenshots}
-                                    onChange={(e) => handleChange(null, 'enable_screenshots', e.target.checked)}
-                                    className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                                />
+                            <h4 className="text-sm font-medium text-gray-700 mb-3">Capabilities & Biometrics</h4>
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-gray-600">Enable Screenshots</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.enable_screenshots}
+                                        onChange={(e) => handleChange(null, 'enable_screenshots', e.target.checked)}
+                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                                    />
+                                </div>
+
+                                {connected && (
+                                    <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium text-indigo-900">Predictive Focusing</span>
+                                            <span className="text-xs text-indigo-600">Sync with Fitbit cycles</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={settings.use_biometrics}
+                                            onChange={(e) => handleChange(null, 'use_biometrics', e.target.checked)}
+                                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                                        />
+                                    </div>
+                                )}
+
+                                {!connected && (
+                                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-between">
+                                        <span className="text-xs text-gray-500 italic">Connect Fitbit in Main Settings to enable biometric sync</span>
+                                        <button
+                                            onClick={() => window.location.href = '/settings'}
+                                            className="text-[10px] text-indigo-600 font-bold uppercase hover:underline"
+                                        >
+                                            Setup
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

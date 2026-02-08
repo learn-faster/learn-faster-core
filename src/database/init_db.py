@@ -119,6 +119,10 @@ def migrate_user_settings_table():
         ("email_streak_alert", "BOOLEAN DEFAULT TRUE"),
         ("email_weekly_digest", "BOOLEAN DEFAULT TRUE"),
         ("llm_config", "JSON"),
+        ("use_biometrics", "BOOLEAN DEFAULT FALSE"),
+        ("fitbit_client_id", "VARCHAR"),
+        ("fitbit_client_secret", "VARCHAR"),
+        ("fitbit_redirect_uri", "VARCHAR"),
         ("created_at", "TIMESTAMP"),
         ("updated_at", "TIMESTAMP")
     ]

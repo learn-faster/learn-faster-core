@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, X, Bot, Key, Bell, Mail } from 'lucide-react';
+import { Settings as SettingsIcon, Save, X, Bot, Key, Bell, Mail, BrainCircuit, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from './ui/card';
 import api from '../services/api';
@@ -12,7 +12,7 @@ import api from '../services/api';
  * 2. Notification Preferences (Email, Streaks, Digests)
  */
 const Settings = ({ isOpen, onClose }) => {
-    const [activeTab, setActiveTab] = useState('ai'); // 'ai' or 'notifications'
+    const [activeTab, setActiveTab] = useState('ai'); // 'ai', 'notifications', or 'biometrics'
 
     // AI State
     const [provider, setProvider] = useState('groq');
@@ -28,6 +28,13 @@ const Settings = ({ isOpen, onClose }) => {
     const [notifyDigest, setNotifyDigest] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
+    // Biometric State
+    const [connected, setConnected] = useState(false);
+    const [useBiometrics, setUseBiometrics] = useState(false);
+    const [fitbitClientId, setFitbitClientId] = useState('');
+    const [fitbitClientSecret, setFitbitClientSecret] = useState('');
+    const [fitbitRedirectUri, setFitbitRedirectUri] = useState('http://localhost:5173/api/fitbit/callback');
+
     useEffect(() => {
         if (!isOpen) return;
 
@@ -42,15 +49,24 @@ const Settings = ({ isOpen, onClose }) => {
         setOllamaUrl(savedUrl);
         setModel(savedModel);
 
-        // Load Notification settings from backend
+        // Load Notification settings & Biometrics from backend
         const fetchSettings = async () => {
             try {
-                const data = await api.get('/cognitive/settings');
-                if (data.email) setEmail(data.email);
-                if (data.resend_api_key) setResendApiKey(data.resend_api_key);
-                setNotifyDaily(data.email_daily_reminder !== false);
-                setNotifyStreak(data.email_streak_alert !== false);
-                setNotifyDigest(data.email_weekly_digest !== false);
+                const [settingsData, statusData] = await Promise.all([
+                    api.get('/goals/agent/settings'),
+                    api.get('/fitbit/status')
+                ]);
+
+                if (settingsData.email) setEmail(settingsData.email);
+                if (settingsData.resend_api_key) setResendApiKey(settingsData.resend_api_key);
+                setNotifyDaily(settingsData.email_daily_reminder !== false);
+                setNotifyStreak(settingsData.email_streak_alert !== false);
+                setNotifyDigest(settingsData.email_weekly_digest !== false);
+                setUseBiometrics(settingsData.use_biometrics === true);
+                if (settingsData.fitbit_client_id) setFitbitClientId(settingsData.fitbit_client_id);
+                if (settingsData.fitbit_client_secret) setFitbitClientSecret(settingsData.fitbit_client_secret);
+                if (settingsData.fitbit_redirect_uri) setFitbitRedirectUri(settingsData.fitbit_redirect_uri);
+                setConnected(statusData.connected || false);
             } catch (err) {
                 console.error("Failed to load settings:", err);
             }
@@ -80,13 +96,17 @@ const Settings = ({ isOpen, onClose }) => {
 
         // Save Notification & AI Settings to backend
         try {
-            await api.patch('/cognitive/settings', {
+            await api.post('/goals/agent/settings', {
                 email,
                 resend_api_key: resendApiKey,
                 email_daily_reminder: notifyDaily,
                 email_streak_alert: notifyStreak,
                 email_weekly_digest: notifyDigest,
-                llm_config: { global: llmConfig } // Persist global config to backend
+                use_biometrics: useBiometrics,
+                fitbit_client_id: fitbitClientId,
+                fitbit_client_secret: fitbitClientSecret,
+                fitbit_redirect_uri: fitbitRedirectUri,
+                llm_config: llmConfig
             });
             onClose();
         } catch (err) {
@@ -143,6 +163,16 @@ const Settings = ({ isOpen, onClose }) => {
                         >
                             <Bell className="w-4 h-4" />
                             Notifications
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('biometrics')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'biometrics'
+                                ? 'bg-primary-500/20 text-primary-400 shadow-sm'
+                                : 'text-dark-400 hover:text-white hover:bg-white/5'
+                                }`}
+                        >
+                            <BrainCircuit className="w-4 h-4" />
+                            Biometrics
                         </button>
                     </div>
 
@@ -301,6 +331,116 @@ const Settings = ({ isOpen, onClose }) => {
                                         </div>
                                     </button>
                                 </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'biometrics' && (
+                            <div className="space-y-6">
+                                <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-4">
+                                    <h4 className="flex items-center gap-2 text-indigo-300 font-bold mb-2">
+                                        <Zap className="w-4 h-4" />
+                                        Fitbit Sync
+                                    </h4>
+                                    <p className="text-sm text-indigo-200/70">
+                                        Connecting your Fitbit allows the Agent to schedule your most demanding studies during your peak physiological recovery windows.
+                                    </p>
+                                </div>
+
+                                <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${connected ? 'bg-emerald-500/20 border border-emerald-500/30' : 'bg-dark-800 border border-white/5'}`}>
+                                                <Zap className={`w-6 h-6 ${connected ? 'text-emerald-400' : 'text-dark-500'}`} />
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-white">Fitbit Connection</p>
+                                                <p className={`text-xs ${connected ? 'text-emerald-400' : 'text-dark-500'}`}>
+                                                    {connected ? 'Device Synced' : 'Not connected'}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {!connected ? (
+                                            <button
+                                                onClick={() => window.location.href = '/api/fitbit/auth?user_id=default_user'}
+                                                disabled={!fitbitClientId || !fitbitRedirectUri}
+                                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                Connect
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={async () => {
+                                                    await api.delete('/fitbit/disconnect');
+                                                    setConnected(false);
+                                                }}
+                                                className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-bold rounded-lg transition-all border border-red-500/20"
+                                            >
+                                                Disconnect
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {!connected && (
+                                        <div className="pt-4 border-t border-white/5 space-y-4">
+                                            <div>
+                                                <label className="block text-xs font-medium text-dark-300 mb-2 uppercase tracking-wider">Client ID</label>
+                                                <input
+                                                    type="text"
+                                                    value={fitbitClientId}
+                                                    onChange={(e) => setFitbitClientId(e.target.value)}
+                                                    placeholder="ABCD12"
+                                                    className="w-full bg-dark-800 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-dark-300 mb-2 uppercase tracking-wider">Client Secret</label>
+                                                <input
+                                                    type="password"
+                                                    value={fitbitClientSecret}
+                                                    onChange={(e) => setFitbitClientSecret(e.target.value)}
+                                                    placeholder="••••••••••••••••"
+                                                    className="w-full bg-dark-800 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-dark-300 mb-2 uppercase tracking-wider">Redirect URI</label>
+                                                <input
+                                                    type="text"
+                                                    value={fitbitRedirectUri}
+                                                    onChange={(e) => setFitbitRedirectUri(e.target.value)}
+                                                    placeholder="http://localhost:5173/api/fitbit/callback"
+                                                    className="w-full bg-dark-800 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors font-mono"
+                                                />
+                                                <p className="text-[10px] text-dark-400 mt-1 ml-1">
+                                                    Must match your Fitbit App settings exactly.
+                                                </p>
+                                            </div>
+                                            <p className="text-[10px] text-indigo-300/60 leading-relaxed">
+                                                Tip: Click "Save Configuration" below after entering credentials, then click "Connect".
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {connected && (
+                                    <div className="space-y-4">
+                                        <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-2">Biometric Features</h4>
+                                        <button
+                                            type="button"
+                                            onClick={() => setUseBiometrics(!useBiometrics)}
+                                            className="w-full flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer group"
+                                        >
+                                            <div className="text-left">
+                                                <span className="block font-medium text-white group-hover:text-primary-400 transition-colors">Predictive Focusing</span>
+                                                <span className="text-xs text-dark-400">Optimize study sessions via sleep cycles</span>
+                                            </div>
+                                            <div className={`w-12 h-6 rounded-full p-1 transition-colors ${useBiometrics ? 'bg-emerald-500' : 'bg-dark-700'}`}>
+                                                <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${useBiometrics ? 'translate-x-6' : 'translate-x-0'}`} />
+                                            </div>
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

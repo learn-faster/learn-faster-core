@@ -7,6 +7,7 @@ from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Floa
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from src.database.orm import Base
+from .fitbit import FitbitToken
 
 class Folder(Base):
     __tablename__ = "folders"
@@ -175,6 +176,12 @@ class UserSettings(Base):
     email_daily_reminder = Column(Boolean, default=True)
     email_streak_alert = Column(Boolean, default=True)
     email_weekly_digest = Column(Boolean, default=True)
+    
+    # Biometric Integration
+    use_biometrics = Column(Boolean, default=False)
+    fitbit_client_id = Column(String, nullable=True)
+    fitbit_client_secret = Column(String, nullable=True)
+    fitbit_redirect_uri = Column(String, nullable=True)
     
     # LLM Configuration (JSON)
     # Stores provider settings and component-specific overrides

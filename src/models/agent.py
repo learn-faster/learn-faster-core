@@ -18,11 +18,22 @@ class AgentLLMConfig(BaseModel):
 
 class AgentSettings(BaseModel):
     """Global settings for the Agent."""
+    model_config = {"extra": "ignore"}  # Ignore extra fields from UI
+    
     llm_config: AgentLLMConfig = Field(default_factory=AgentLLMConfig)
     enable_screenshots: bool = True
     screenshot_interval_min: int = 15
     check_in_frequency_hours: int = 4
     resend_api_key: Optional[str] = None
+    email: Optional[str] = None
+    use_biometrics: bool = False
+    fitbit_client_id: Optional[str] = None
+    fitbit_client_secret: Optional[str] = None
+    fitbit_redirect_uri: Optional[str] = None
+    # Notification preferences (also stored on UserSettings model)
+    email_daily_reminder: Optional[bool] = None
+    email_streak_alert: Optional[bool] = None
+    email_weekly_digest: Optional[bool] = None
 
 # --- State Definitions ---
 
@@ -33,6 +44,7 @@ class UserContext(BaseModel):
     name: str = "User"
     email: Optional[str] = None
     resend_api_key: Optional[str] = None
+    use_biometrics: bool = False
     bio: Optional[str] = None
     # Learned preferences could go here or in a separate dict
     preferences: Dict[str, Any] = Field(default_factory=dict) 

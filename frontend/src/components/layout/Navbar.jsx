@@ -150,7 +150,7 @@ const Navbar = ({ onOpenSettings }) => {
                     <div className="w-5 h-5 flex items-center justify-center">
                         <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform duration-700" />
                     </div>
-                    <span className="hidden md:block font-bold tracking-tight text-sm">AI Configuration</span>
+                    <span className="hidden md:block font-bold tracking-tight text-sm">Global Settings</span>
                 </button>
             </div>
         </nav >

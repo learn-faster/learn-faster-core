@@ -13,6 +13,7 @@ import DocumentViewer from './pages/DocumentViewer';
 import KnowledgeGraph from './pages/KnowledgeGraph';
 import CurriculumList from './pages/CurriculumList';
 import CurriculumView from './pages/CurriculumView';
+import Settings from './pages/Settings';
 
 
 const queryClient = new QueryClient({
@@ -39,6 +40,7 @@ function App() {
             <Route path="curriculum" element={<CurriculumList />} />
             <Route path="curriculum/:id" element={<CurriculumView />} />
             <Route path="analytics" element={<Analytics />} />
+            <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>
       </Router>

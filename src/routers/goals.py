@@ -232,12 +232,36 @@ async def update_agent_settings(
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(user_settings, "llm_config")
     
-    # Update legacy field for compatibility
-    user_settings.email_daily_reminder = settings.check_in_frequency_hours > 0 
-    
+    # Update notification preferences if provided in the request
+    if settings.email_daily_reminder is not None:
+        user_settings.email_daily_reminder = settings.email_daily_reminder
+    else:
+        # Backward compatibility / logical default
+        user_settings.email_daily_reminder = settings.check_in_frequency_hours > 0
+
+    if settings.email_streak_alert is not None:
+        user_settings.email_streak_alert = settings.email_streak_alert
+        
+    if settings.email_weekly_digest is not None:
+        user_settings.email_weekly_digest = settings.email_weekly_digest    
     # Save Resend API Key if provided
     if settings.resend_api_key:
         user_settings.resend_api_key = settings.resend_api_key
+    
+    # Save email if provided
+    if settings.email:
+        user_settings.email = settings.email
+        
+    # Save Biometrics preference
+    user_settings.use_biometrics = settings.use_biometrics
+    
+    # Save Fitbit credentials
+    if settings.fitbit_client_id:
+        user_settings.fitbit_client_id = settings.fitbit_client_id
+    if settings.fitbit_client_secret:
+        user_settings.fitbit_client_secret = settings.fitbit_client_secret
+    if settings.fitbit_redirect_uri:
+        user_settings.fitbit_redirect_uri = settings.fitbit_redirect_uri
     
     db.commit()
     return {"status": "updated", "settings": settings.model_dump()}
@@ -284,7 +308,16 @@ async def get_agent_settings(
     return {
         "llm_config": llm_config,
         "enable_screenshots": agent_settings_data.get("enable_screenshots", True),
+        "screenshot_interval_min": agent_settings_data.get("screenshot_interval_min", 15),
         "check_in_frequency_hours": agent_settings_data.get("check_in_frequency_hours", 4 if user_settings.email_daily_reminder else 0),
-        "resend_api_key": user_settings.resend_api_key
+        "resend_api_key": user_settings.resend_api_key,
+        "email": user_settings.email,
+        "use_biometrics": user_settings.use_biometrics,
+        "fitbit_client_id": user_settings.fitbit_client_id,
+        "fitbit_client_secret": user_settings.fitbit_client_secret,
+        "fitbit_redirect_uri": user_settings.fitbit_redirect_uri,
+        "email_daily_reminder": user_settings.email_daily_reminder,
+        "email_streak_alert": user_settings.email_streak_alert,
+        "email_weekly_digest": user_settings.email_weekly_digest
     }
 
