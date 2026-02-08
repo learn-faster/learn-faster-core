@@ -24,6 +24,7 @@ const Settings = ({ isOpen, onClose }) => {
     const [embeddingModel, setEmbeddingModel] = useState('embeddinggemma:latest');
     const [embeddingApiKey, setEmbeddingApiKey] = useState('');
     const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState('http://localhost:11434');
+    const [applyGlobalSettings, setApplyGlobalSettings] = useState(true);
 
     // Notification State
     const [email, setEmail] = useState('');
@@ -45,6 +46,34 @@ const Settings = ({ isOpen, onClose }) => {
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
+    const LLM_PROVIDERS = [
+        { value: 'openai', label: 'OpenAI' },
+        { value: 'groq', label: 'Groq' },
+        { value: 'openrouter', label: 'OpenRouter' },
+        { value: 'together', label: 'Together' },
+        { value: 'fireworks', label: 'Fireworks' },
+        { value: 'mistral', label: 'Mistral' },
+        { value: 'deepseek', label: 'DeepSeek' },
+        { value: 'perplexity', label: 'Perplexity' },
+        { value: 'huggingface', label: 'Hugging Face' },
+        { value: 'ollama', label: 'Ollama (Local)' },
+        { value: 'ollama_cloud', label: 'Ollama (Cloud)' },
+        { value: 'custom', label: 'OpenAI-Compatible' }
+    ];
+
+    const EMBEDDING_PROVIDERS = [
+        { value: 'openai', label: 'OpenAI' },
+        { value: 'ollama', label: 'Ollama (Local)' },
+        { value: 'openrouter', label: 'OpenRouter' },
+        { value: 'together', label: 'Together' },
+        { value: 'fireworks', label: 'Fireworks' },
+        { value: 'mistral', label: 'Mistral' },
+        { value: 'deepseek', label: 'DeepSeek' },
+        { value: 'perplexity', label: 'Perplexity' },
+        { value: 'huggingface', label: 'Hugging Face' },
+        { value: 'custom', label: 'OpenAI-Compatible' }
+    ];
+
     const tabs = useMemo(() => ([
         { key: 'ai', label: 'AI Config', icon: Bot },
         { key: 'notifications', label: 'Notifications', icon: Bell },
@@ -55,15 +84,17 @@ const Settings = ({ isOpen, onClose }) => {
         if (!isOpen) return;
         setIsLoading(true);
 
-        const savedProvider = localStorage.getItem('llm_provider') || 'groq';
+        const savedProvider = localStorage.getItem('llm_provider') || 'openai';
         const savedKey = localStorage.getItem('llm_api_key') || '';
         const savedUrl = localStorage.getItem('ollama_base_url') || 'http://localhost:11434';
         const savedModel = localStorage.getItem('llm_model') || 'qwen/qwen3-32b';
+        const savedApplyAll = localStorage.getItem('global_settings_apply_all');
 
         setProvider(savedProvider);
         setApiKey(savedKey);
         setOllamaUrl(savedUrl);
         setModel(savedModel);
+        setApplyGlobalSettings(savedApplyAll !== 'false');
 
         const fetchSettings = async () => {
             try {
@@ -143,6 +174,7 @@ const Settings = ({ isOpen, onClose }) => {
         localStorage.setItem('llm_api_key', apiKey);
         localStorage.setItem('ollama_base_url', ollamaUrl);
         localStorage.setItem('llm_model', model);
+        localStorage.setItem('global_settings_apply_all', String(applyGlobalSettings));
 
         const [hourStr, minuteStr] = weeklyDigestTime.split(':');
         const digestHour = Math.max(0, Math.min(23, parseInt(hourStr || '18', 10)));
@@ -163,14 +195,16 @@ const Settings = ({ isOpen, onClose }) => {
                 fitbit_client_id: fitbitClientId,
                 fitbit_client_secret: fitbitClientSecret,
                 fitbit_redirect_uri: fitbitRedirectUri,
-                llm_config: llmConfig
+                ...(applyGlobalSettings ? { llm_config: llmConfig } : {})
             });
-            await cognitiveService.updateSettings({
-                embedding_provider: embeddingProvider,
-                embedding_model: embeddingModel,
-                embedding_api_key: embeddingApiKey,
-                embedding_base_url: embeddingBaseUrl
-            });
+            if (applyGlobalSettings) {
+                await cognitiveService.updateSettings({
+                    embedding_provider: embeddingProvider,
+                    embedding_model: embeddingModel,
+                    embedding_api_key: embeddingApiKey,
+                    embedding_base_url: embeddingBaseUrl
+                });
+            }
             onClose?.();
         } catch (err) {
             console.error("Failed to save settings:", err);
@@ -242,6 +276,18 @@ const Settings = ({ isOpen, onClose }) => {
                                     <>
                                         {activeTab === 'ai' && (
                                             <div className="space-y-5">
+                                                <SectionCard title="Scope" description="Apply these settings across all modules.">
+                                                    <ToggleRow
+                                                        title="Use global settings everywhere"
+                                                        description="When enabled, agent and document processing use this configuration."
+                                                        enabled={applyGlobalSettings}
+                                                        onToggle={() => setApplyGlobalSettings(!applyGlobalSettings)}
+                                                    />
+                                                    {!applyGlobalSettings && (
+                                                        <p className="text-[10px] text-dark-400 mt-2">Module-specific settings will be used instead.</p>
+                                                    )}
+                                                </SectionCard>
+
                                                 <SectionCard title="Provider" description="Choose which LLM powers your experience.">
                                                     <select
                                                         value={provider}
@@ -250,15 +296,20 @@ const Settings = ({ isOpen, onClose }) => {
                                                             setProvider(p);
                                                             if (p === 'openai') setModel('gpt-4o');
                                                             else if (p === 'groq') setModel('qwen/qwen3-32b');
-                                                            else if (p === 'ollama') setModel('llama3');
-                                                            else if (p === 'ollama_cloud') setModel('llama3');
+                                                            else if (p === 'openrouter') setModel('openai/gpt-4o');
+                                                            else if (p === 'together') setModel('meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo');
+                                                            else if (p === 'fireworks') setModel('accounts/fireworks/models/llama-v3p1-70b-instruct');
+                                                            else if (p === 'mistral') setModel('mistral-large-latest');
+                                                            else if (p === 'deepseek') setModel('deepseek-chat');
+                                                            else if (p === 'perplexity') setModel('llama-3.1-sonar-small-128k-online');
+                                                            else if (p === 'huggingface') setModel('meta-llama/Meta-Llama-3-70B-Instruct');
+                                                            else if (p === 'ollama' || p === 'ollama_cloud') setModel('llama3');
                                                         }}
                                                         className={inputClass}
                                                     >
-                                                        <option value="openai">OpenAI</option>
-                                                        <option value="groq">Groq</option>
-                                                        <option value="ollama">Ollama (Local)</option>
-                                                        <option value="ollama_cloud">Ollama (Cloud)</option>
+                                                        {LLM_PROVIDERS.map((prov) => (
+                                                            <option key={prov.value} value={prov.value}>{prov.label}</option>
+                                                        ))}
                                                     </select>
                                                 </SectionCard>
 
@@ -277,13 +328,13 @@ const Settings = ({ isOpen, onClose }) => {
                                                     </SectionCard>
                                                 )}
 
-                                                {(provider === 'ollama' || provider === 'ollama_cloud') && (
-                                                    <SectionCard title="Base URL" description="Local or hosted endpoint for Ollama.">
+                                                {(provider === 'ollama' || provider === 'ollama_cloud' || provider === 'custom' || ['openrouter','together','fireworks','mistral','deepseek','perplexity','huggingface'].includes(provider)) && (
+                                                    <SectionCard title="Base URL" description="OpenAI-compatible base URL or local endpoint.">
                                                         <input
                                                             type="text"
                                                             value={ollamaUrl}
                                                             onChange={(e) => setOllamaUrl(e.target.value)}
-                                                            placeholder={provider === 'ollama' ? "http://localhost:11434" : "https://api.ollama.com"}
+                                                            placeholder={provider === 'ollama' ? "http://localhost:11434" : "https://api.openai.com/v1"}
                                                             className={inputClass}
                                                         />
                                                     </SectionCard>
@@ -306,16 +357,9 @@ const Settings = ({ isOpen, onClose }) => {
                                                             onChange={(e) => setEmbeddingProvider(e.target.value)}
                                                             className={inputClass}
                                                         >
-                                                            <option value="openai">OpenAI</option>
-                                                            <option value="ollama">Ollama (Local)</option>
-                                                            <option value="openrouter">OpenRouter</option>
-                                                            <option value="together">Together</option>
-                                                            <option value="fireworks">Fireworks</option>
-                                                            <option value="mistral">Mistral</option>
-                                                            <option value="deepseek">DeepSeek</option>
-                                                            <option value="perplexity">Perplexity</option>
-                                                            <option value="huggingface">Hugging Face</option>
-                                                            <option value="custom">OpenAI-Compatible</option>
+                                                            {EMBEDDING_PROVIDERS.map((prov) => (
+                                                                <option key={prov.value} value={prov.value}>{prov.label}</option>
+                                                            ))}
                                                         </select>
                                                         <input
                                                             type="text"
