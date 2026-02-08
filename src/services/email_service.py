@@ -1,6 +1,6 @@
 """
 Email Service for Agent Notifications.
-Uses Resend (free tier: 100 emails/day) for sending goal reminders, 
+Uses Resend (free tier: 100 emails/day) for sending goal reminders,
 streak alerts, quiz prompts, and weekly digests.
 """
 import os
@@ -8,23 +8,29 @@ from typing import Optional, List
 from datetime import datetime
 import httpx
 from src.utils.logger import logger
+from src.config import settings
 
 class EmailService:
     """
     Service for sending agent emails to users.
     Uses Resend API (https://resend.com) - free tier allows 100 emails/day.
-    
+
     Setup:
         1. Sign up at https://resend.com
         2. Get your API key from the dashboard
         3. Set RESEND_API_KEY environment variable
         4. Set RESEND_FROM_EMAIL (requires verified domain or use onboarding@resend.dev)
+        5. Optionally set FRONTEND_URL (defaults to http://localhost:5173)
     """
-    
+
     def __init__(self):
         self.api_key = os.getenv("RESEND_API_KEY")
         self.from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
         self.enabled = bool(self.api_key)
+        # Use frontend_url from settings, fallback to localhost
+        self.frontend_url = settings.frontend_url or os.getenv("FRONTEND_URL", "http://localhost:5173")
+        # Ensure no trailing slash
+        self.frontend_url = self.frontend_url.rstrip("/")
         
     async def send_email(
         self,
@@ -84,7 +90,7 @@ class EmailService:
             <p>You've built an amazing <strong>{streak_days}-day streak</strong> — don't let it slip!</p>
             <p>Even a quick 5-minute review can keep the momentum going.</p>
             <div style="margin: 24px 0;">
-                <a href="http://localhost:5173" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
+                <a href="{self.frontend_url}" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
                     Save Your Streak →
                 </a>
             </div>
@@ -111,7 +117,7 @@ class EmailService:
             <p>With <strong>{days_left} days</strong> left, you need about <strong>{hours_per_day:.1f} extra hours/day</strong> to catch up.</p>
             <p>Don't worry — even small sessions add up. Ready to log some time?</p>
             <div style="margin: 24px 0;">
-                <a href="http://localhost:5173" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
+                <a href="{self.frontend_url}" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
                     Work on This Goal →
                 </a>
             </div>
@@ -137,7 +143,7 @@ class EmailService:
             {preview}
             <p>Reviewing now helps cement these concepts in long-term memory.</p>
             <div style="margin: 24px 0;">
-                <a href="http://localhost:5173/study" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
+                <a href="{self.frontend_url}/study" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
                     Start Review →
                 </a>
             </div>
@@ -190,7 +196,7 @@ class EmailService:
             <ul>{goals_html}</ul>
             <p>Keep up the great work! 💪</p>
             <div style="margin: 24px 0;">
-                <a href="http://localhost:5173/analytics" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
+                <a href="{self.frontend_url}/analytics" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
                     View Full Analytics →
                 </a>
             </div>

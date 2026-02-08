@@ -152,14 +152,16 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"message": "Internal Server Error", "detail": str(exc)},
     )
 
-# Configure CORS
+# Configure CORS - uses settings.cors_origins which auto-detects from env or defaults
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger.info(f"CORS configured with origins: {settings.cors_origins}")
 
 # Include new Feature Routers
 app.include_router(documents_api_router.router)

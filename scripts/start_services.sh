@@ -44,7 +44,7 @@ echo "Services are ready!"
 
 # Initialize databases
 echo "Initializing databases..."
-python -m src.database.init_db
+uv run python -m src.database.init_db
 
 echo "Setup complete! Services are running:"
 echo "- Neo4j Browser: http://localhost:7475 (neo4j/password)"

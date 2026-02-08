@@ -9,9 +9,28 @@ from src.services.fitbit_service import FitbitService
 from src.models.fitbit import FitbitToken
 from src.database.orm import get_db
 from src.models.orm import UserSettings
+from src.config import settings
 import urllib.parse
 
 router = APIRouter()
+
+
+def get_fitbit_redirect_uri(user_settings=None) -> str:
+    """Get Fitbit redirect URI from settings or environment."""
+    # Priority: user_settings > FITBIT_REDIRECT_URI env > settings.fitbit_redirect_uri > auto-build from FRONTEND_URL
+    if user_settings and user_settings.fitbit_redirect_uri:
+        return user_settings.fitbit_redirect_uri
+
+    env_uri = os.getenv('FITBIT_REDIRECT_URI')
+    if env_uri:
+        return env_uri
+
+    if settings.fitbit_redirect_uri:
+        return settings.fitbit_redirect_uri
+
+    # Auto-build from frontend_url
+    frontend = settings.frontend_url or os.getenv("FRONTEND_URL", "http://localhost:5173")
+    return f"{frontend.rstrip('/')}/api/fitbit/callback"
 
 @router.get("/auth")
 def fitbit_auth(
@@ -20,14 +39,14 @@ def fitbit_auth(
 ):
     """Initiate Fitbit OAuth flow."""
     user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-    
+
     client_id = user_settings.fitbit_client_id if user_settings and user_settings.fitbit_client_id else os.getenv('FITBIT_CLIENT_ID')
-    redirect_uri = user_settings.fitbit_redirect_uri if user_settings and user_settings.fitbit_redirect_uri else os.getenv('FITBIT_REDIRECT_URI')
-    
-    if not client_id or not redirect_uri:
+    redirect_uri = get_fitbit_redirect_uri(user_settings)
+
+    if not client_id:
         from src.utils.logger import logger
-        logger.warning(f"Fitbit auth initiated but client_id={client_id}, redirect_uri={redirect_uri}")
-        
+        logger.warning(f"Fitbit auth initiated but client_id is not set")
+
     params = {
         "response_type": "code",
         "client_id": client_id,
@@ -51,7 +70,7 @@ def fitbit_callback(
     
     client_id = user_settings.fitbit_client_id if user_settings and user_settings.fitbit_client_id else os.getenv('FITBIT_CLIENT_ID')
     client_secret = user_settings.fitbit_client_secret if user_settings and user_settings.fitbit_client_secret else os.getenv('FITBIT_CLIENT_SECRET')
-    redirect_uri = user_settings.fitbit_redirect_uri if user_settings and user_settings.fitbit_redirect_uri else os.getenv('FITBIT_REDIRECT_URI')
+    redirect_uri = get_fitbit_redirect_uri(user_settings)
 
     data = {
         'client_id': client_id,
@@ -97,7 +116,9 @@ def fitbit_callback(
         db.add(fitbit_token)
     db.commit()
 
-    return RedirectResponse(url="http://localhost:5173/settings?fitbit_connected=true")
+    # Redirect to frontend using settings
+    frontend_url = settings.frontend_url or os.getenv("FRONTEND_URL", "http://localhost:5173")
+    return RedirectResponse(url=f"{frontend_url.rstrip('/')}/settings?fitbit_connected=true")
 
 @router.delete("/disconnect")
 def disconnect_fitbit(

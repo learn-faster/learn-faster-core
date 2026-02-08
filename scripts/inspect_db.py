@@ -1,14 +1,15 @@
+import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 def inspect_db():
     try:
         conn = psycopg2.connect(
-            host='localhost',
-            port=5433,
-            user='learnfast',
-            password='password',
-            dbname='learnfast',
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5433")),
+            user=os.getenv("POSTGRES_USER", "learnfast"),
+            password=os.getenv("POSTGRES_PASSWORD", "password"),
+            dbname=os.getenv("POSTGRES_DB", "learnfast"),
             cursor_factory=RealDictCursor
         )
         cursor = conn.cursor()

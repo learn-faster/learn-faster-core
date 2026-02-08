@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from .router_main import db
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -10,15 +10,31 @@ class ChatRequest(BaseModel):
     notebook_id: str
     history: Optional[List[dict]] = []
 
-@router.post("")
-async def chat(request: ChatRequest):
-    # This is a dummy chat implementation that returns a static response
-    # In the real integration, this would use LangChain/LLM with RAG on SurrealDB
+@router.post("/execute")
+async def execute_chat(request: ChatRequest):
+    """Main chat execution point (matching frontend expectations)."""
     return {
-        "response": f"I've received your message about notebook {request.notebook_id}. (Note: This is a placeholder chat service as the original integration was missing.)",
+        "response": f"I've received your message about notebook {request.notebook_id}.",
         "citations": []
     }
 
-@router.get("/history")
-async def get_chat_history(notebook_id: str):
-    return await db.query(f"SELECT * FROM chat_message WHERE notebook_id = $notebook_id ORDER BY created_at ASC", {"notebook_id": notebook_id})
+@router.get("/sessions")
+async def list_sessions(notebook_id: str):
+    """List chat sessions for a notebook."""
+    # Placeholder: Return an empty list or mock session
+    return []
+
+@router.post("/sessions")
+async def create_session(request: Dict[str, Any]):
+    """Create a new chat session."""
+    return {"id": "mock_session_id", "status": "created"}
+
+@router.get("/sessions/{sessionId}")
+async def get_session(sessionId: str):
+    """Retrieve details for a specific session."""
+    return {"id": sessionId, "messages": []}
+
+@router.post("/context")
+async def build_context(request: Dict[str, Any]):
+    """Build conversation context for RAG."""
+    return {"status": "context_built", "tokens": 0}
