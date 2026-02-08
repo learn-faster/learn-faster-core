@@ -111,6 +111,54 @@ class DocumentStore:
             logger.error(f"Failed to save transcript: {e}")
             raise e
 
+    def save_text_document(self, filename: str, content: str, title: str) -> DocumentMetadata:
+        """Save raw text content as a document."""
+        try:
+            # Check for existing record
+            check_query = "SELECT id, upload_date FROM documents WHERE filename = %s"
+            existing = self.db.execute_query(check_query, (filename,))
+            
+            if existing:
+                doc_id = existing[0]['id']
+                upload_date = existing[0]['upload_date']
+                # Reset status
+                self.db.execute_write("UPDATE documents SET status = 'pending' WHERE id = %s", (doc_id,))
+                logger.info(f"Reusing existing record {doc_id} for {filename}")
+            else:
+                insert_query = """
+                    INSERT INTO documents (filename, title, status)
+                    VALUES (%s, %s, 'pending')
+                    RETURNING id, upload_date
+                """
+                result = self.db.execute_query(insert_query, (filename, title))
+                doc_id = result[0]['id']
+                upload_date = result[0]['upload_date']
+            
+            # Save file
+            safe_filename = f"{doc_id}_{filename}"
+            file_path = os.path.join(self.storage_dir, safe_filename)
+            
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            # Update record with path
+            update_query = "UPDATE documents SET file_path = %s WHERE id = %s"
+            self.db.execute_write(update_query, (file_path, doc_id))
+            
+            logger.info(f"Saved text document {doc_id}: {title}")
+            
+            return DocumentMetadata(
+                id=doc_id,
+                filename=filename,
+                upload_date=upload_date,
+                status='pending',
+                file_path=file_path
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to save text document: {e}")
+            raise e
+
     def get_document(self, doc_id: int) -> Optional[DocumentMetadata]:
         """Retrieve document metadata by ID."""
         query = "SELECT * FROM documents WHERE id = %s"

@@ -8,6 +8,8 @@ class FileType(str, Enum):
     PDF = "pdf"
     IMAGE = "image"
     OTHER = "other"
+    LINK = "link"
+    VIDEO = "video"
 
 
 class CardType(str, Enum):

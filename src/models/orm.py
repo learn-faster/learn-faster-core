@@ -293,3 +293,22 @@ class FocusSession(Base):
     
     # Relationships
     goal = relationship("Goal", back_populates="focus_sessions")
+
+class AgentMemory(Base):
+    """
+    Key-Value store for Agent's long-term structured memory and scratchpad.
+    """
+    __tablename__ = "agent_memory"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True, default="default_user")
+    
+    key = Column(String, index=True) # e.g. "scratchpad", "user_profile", "current_plan"
+    value = Column(JSON, nullable=True)
+    
+    category = Column(String, default="general") # general, scratchpad, preference
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Composite unique constraint on user_id and key could be added in __table_args__
+    # but for now we will handle it in application logic or assume uniqueness
+

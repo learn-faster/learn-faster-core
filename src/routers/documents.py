@@ -10,13 +10,14 @@ from typing import List, Optional, Callable
 import os
 import shutil
 import logging
+from src.utils.logger import logger
 from pathlib import Path
 from datetime import datetime
 
 from src.database.orm import get_db
 from src.models.orm import Document
 from src.models.enums import FileType
-from src.models.schemas import DocumentResponse, DocumentCreate, TimeTrackingRequest
+from src.models.schemas import DocumentResponse, DocumentCreate, TimeTrackingRequest, DocumentLinkCreate
 from src.services.time_tracking_service import TimeTrackingService
 from src.ingestion.document_processor import DocumentProcessor
 from src.ingestion.ingestion_engine import IngestionEngine
@@ -52,7 +53,7 @@ async def process_extraction_background(
     """
     db = db_session_factory()
     try:
-        print(f"DEBUG: Extraction started for {doc_id}")
+        logger.debug(f"Extraction started for {doc_id}")
         document = db.query(Document).filter(Document.id == doc_id).first()
         if not document:
             return
@@ -68,7 +69,7 @@ async def process_extraction_background(
             if file_type == FileType.PDF or os.path.exists(file_path):
                 extracted_text, _ = document_processor.convert_to_markdown(file_path)
         except Exception as e:
-            print(f"ERROR: Extraction failed: {e}")
+            logger.error(f"Extraction failed: {e}")
             document = db.query(Document).filter(Document.id == doc_id).first()
             if document:
                 document.status = "failed"
@@ -345,6 +346,82 @@ async def ingest_youtube(
     except Exception as e:
         print(f"YouTube ingestion failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"YouTube ingestion failed: {str(e)}")
+
+
+@router.post("/link", response_model=DocumentResponse)
+async def ingest_link(
+    link_data: DocumentLinkCreate,
+    ingestion_engine: IngestionEngine = Depends(get_ingestion_engine),
+    document_store: DocumentStore = Depends(get_document_store),
+    db: Session = Depends(get_db)
+):
+    """
+    Ingest a document from an external link (YouTube or Generic).
+    """
+    video_id = extract_video_id(link_data.url)
+    
+    if video_id:
+        # YouTube Logic
+        try:
+            transcript = fetch_transcript(video_id)
+            if not transcript or not transcript.strip():
+                 # Valid video but no transcript? fall through to generic link
+                 pass
+            else:
+                 # It's a valid YouTube video with transcript
+                 doc_metadata = document_store.save_transcript(video_id, transcript)
+                 
+                 # Update Metadata
+                 doc = db.query(Document).filter(Document.id == doc_metadata.id).first()
+                 if doc:
+                     doc.title = link_data.title or f"YouTube: {video_id}"
+                     doc.category = link_data.category
+                     doc.folder_id = link_data.folder_id
+                     # Add user tags plus system tags
+                     doc.tags = (link_data.tags or []) + ["youtube", "video"]
+                     doc.file_type = FileType.VIDEO
+                     doc.status = "processing"
+                     db.commit()
+                     
+                 # Trigger processing
+                 await ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
+                 
+                 # Finalize
+                 document_store.update_status(doc_metadata.id, "completed")
+                 db.refresh(doc)
+                 return doc
+        except Exception as e:
+            print(f"YouTube processing failed, falling back to basic link: {e}")
+            
+    # Generic Link Handling
+    try:
+        content = f"# {link_data.title}\n\nURL: {link_data.url}\n\n(External Link)\n\n## Notes\n"
+        # Use timestamp in filename
+        ts = int(datetime.utcnow().timestamp())
+        filename = f"link_{ts}.md"
+        
+        doc_metadata = document_store.save_text_document(filename, content, link_data.title)
+        
+        doc = db.query(Document).filter(Document.id == doc_metadata.id).first()
+        if doc:
+            doc.category = link_data.category
+            doc.folder_id = link_data.folder_id
+            doc.tags = (link_data.tags or []) + ["link"]
+            doc.file_type = FileType.LINK
+            doc.status = "processing"
+            db.commit()
+            
+        # Trigger processing (Extract/Vectorize the placeholder content)
+        await ingestion_engine.process_document(doc_metadata.file_path, document_id=doc_metadata.id)
+        
+        document_store.update_status(doc_metadata.id, "completed")
+        db.refresh(doc)
+        return doc
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Link ingestion failed: {str(e)}")
 
 
 @router.get("", response_model=List[DocumentResponse])

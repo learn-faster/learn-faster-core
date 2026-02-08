@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from src.utils.logger import logger
 from typing import List, Optional
 from sqlalchemy.orm import Session
 
@@ -48,7 +49,7 @@ class CurriculumService:
                         if clean_config:
                             config = LLMConfig(**clean_config)
                 except Exception as e:
-                    print(f"Error parsing user LLM config: {e}")
+                    logger.error(f"Error parsing user LLM config: {e}")
         
         # 1. Gather Context
         text_context = ""
@@ -114,7 +115,7 @@ class CurriculumService:
                         if clean_config:
                             config = LLMConfig(**clean_config)
                 except Exception as e:
-                    print(f"Error parsing user LLM config: {e}")
+                    logger.error(f"Error parsing user LLM config: {e}")
         llm_config = config
 
         # 1. Gather Context

@@ -156,6 +156,15 @@ class DocumentCreate(DocumentBase):
     folder_id: Optional[str] = None
 
 
+class DocumentLinkCreate(BaseModel):
+    """Schema for adding an external link."""
+    url: str
+    title: str
+    category: Optional[str] = None
+    folder_id: Optional[str] = None
+    tags: List[str] = []
+
+
 class DocumentResponse(DocumentBase):
     """Schema for document API responses."""
     id: int  # Adapted to int match learn-fast-core DB

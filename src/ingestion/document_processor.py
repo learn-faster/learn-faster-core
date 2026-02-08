@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
 from markitdown import MarkItDown
+from src.utils.logger import logger
 
 
 class DocumentProcessor:
@@ -46,15 +47,15 @@ class DocumentProcessor:
         
         # Try MarkItDown first
         try:
-            print(f"DEBUG: MarkItDown converting: {path}")
+            logger.debug(f"MarkItDown converting: {path}")
             result = self._converter.convert(str(path))
             text = result.text_content or ""
         except Exception as e:
-            print(f"DEBUG: MarkItDown failure: {str(e)}")
+            logger.debug(f"MarkItDown failure: {str(e)}")
         
         # Fallback: If MarkItDown returned empty and this is a PDF, use pypdf
         if not text.strip() and path.suffix.lower() == '.pdf':
-            print(f"DEBUG: MarkItDown returned empty, trying pypdf fallback...")
+            logger.debug("MarkItDown returned empty, trying pypdf fallback...")
             try:
                 from pypdf import PdfReader
                 reader = PdfReader(str(path))
@@ -64,13 +65,13 @@ class DocumentProcessor:
                     if page_text.strip():
                         pages_text.append(f"## Page {i+1}\n\n{page_text}")
                 text = "\n\n".join(pages_text)
-                print(f"DEBUG: pypdf extracted {len(text)} characters from {len(reader.pages)} pages")
+                logger.debug(f"pypdf extracted {len(text)} characters from {len(reader.pages)} pages")
             except Exception as e:
-                print(f"DEBUG: pypdf fallback also failed: {str(e)}")
+                logger.error(f"pypdf fallback also failed: {str(e)}")
         
         # If still empty, this might be a scanned/image-based PDF
         if not text.strip():
-            print(f"WARNING: Could not extract text from {path.name}. Document may be scanned/image-based.")
+            logger.warning(f"Could not extract text from {path.name}. Document may be scanned/image-based.")
             # Return a placeholder message instead of empty
             text = f"[Text extraction failed for {path.name}. This may be a scanned or image-based document that requires OCR processing.]"
         
