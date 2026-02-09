@@ -60,7 +60,7 @@ class TimeTrackingService:
             return None
         
         # Update total time spent
-        document.time_spent_reading += seconds_spent
+        document.time_spent_reading = (document.time_spent_reading or 0) + seconds_spent
         
         # Update progress if provided
         if current_progress > document.reading_progress:
@@ -72,11 +72,11 @@ class TimeTrackingService:
             total_estimated_time = document.time_spent_reading / document.reading_progress
             remaining_time = total_estimated_time - document.time_spent_reading
             document.completion_estimate = int(remaining_time)
-        elif document.reading_progress < 1.0 and document.page_count > 0:
+        elif document.reading_progress < 1.0 and (document.page_count or 0) > 0:
             # Baseline: 2 minutes (120s) per page if no progress yet
             # Subtract any time already spent
-            estimated_total = document.page_count * 120
-            remaining_time = max(0, estimated_total - document.time_spent_reading)
+            estimated_total = (document.page_count or 0) * 120
+            remaining_time = max(0, estimated_total - (document.time_spent_reading or 0))
             document.completion_estimate = int(remaining_time)
         elif document.reading_progress >= 1.0:
             document.completion_estimate = 0
@@ -106,5 +106,5 @@ class TimeTrackingService:
         if not completed_docs:
             return 0
             
-        total_time = sum(doc.time_spent_reading for doc in completed_docs)
+        total_time = sum((doc.time_spent_reading or 0) for doc in completed_docs)
         return total_time / len(completed_docs)

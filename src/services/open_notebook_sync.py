@@ -35,7 +35,11 @@ async def sync_document_to_notebook(
             return
 
         # Sanitize title for filename
-        safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c in (' ', '-', '_')]).rstrip()
+        safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c in (' ', '-', '_')]).strip()
+        if not safe_title:
+            safe_title = f"doc_{doc_id}"
+        if len(safe_title) > 120:
+            safe_title = safe_title[:120].rstrip()
         filename = f"{safe_title}.md"
         target_path = notebook_dir / "sources" / filename
         
@@ -43,13 +47,14 @@ async def sync_document_to_notebook(
         (notebook_dir / "sources").mkdir(parents=True, exist_ok=True)
         
         # Create frontmatter
+        original_name = os.path.basename(file_path) if file_path else ""
         frontmatter = f"""---
 id: {doc_id}
 title: "{title}"
 type: source
 source_type: {source_type}
 created: {datetime.now().isoformat()}
-original_file: {os.path.basename(file_path)}
+original_file: {original_name}
 ---
 
 """

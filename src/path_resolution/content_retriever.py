@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from src.database.connections import postgres_conn
 from src.models.schemas import LearningChunk
 from src.services.llm_service import llm_service
-from src.routers.ai import LLMConfig
+from src.models.schemas import LLMConfig
 from src.config import settings
 
 # Load environment variables
@@ -253,7 +253,7 @@ Return ONLY the JSON object, no other text:"""
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0]
 
-            flashcards = json.loads(response_text.strip())
+            flashcards = llm_service._extract_and_parse_json(response_text.strip())
 
             # Validate and normalize structure
             # Handle both array of flashcards and single flashcard object

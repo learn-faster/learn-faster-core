@@ -61,7 +61,7 @@ const FloatingTimer = () => {
                     className="flex flex-col cursor-pointer"
                     onClick={() => navigate('/')}
                 >
-                    <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
                         <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-primary-500 animate-pulse' : 'bg-dark-500'}`} />
                         <span className="text-xs font-bold text-white font-mono">{formatTime(timeLeft)}</span>
                     </div>

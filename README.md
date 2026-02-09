@@ -1,81 +1,132 @@
-# 🧠 LearnFast Core Engine
+# LearnFast Core Engine
 
-**The ultimate Hybrid Graph-RAG Pedagogical Platform & AI Study Companion.**
+**An AI-powered learning system that turns goals into daily actions, backed by cognitive science and real-time analytics.**
 
-LearnFast is not just another note-taking app. It is a high-performance cognitive engine that fuses the structural integrity of **Knowledge Graphs (Neo4j)** with the semantic power of **Vector Search (pgvector)** and the proactive guidance of an **AI Goal Manifestation Agent**.
-
-Designed for power-learners, researchers, and students, LearnFast automates the path from information ingestion to long-term knowledge mastery.
+LearnFast Core combines ingestion, knowledge graphs, practice scheduling, and a goal-driven agent into one workflow. It’s designed for learners who want a clear daily plan, measurable progress, and adaptive pacing.
 
 ---
 
-## ✨ Primary Intelligence Pillars
-
-### 1. 📂 Multi-Modal Ingestion & Digitization
-- **MarkItDown Integration**: Transform PDFs, Word Docs, and complex images into clean, semantically structured Markdown.
-- **YouTube Ingest**: Automatically extract transcripts and convert them into study-ready content.
-- **Provenance Tracking**: Every "knowledge atom" in the system is linked back to its source, ensuring zero-hallucination references.
-
-### 2. 🕸️ Hybrid Graph-RAG Architecture
-- **Pedagogical Structure (Neo4j)**: Understands the hierarchy of knowledge. Concepts aren't just strings; they are nodes with prerequisites, dependencies, and connectivity metrics.
-- **Semantic Retrieval (pgvector)**: Leverages state-of-the-art embeddings (Ollama/OpenAI) for granular context retrieval during chat and generation.
-- **Dynamic Curriculum**: Generates optimized learning paths based on your current knowledge frontier and available time budget.
-
-### 3. 🤖 Goal Manifestation Agent (GMA)
-- **Persistent AI Companion**: A proactive assistant powered by **LangGraph** that tracks your long-term goals.
-- **Structured Memory**: Features Episodic and Semantic memory layers to remember your learning preferences and past interactions.
-- **Proof of Work (Screenshots)**: The agent can "see" your progress via integrated Playwright screenshotting tools, verifying your achievements.
-- **Active Guidance**: More than just a chatbot, the GMA serves as a personalized teacher that interrupts procrastination and suggests the next best step.
-
-### 4. 📈 Mastery & Mastery Analytics
-- **Native SRS Engine**: Evidence-based learning using the **SM-2 Algorithm** for scheduled spaced repetition.
-- **AI Recall Tools**: Generate high-quality Flashcards and Questions (with LaTeX support) directly from your documents.
-- **Cognitive Heatmaps**: Visualize your study intensity and consistency over time.
-- **Retention Tracking**: Detailed analytics on your forgetting curve and mastery distribution.
+## What It Solves
+Learning is usually fragmented across notes, videos, and flashcards, with little guidance on **what to do next**. LearnFast Core solves this by turning scattered knowledge into a **goal-aligned learning system** that:
+- Builds durable memory using evidence-based methods (active recall, spaced repetition, interleaving).
+- Connects goals to daily actions and realistic pacing.
+- Turns source material into structured study assets (flashcards, curricula, knowledge graphs).
+- Tracks progress with actionable analytics instead of vanity metrics.
 
 ---
 
-## 🛠️ Technology Stack
+## What Makes It Different
+- **Goal-first planning**: Goals drive curricula, daily plans, and pacing.
+- **Actionable dashboard**: “What should I do today?” is always clear.
+- **Multi-source intelligence**: PDFs, links, YouTube, and notes become structured learning assets.
+- **Knowledge graphs**: Concepts are mapped so users learn in the right order.
+- **Adaptive scheduling**: Uses real performance + (optional) biometrics for better pacing.
 
+---
+
+## How It Works (High-Level)
+1. **Ingest**: Upload or link content (PDFs, links, YouTube).
+2. **Structure**: Extract key sections, filter noise, build graphs and flashcards.
+3. **Plan**: Generate goal-aligned curricula and daily focus plans.
+4. **Practice**: Run mixed sessions with spacing + retrieval.
+5. **Analyze**: Show retention, velocity, pacing risk, and consistency.
+
+---
+
+## Core Capabilities
+- Document ingestion + smart filtering
+- Flashcards + SRS engine
+- Knowledge graph generation
+- Goal-aligned curricula
+- Practice engine (interleaving across sources)
+- Daily plans and negotiation email workflow
+- Analytics & insights (retention, velocity, pacing)
+- Optional biometrics personalization (Fitbit)
+
+---
+
+## Ideal Users
+- Learners preparing for exams, interviews, certifications.
+- Professionals upskilling with limited time.
+- Anyone who wants learning to feel structured and measurable.
+
+---
+
+## Screenshots
+Place your screenshots below.
+
+<!-- Screenshot: Dashboard -->
+
+<!-- Screenshot: Practice Engine -->
+
+<!-- Screenshot: Analytics -->
+
+<!-- Screenshot: Knowledge Graph -->
+
+<!-- Screenshot: Agent -->
+
+---
+
+## Architecture (High-Level)
+```
+Frontend (React + Vite)
+  ├─ Dashboard / Analytics / Practice / Docs / Knowledge Graph
+  └─ Agent UI (chat + tools + settings)
+
+Backend (FastAPI)
+  ├─ Documents, Flashcards, Practice, Curriculum
+  ├─ Goals, Daily Plans, Agent + Negotiation
+  ├─ Analytics, Dashboard, Fitbit integration
+  └─ Knowledge Graph + Navigation
+
+Data Layer
+  ├─ PostgreSQL + pgvector
+  ├─ Neo4j (concept graph)
+  └─ SurrealDB (Open Notebook)
+```
+
+See `docs/PROJECT_OVERVIEW.md`, `docs/PROJECT_UPDATE_SUMMARY.md`, and `SYSTEM_ARCHITECTURE.md` for deeper detail.
+
+---
+
+## Technology Stack
 | Layer | Technologies |
 | :--- | :--- |
-| **Backend** | Python (FastAPI), SQLAlchemy, Pydantic, LangGraph, Opik |
-| **Frontend** | React, Vite, Tailwind CSS, Framer Motion, Lucide Icons |
-| **Database** | PostgreSQL (pgvector), Neo4j (Knowledge Graph) |
-| **Inference** | Ollama (Local), OpenAI, Groq, OpenRouter |
-| **Automation** | Playwright (Screenshots), Resend (Email), Microsoft MarkItDown |
+| **Backend** | FastAPI, SQLAlchemy, Pydantic |
+| **Frontend** | React, Vite, Tailwind CSS, Framer Motion |
+| **Datastores** | PostgreSQL (pgvector), Neo4j, SurrealDB |
+| **LLM/Embeddings** | Ollama, OpenAI, Groq, OpenRouter |
+| **Automation** | Playwright, Resend, MarkItDown |
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
-- **Python 3.12+** (Recommended via `uv`)
+- **Python 3.12+** (recommended via `uv`)
 - **Docker & Docker Compose**
-- **Ollama** (for local LLM/Embeddings)
+- **Ollama** (optional for local LLM/Embeddings)
 
-### 1. Environment Setup
+### 1) Setup
 ```bash
 git clone https://github.com/your-repo/learn-faster-core.git
 cd learn-faster-core
 cp .env.example .env
 ```
-*Edit `.env` to add your API keys (OpenAI, Groq, etc.) and configure your local DB paths.*
+Edit `.env` with your API keys and DB settings.
 
-### 2. Launch Infrastructure (Docker)
+### 2) Start Databases
 ```bash
 docker compose up -d
 ```
 
-### 3. Install & Run
+### 3) Install + Run Backend
 ```bash
-# Install dependencies
 uv sync
-
-# Run the backend
 uv run python main.py
 ```
 
-### 4. Frontend Launch
+### 4) Run Frontend
 ```bash
 cd frontend
 npm install
@@ -84,28 +135,71 @@ npm run dev
 
 ---
 
-## 📂 Project Navigation
+## RQ Worker (Durable Ingestion)
+For durable ingestion jobs (survive backend restarts), run the RQ worker:
+```bash
+uv run python scripts/rq_worker.py
+```
 
-```text
-├── src/
-│   ├── services/       # Core Logic: SRS, LLM, Memory, Screenshots
-│   ├── routers/        # Standardized API Endpoints
-│   ├── models/         # Pydantic & SQLAlchemy Schemas
-│   ├── ingestion/      # Multi-modal document processing
-│   └── navigation/     # Graph traversal & Path resolution
-├── frontend/           # Modern React Dashboard & Tools
-├── scripts/            # Database inspection & setup utilities
-└── main.py             # FastAPI Entrypoint
+Required env:
+```
+REDIS_URL=redis://localhost:6379/0
+REDIS_QUEUE_NAME=ingestion
+REDIS_JOB_TIMEOUT=1800
 ```
 
 ---
 
-## 🗺️ Roadmap
-- [ ] **Biometric Integration**: Support for Fitbit/Apple Health to adjust study intensity based on sleep/stress.
-- [ ] **Advanced Multimodal RAG**: Context-aware reasoning over diagrams and handwritten notes.
-- [ ] **Collaborative Knowledge Maps**: Share and merge galaxy maps between users.
-- [ ] **Mobile Companion**: Lite version for on-the-go SRS reviews.
+## Key Endpoints
+- `/api/documents/*` — ingest, parse, recall prompts
+- `/api/practice/*` — practice sessions, items, history
+- `/api/dashboard/overview` — unified dashboard data
+- `/api/analytics/*` — insights and trends
+- `/api/goals/*` — goals, daily plans, agent actions
+- `/api/fitbit/*` — optional biometric inputs
+- `/api/graphs/*` — knowledge graph workflows
 
 ---
 
-**LearnFast** — *Optimizing the human learning loop with precision AI.*
+## Email Negotiation (Resend)
+Inbound replies require a **public HTTPS** endpoint. Configure Resend to send inbound emails to:
+```
+https://<your-backend-domain>/api/goals/agent/email/inbound
+```
+Environment variables:
+```
+RESEND_API_KEY=...
+RESEND_FROM_EMAIL=...
+RESEND_REPLY_DOMAIN=reply.yourdomain.com
+FRONTEND_URL=https://<your-frontend-domain>
+```
+Localhost will not work for inbound webhooks.
+
+---
+
+## Project Map
+```
+src/
+  routers/           # API endpoints
+  services/          # domain logic (practice, goals, analytics, agent)
+  models/            # ORM + Pydantic schemas
+  ingestion/         # document processing
+frontend/
+  pages/             # Dashboard, Analytics, Practice, Documents
+  components/        # Agent UI and shared UI pieces
+docs/
+  PROJECT_OVERVIEW.md
+  PROJECT_UPDATE_SUMMARY.md
+```
+
+---
+
+## Roadmap
+- Biometric personalization (Fitbit/Apple Health) fully integrated into pacing.
+- Multi-modal RAG across diagrams and handwritten notes.
+- Collaborative knowledge graphs.
+- Mobile companion for quick review.
+
+---
+
+**LearnFast Core** — turn goals into daily learning and measurable progress.

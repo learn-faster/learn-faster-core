@@ -9,11 +9,13 @@ from pydantic import ValidationError
 from dotenv import load_dotenv
 
 from src.models.schemas import GraphSchema, PrerequisiteLink
-from src.database.connections import neo4j_conn
-from src.database.graph_storage import graph_storage
+from src.database.neo4j_conn import neo4j_conn
 from src.database.graph_storage import graph_storage
 from .vector_storage import VectorStorage
 from .document_processor import DocumentProcessor
+from src.services.llm_service import llm_service
+from src.models.schemas import LLMConfig
+from src.config import settings
 
 # Load environment variables
 load_dotenv()
@@ -86,9 +88,9 @@ Content to analyze:
         # Convert to string and strip/lower
         return str(name).strip().lower()
     
-    MAX_EXTRACTION_CHARS = 50000  # Conservative limit for extraction windows
+    MAX_EXTRACTION_CHARS = settings.extraction_max_chars  # Default limit for extraction windows
     
-    def _create_chunked_windows(self, chunks: List[str]) -> List[Tuple[str, int, int]]:
+    def _create_chunked_windows(self, chunks: List[str], max_chars: Optional[int] = None) -> List[Tuple[str, int, int]]:
         """
         Group individual chunks into context windows.
         
@@ -104,6 +106,7 @@ Content to analyze:
         current_char_count = 0
         current_start_idx = 0
         
+        limit = max_chars or self.MAX_EXTRACTION_CHARS
         for i, chunk in enumerate(chunks):
             # Format: [i] actual text
             # We use 0-based index matching the list, but LLM might prefer 1-based. 
@@ -112,7 +115,7 @@ Content to analyze:
             formatted_chunk = f"[Chunk {i}] {chunk}"
             chunk_len = len(formatted_chunk)
             
-            if current_char_count + chunk_len > self.MAX_EXTRACTION_CHARS and current_window_text:
+            if current_char_count + chunk_len > limit and current_window_text:
                 # Close current window
                 window_content = "\n\n".join(current_window_text)
                 windows.append((window_content, current_start_idx, i - 1))
@@ -181,10 +184,12 @@ Content to analyze:
         )
 
     async def extract_graph_structure(
-        self, 
-        content_chunks: List[str], 
+        self,
+        content_chunks: List[str],
         on_progress: Optional[Any] = None, # Callable[[str, int], None]
-        on_partial_schema: Optional[Any] = None # Callable[[GraphSchema], None]
+        on_partial_schema: Optional[Any] = None, # Callable[[GraphSchema], None]
+        llm_config: Optional[Any] = None,
+        extraction_max_chars: Optional[int] = None
     ) -> GraphSchema:
         """
         Extract knowledge graph structure from content chunks using LLM.
@@ -194,12 +199,13 @@ Content to analyze:
             raise ValueError("Cannot extract graph from empty content chunks")
             
         # Create numbered windows
-        windows = self._create_chunked_windows(content_chunks)
+        windows = self._create_chunked_windows(content_chunks, max_chars=extraction_max_chars)
         logger.info(f"Split document into {len(windows)} windows for extraction")
         
         schemas = []
         total_windows = len(windows)
         
+        last_error = None
         for i, (window_content, start_idx, end_idx) in enumerate(windows):
             logger.info(f"Processing extraction window {i+1}/{total_windows}")
             
@@ -211,15 +217,13 @@ Content to analyze:
             prompt = self.EXTRACTION_PROMPT_TEMPLATE.format(content=window_content)
             
             try:
-                # Import here to avoid circular dependency
-                from src.services.llm_service import llm_service
-                from src.routers.ai import LLMConfig
-                from src.config import settings
-
-                config = LLMConfig(
+                base_url = None
+                if settings.llm_provider == "ollama":
+                    base_url = settings.ollama_base_url
+                config = llm_config or LLMConfig(
                     provider=settings.llm_provider,
                     model=settings.extraction_model if settings.extraction_model else settings.llm_model,
-                    base_url=settings.ollama_base_url
+                    base_url=base_url
                 )
 
                 response_text = await llm_service.get_chat_completion(
@@ -229,9 +233,10 @@ Content to analyze:
                 )
                 
                 try:
-                    data = json.loads(response_text)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse LLM response in window {i+1}: {response_text}")
+                    # Use robust parsing from llm_service
+                    data = llm_service._extract_and_parse_json(response_text)
+                except Exception as e:
+                    logger.error(f"Failed to parse LLM response in window {i+1}: {e}")
                     continue 
                 
                 if not isinstance(data, dict):
@@ -252,10 +257,19 @@ Content to analyze:
                 # Normalize mappings and adjust indices
                 if 'concept_mappings' in data:
                     normalized_mappings = {}
+                    total_chunks = len(content_chunks)
                     for concept, indices in data['concept_mappings'].items():
                         norm_c = self._normalize_concept_name(concept)
-                        # Filter indices to ensure they are valid for this document
-                        valid_indices = [idx for idx in indices if isinstance(idx, int) and 0 <= idx < len(content_chunks)]
+                        valid_indices = []
+                        for idx in indices:
+                            if not isinstance(idx, int):
+                                continue
+                            if 0 <= idx < total_chunks:
+                                valid_indices.append(idx)
+                                continue
+                            # If LLM returns 1-based indices, map to 0-based
+                            if 1 <= idx <= total_chunks:
+                                valid_indices.append(idx - 1)
                         normalized_mappings[norm_c] = valid_indices
                     data['concept_mappings'] = normalized_mappings
                 
@@ -287,13 +301,14 @@ Content to analyze:
                     continue
                     
             except Exception as e:
+                last_error = e
                 logger.error(f"Graph extraction failed for window {i+1}: {str(e)}")
                 continue
         
         if not schemas:
-            # Fallback: create empty schema if all windows failed
-            logger.warning("No valid schemas extracted, returning empty graph")
-            return GraphSchema(concepts=[], prerequisites=[], concept_mappings={})
+            msg = str(last_error) if last_error else "Graph extraction failed for all windows"
+            logger.error("No valid schemas extracted")
+            raise ValueError(msg)
             
         final_schema = self._merge_schemas(schemas)
         logger.info(f"Merged {len(schemas)} partial schemas into final graph: {len(final_schema.concepts)} concepts")
@@ -404,6 +419,7 @@ Content to analyze:
         markdown: str, 
         content_chunks: List, 
         document_id: Optional[int] = None,
+        llm_config: Optional[Any] = None,
         on_progress: Optional[Any] = None # Callable[[str, int], None] 
     ) -> Tuple[GraphSchema, List[int]]:
         """
@@ -423,11 +439,12 @@ Content to analyze:
                     self.store_graph_data(partial_schema, document_id)
             
             # Extract graph structure from chunks
-            # Pass incremental callbacks
+            # Pass incremental callbacks and llm_config
             schema = await self.extract_graph_structure(
                 final_chunks, 
                 on_progress=on_progress,
-                on_partial_schema=incremental_persist if document_id else None
+                on_partial_schema=incremental_persist if document_id else None,
+                llm_config=llm_config
             )
             
             # Store final unified graph data (ensure everything is consistent)
@@ -502,7 +519,13 @@ Content to analyze:
     
     # ========== Multi-Document Graph Ingestion ==========
     
-    async def extract_graph_structure_for_document(self, content_chunks: List[str], document_id: int) -> Dict[str, Any]:
+    async def extract_graph_structure_for_document(
+        self,
+        content_chunks: List[str],
+        document_id: int,
+        llm_config: Optional[Any] = None,
+        extraction_max_chars: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Extract and store graph structure with document scoping.
         
@@ -519,7 +542,11 @@ Content to analyze:
         from src.database.graph_storage import multi_doc_graph_storage
         
         # Extract graph structure
-        schema = await self.extract_graph_structure(content_chunks)
+        schema = await self.extract_graph_structure(
+            content_chunks,
+            llm_config=llm_config,
+            extraction_max_chars=extraction_max_chars
+        )
         
         concepts_stored = 0
         relationships_stored = 0
@@ -558,7 +585,7 @@ Content to analyze:
             "relationships_total": len(schema.prerequisites)
         }
     
-    async def process_document_scoped(self, file_path: str, document_id: int) -> Dict[str, Any]:
+    async def process_document_scoped(self, file_path: str, document_id: int, llm_config: Optional[Any] = None) -> Dict[str, Any]:
         """
         Process a document using document-scoped graph storage.
         """
@@ -568,27 +595,67 @@ Content to analyze:
             
             # 2. Chunk content
             chunks = self.document_processor.chunk_content(markdown)
+            if chunks and isinstance(chunks[0], tuple):
+                chunks = [c[0] for c in chunks if c and c[0]]
             
             # 3. Extract and store scoped graph
-            result = await self.extract_graph_structure_for_document(chunks, document_id)
+            result = await self.extract_graph_structure_for_document(chunks, document_id, llm_config=llm_config)
             
             # 4. Store vector data (still uses original storage)
             chunk_tags = ["general"] * len(chunks)
-            if result.get("concepts_total", 0) > 0:
-                chunk_tags = await self.store_vector_data(
-                    doc_source=os.path.basename(file_path),
-                    content_chunks=chunks,
-                    concept_tags=chunk_tags,
-                    document_id=document_id
-                )
+            stored_chunk_ids = await self.store_vector_data(
+                doc_source=os.path.basename(file_path),
+                content_chunks=chunks,
+                concept_tags=chunk_tags,
+                document_id=document_id
+            )
             
-            result["chunks_stored"] = len(chunk_tags)
+            result["chunks_stored"] = len(stored_chunk_ids)
             result["filename"] = os.path.basename(file_path)
             
             return result
             
         except Exception as e:
             logger.error(f"Scoped document processing failed for {file_path}: {e}")
+            raise
+
+    async def process_document_scoped_from_text(
+        self,
+        extracted_text: str,
+        document_id: int,
+        llm_config: Optional[Any] = None,
+        extraction_max_chars: Optional[int] = None,
+        chunk_size: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Process a document using already extracted text (no file IO),
+        using document-scoped graph storage.
+        """
+        try:
+            processor = self.document_processor if not chunk_size else DocumentProcessor(chunk_size=chunk_size)
+            chunks = processor.chunk_content(extracted_text or "")
+            if chunks and isinstance(chunks[0], tuple):
+                chunks = [c[0] for c in chunks if c and c[0]]
+            result = await self.extract_graph_structure_for_document(
+                chunks,
+                document_id,
+                llm_config=llm_config,
+                extraction_max_chars=extraction_max_chars
+            )
+
+            # Store vector data for this document
+            chunk_tags = ["general"] * len(chunks)
+            stored_chunk_ids = await self.store_vector_data(
+                doc_source=f"doc_{document_id}",
+                content_chunks=chunks,
+                concept_tags=chunk_tags,
+                document_id=document_id
+            )
+
+            result["chunks_stored"] = len(stored_chunk_ids)
+            return result
+        except Exception as e:
+            logger.error(f"Scoped document processing failed (text) for doc {document_id}: {e}")
             raise
     
     def merge_cross_document_concepts(

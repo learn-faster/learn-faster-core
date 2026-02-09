@@ -13,11 +13,13 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
 from langchain_core.tools import tool
 
-from src.models.agent import AgentState, UserContext, Goal, PlanItem, AgentResponse, SessionState
+from src.models.agent import AgentState, UserContext, Goal, PlanItem, AgentResponse, SessionState, AgentGuardrail, AgentToolEvent
 from src.services.llm_service import llm_service
 from src.services.memory_service import memory_service
 from src.services.screenshot_service import screenshot_service
 from src.services.email_service import email_service
+from src.config import settings
+from opik import configure, track
 
 
 
@@ -64,6 +66,7 @@ def send_email_notification(to: str, subject: str, body: str):
     return f"Email scheduled to {to}: {subject}"
 
 
+
 # --- Graph State ---
 
 class GraphState(TypedDict, total=False):
@@ -71,13 +74,21 @@ class GraphState(TypedDict, total=False):
     messages: Annotated[List[BaseMessage], operator.add]
     agent_state: AgentState
     next_node: str
-    tool_call: Optional[Dict[str, Any]] 
+    tool_call: Optional[Dict[str, Any]]
+    tool_events: Annotated[List[AgentToolEvent], operator.add]
 
 
 # --- Nodes ---
 
 class GoalManifestationAgent:
     def __init__(self):
+        if settings.use_opik:
+            try:
+                if settings.opik_api_key and not os.getenv("OPIK_API_KEY"):
+                    os.environ["OPIK_API_KEY"] = settings.opik_api_key
+                configure()
+            except Exception as e:
+                logger.warning(f"Opik configuration failed: {e}")
         self.workflow = self._build_graph()
 
     def _build_graph(self):
@@ -106,6 +117,7 @@ class GoalManifestationAgent:
 
         return workflow.compile()
 
+    @track
     async def planner_node(self, state: GraphState):
         """
         Analyses the user's request and current state to decide the next step.
@@ -132,14 +144,28 @@ class GoalManifestationAgent:
         biometrics_info = "- Biometrics: DISABLED"
         if agent_state.user_context.use_biometrics:
             try:
+                from src.database.orm import SessionLocal
                 from src.models.fitbit import FitbitToken
                 from src.services.fitbit_service import FitbitService
                 db = SessionLocal()
+                demo_mode = agent_state.user_context.preferences.get("fitbit_demo_mode", False)
                 token = db.query(FitbitToken).filter(FitbitToken.user_id == agent_state.user_context.user_id).first()
-                if token:
+                if demo_mode:
+                    metrics = FitbitService.demo_metrics(datetime.now().date())
+                    readiness = FitbitService.compute_readiness(metrics) or 88.0
+                    summary = (
+                        f"Sleep: {metrics['sleep_duration_hours']:.1f} hours "
+                        f"(Efficiency: {metrics['sleep_efficiency']}%). "
+                        f"Resting HR: {metrics['resting_heart_rate']} bpm. "
+                        f"Readiness: {readiness}."
+                    )
+                    mode = agent_state.user_context.preferences.get("biometrics_mode", "intensity")
+                    biometrics_info = f"- Biometrics: {summary} (ENABLED, demo mode, mode: {mode})"
+                elif token:
                     fb_service = FitbitService(token)
                     summary = fb_service.get_biometric_summary(datetime.now().strftime('%Y-%m-%d'))
-                    biometrics_info = f"- Biometrics: {summary} (ENABLED)"
+                    mode = agent_state.user_context.preferences.get("biometrics_mode", "intensity")
+                    biometrics_info = f"- Biometrics: {summary} (ENABLED, mode: {mode})"
                 else:
                     biometrics_info = "- Biometrics: ENABLED but no Fitbit token found."
                 db.close()
@@ -148,6 +174,13 @@ class GoalManifestationAgent:
                 biometrics_info = "- Biometrics: ENABLED but error fetching data."
 
         goals_summary = "\n".join([f"  - {g.title} ({g.status}, {int(g.progress*100)}%)" for g in agent_state.goals]) if agent_state.goals else "  No active goals."
+        pacing = agent_state.user_context.preferences.get("goal_pacing", [])
+        pacing_lines = []
+        for p in pacing:
+            pacing_lines.append(
+                f"  - {p.get('title')}: days_remaining={p.get('days_remaining')}, required_daily_hours={p.get('required_daily_hours')}, short={len(p.get('short_term_goals', []))}, near={len(p.get('near_term_goals', []))}, long={len(p.get('long_term_goals', []))}"
+            )
+        pacing_summary = "\n".join(pacing_lines) if pacing_lines else "  No pacing data."
         
         system_prompt = f"""
         You are the Goal Manifestation Agent (GMA), an AI coach helping users achieve their goals.
@@ -160,6 +193,8 @@ class GoalManifestationAgent:
         - Scratchpad: {scratchpad if scratchpad else '(empty)'}
         - Active Goals:
 {goals_summary}
+        - Goal Pacing (computed):
+{pacing_summary}
         
         ===== DECISION FRAMEWORK =====
         Choose ONE of the following actions:
@@ -177,6 +212,12 @@ class GoalManifestationAgent:
         ===== IMPORTANT: TOOL USAGE =====
         If the user asks to "send an email" or similar, you MUST use the 'execute' step with the 'send_email_notification' tool. 
         Do NOT just respond with text saying you'll do it. Actually trigger the tool call.
+
+        ===== NEGOTIATION RULES =====
+        - If the user asks to finish a goal earlier/later than the computed pacing, calculate a new required daily load.
+        - Use short-term goals as highest priority; adjust near/long-term goals accordingly.
+        - Ask clarifying questions if the user's requested timeline is unrealistic.
+        - Propose tradeoffs (increase daily minutes, reduce scope, shift other goals).
         
         ===== OUTPUT FORMAT =====
         Respond with a JSON object:
@@ -205,7 +246,9 @@ class GoalManifestationAgent:
         logger.info(f"[AGENT DEBUG] Planner LLM raw response: {response[:500] if response else 'None'}...")
         
         try:
-            plan = json.loads(response)
+            plan = llm_service._extract_and_parse_json(response)
+            if not isinstance(plan, dict):
+                raise ValueError("Planner response was not a JSON object")
             next_node = plan.get("next_step", "respond")
             tool_call = plan.get("tool_call")
             logger.info(f"[AGENT DEBUG] Planner decision: next_step={next_node}, tool_call={tool_call}")
@@ -214,10 +257,11 @@ class GoalManifestationAgent:
                 "next_node": next_node,
                 "tool_call": tool_call if next_node == "execute" else None
             }
-        except:
+        except Exception:
             logger.error(f"Failed to parse planner output: {response}")
             return {"next_node": "respond"}
 
+    @track
     async def executor_node(self, state: GraphState):
         """
         Executes the tool call determined by the planner.
@@ -225,6 +269,8 @@ class GoalManifestationAgent:
         tool_call = state.get("tool_call")
         result_msg = "No action taken."
         
+        tool_events: List[AgentToolEvent] = []
+
         if tool_call:
             name = tool_call.get("name")
             args = tool_call.get("args", {})
@@ -234,6 +280,7 @@ class GoalManifestationAgent:
                 if name == "update_scratchpad":
                     memory_service.update_scratchpad(args.get("content", ""), user_id)
                     result_msg = "Scratchpad updated."
+                    tool_events.append(AgentToolEvent(type="scratchpad", status="success", payload={"content": args.get("content", "")}))
                     
                 elif name == "save_memory":
                     memory_service.set_memory(
@@ -243,6 +290,7 @@ class GoalManifestationAgent:
                         category=args.get("category", "fact")
                     )
                     result_msg = f"Saved memory: {args.get('key')}"
+                    tool_events.append(AgentToolEvent(type="memory", status="success", payload={"key": args.get("key")}))
                     
                 elif name == "take_screenshot":
                     url = args.get("url")
@@ -252,8 +300,16 @@ class GoalManifestationAgent:
                         # Convert absolute/relative path to URL/Markdown
                         filename = os.path.basename(path)
                         result_msg = f"Screenshot captured: ![screenshot](/screenshots/{filename})"
+                        memory_service.save_episodic_memory(
+                            summary="Screenshot captured",
+                            user_id=user_id,
+                            context={"url": url, "filename": filename},
+                            tags=["screenshot", "proof_of_work"]
+                        )
+                        tool_events.append(AgentToolEvent(type="screenshot", status="success", payload={"url": url, "image_url": f"/screenshots/{filename}"}))
                     else:
                         result_msg = f"Failed to capture screenshot of {url}"
+                        tool_events.append(AgentToolEvent(type="screenshot", status="error", payload={"url": url}))
                     
                 elif name == "send_email_notification":
                     # Use the email service with user's API key
@@ -264,14 +320,24 @@ class GoalManifestationAgent:
                         api_key=state["agent_state"].user_context.resend_api_key
                     )
                     result_msg = f"Email sent to {args.get('to')}"
+                    memory_service.save_episodic_memory(
+                        summary="Agent sent an email",
+                        user_id=user_id,
+                        context={"to": args.get("to"), "subject": args.get("subject")},
+                        tags=["email"]
+                    )
+                    tool_events.append(AgentToolEvent(type="email", status="success", payload={"to": args.get("to"), "subject": args.get("subject")}))
                 else:
                     result_msg = f"Unknown tool: {name}"
+                    tool_events.append(AgentToolEvent(type=name or "tool", status="error", payload={"error": "Unknown tool"}))
             except Exception as e:
                 logger.error(f"Tool execution failed: {e}")
                 result_msg = f"Error executing {name}: {e}"
+                tool_events.append(AgentToolEvent(type=name or "tool", status="error", payload={"error": str(e)}))
                 
-        return {"messages": [AIMessage(content=f"[Action Result]: {result_msg}")]}
+        return {"messages": [AIMessage(content=f"[Action Result]: {result_msg}")], "tool_events": tool_events}
 
+    @track
     async def analyzer_node(self, state: GraphState):
         """
         Analyzes the result of execution.
@@ -280,6 +346,7 @@ class GoalManifestationAgent:
         # For now, just pass through
         return {"messages": []} # No new message, just state update if we had it
 
+    @track
     async def user_interface_node(self, state: GraphState):
         """
         Generates the final response to the user.
@@ -332,13 +399,54 @@ class GoalManifestationAgent:
         # Return the next_node string directly
         return state.get("next_node", "respond")
 
-    async def process_message(self, user_id: str, message: str) -> str:
+    async def _classify_guardrail(self, message: str, llm_config=None, mode: str = "soft") -> AgentGuardrail:
+        system_prompt = (
+            "You are a guardrail classifier for a learning goal assistant. "
+            "Classify the user message into one of: in_domain, adjacent, out_of_domain. "
+            "The assistant only handles learning goals, study planning, routines, productivity, "
+            "goal tracking, wellness tied to learning, and accountability. "
+            "Return JSON with keys: status, rationale, suggested_actions (list)."
+        )
+        try:
+            response = await llm_service.get_chat_completion(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": message}
+                ],
+                response_format="json",
+                config=llm_config
+            )
+            data = llm_service._extract_and_parse_json(response)
+            return AgentGuardrail(
+                status=data.get("status", "in_domain"),
+                rationale=data.get("rationale"),
+                suggested_actions=data.get("suggested_actions", [
+                    "Plan today’s study block",
+                    "Update my goals",
+                    "Review my progress"
+                ])
+            )
+        except Exception as e:
+            logger.warning(f"Guardrail classifier failed: {e}")
+            return AgentGuardrail(
+                status="in_domain",
+                rationale=None,
+                suggested_actions=[
+                    "Plan today’s study block",
+                    "Update my goals",
+                    "Review my progress"
+                ]
+            )
+
+    @track
+    async def process_message(self, user_id: str, message: str) -> Dict[str, Any]:
         """
         Main entry point.
         """
         from src.database.orm import SessionLocal
         from src.models.orm import UserSettings, Goal as GoalORM
         from src.models.agent import AgentLLMConfig
+        from src.services.goal_negotiation_service import goal_negotiation_service
 
         # Load State from DB
         db = SessionLocal()
@@ -346,13 +454,23 @@ class GoalManifestationAgent:
             # Load settings
             user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
             llm_config = None
+            vision_llm_config = None
+            guardrail_mode = "soft"
+            biometrics_mode = "intensity"
             if user_settings and user_settings.llm_config:
                 agent_llm = user_settings.llm_config.get("agent_llm")
                 if agent_llm:
                     llm_config = AgentLLMConfig(**agent_llm)
+                agent_settings = user_settings.llm_config.get("agent_settings", {})
+                if agent_settings:
+                    if agent_settings.get("vision_llm_config"):
+                        vision_llm_config = AgentLLMConfig(**agent_settings.get("vision_llm_config"))
+                    guardrail_mode = agent_settings.get("guardrail_mode", "soft")
+                    biometrics_mode = agent_settings.get("biometrics_mode", "intensity")
             
             # Load goals
             goals_orm = db.query(GoalORM).filter(GoalORM.user_id == user_id).all()
+            pacing = goal_negotiation_service.compute_goal_pacing(goals_orm)
             goals = [Goal(
                 id=g.id,
                 title=g.title,
@@ -360,7 +478,10 @@ class GoalManifestationAgent:
                 status=g.status if g.status in ["pending", "active", "completed", "failed"] else "pending",
                 deadline=g.deadline,
                 priority=g.priority,
-                progress=g.logged_hours / g.target_hours if g.target_hours > 0 else 0
+                progress=g.logged_hours / g.target_hours if g.target_hours > 0 else 0,
+                short_term_goals=g.short_term_goals or [],
+                near_term_goals=g.near_term_goals or [],
+                long_term_goals=g.long_term_goals or []
             ) for g in goals_orm]
 
             initial_state = AgentState(
@@ -369,13 +490,36 @@ class GoalManifestationAgent:
                     name="User",
                     email=user_settings.email if user_settings else None,
                     resend_api_key=user_settings.resend_api_key if user_settings else None,
-                    use_biometrics=user_settings.use_biometrics if user_settings else False
+                    use_biometrics=user_settings.use_biometrics if user_settings else False,
+                    preferences={
+                        "biometrics_mode": biometrics_mode,
+                        "goal_pacing": pacing,
+                        "fitbit_demo_mode": user_settings.llm_config.get("agent_settings", {}).get("fitbit_demo_mode", False) if user_settings and user_settings.llm_config else False
+                    }
                 ),
                 llm_config=llm_config,
                 goals=goals
             )
         finally:
             db.close()
+
+        # Guardrail classification
+        guardrail = await self._classify_guardrail(message, llm_config, mode=guardrail_mode)
+        if guardrail.status == "out_of_domain":
+            response_text = (
+                "I’m focused on your learning goals and routines. "
+                "If you want, I can help plan your study session, update goals, or review progress."
+            )
+            if guardrail_mode == "hard":
+                response_text = "I can’t help with that request. I’m focused on your learning goals and routines."
+            memory_service.save_chat_message("user", message, user_id)
+            memory_service.save_chat_message("assistant", response_text, user_id)
+            return {
+                "message": response_text,
+                "tool_events": [],
+                "suggested_actions": guardrail.suggested_actions,
+                "guardrail": guardrail
+            }
         
         # Load previous chat history
         history = memory_service.get_chat_history(user_id, limit=10)
@@ -394,7 +538,8 @@ class GoalManifestationAgent:
             "messages": history_messages,
             "agent_state": initial_state,
             "next_node": "planner",
-            "tool_call": None
+            "tool_call": None,
+            "tool_events": []
         }
         
         # Run
@@ -413,11 +558,21 @@ class GoalManifestationAgent:
             memory_service.save_chat_message("user", message, user_id)
             memory_service.save_chat_message("assistant", response_text, user_id)
             
-            return response_text
+            return {
+                "message": response_text,
+                "tool_events": result.get("tool_events", []),
+                "suggested_actions": guardrail.suggested_actions,
+                "guardrail": guardrail
+            }
             
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
-            return f"I encountered an error: {e}"
+            return {
+                "message": f"I encountered an error: {e}",
+                "tool_events": [],
+                "suggested_actions": guardrail.suggested_actions,
+                "guardrail": guardrail
+            }
 
 # Singleton
 goal_agent = GoalManifestationAgent()

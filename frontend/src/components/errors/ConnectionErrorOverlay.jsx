@@ -14,6 +14,7 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 export function ConnectionErrorOverlay({
   error,
   onRetry,
+  onContinue,
 }) {
   const { t } = useTranslation()
   const [showDetails, setShowDetails] = useState(false)
@@ -161,6 +162,11 @@ export function ConnectionErrorOverlay({
           <p className="text-xs text-muted-foreground text-center mt-2">
             {t.connectionErrors.retryHint}
           </p>
+          {onContinue && (
+            <Button onClick={onContinue} variant="outline" className="w-full mt-3">
+              Continue anyway
+            </Button>
+          )}
         </div>
       </Card>
     </div>

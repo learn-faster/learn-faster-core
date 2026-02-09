@@ -22,6 +22,7 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 
 
 export function ChatPanel({
+  className,
   messages,
   isStreaming,
   contextIndicators,
@@ -90,7 +91,7 @@ export function ChatPanel({
 
   return (
     <>
-      <Card className="flex flex-col h-full flex-1 overflow-hidden">
+      <Card className={`flex flex-col h-full flex-1 overflow-hidden bg-dark-900/60 border-white/10 ${className || ''}`}>
         <CardHeader className="pb-3 flex-shrink-0">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
@@ -157,9 +158,9 @@ export function ChatPanel({
                     )}
                     <div className="flex flex-col gap-2 max-w-[80%]">
                       <div
-                        className={`rounded-lg px-4 py-2 ${message.type === 'human'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
+                        className={`rounded-xl px-4 py-2 border ${message.type === 'human'
+                          ? 'bg-primary/20 border-primary/30 text-primary-100'
+                          : 'bg-white/5 border-white/10 text-dark-100'
                           }`}
                       >
                         {message.type === 'ai' ? (
@@ -242,7 +243,7 @@ export function ChatPanel({
           )}
 
           {/* Input Area */}
-          <div className="flex-shrink-0 p-4 space-y-3 border-t">
+          <div className="flex-shrink-0 p-4 space-y-3 border-t border-white/10 bg-gradient-to-b from-dark-900/40 to-dark-900/80">
             {/* Model selector */}
             {onModelChange && (
               <div className="flex items-center justify-between">
@@ -265,14 +266,14 @@ export function ChatPanel({
                 onKeyDown={handleKeyDown}
                 placeholder={`${t.chat.sendPlaceholder || 'Ask anything...'} (${t.chat.pressToSend?.replace?.('{key}', keyHint) || 'Press ' + keyHint + ' to send'})`}
                 disabled={isStreaming}
-                className="flex-1 min-h-[40px] max-h-[100px] resize-none py-2 px-3"
+                className="flex-1 min-h-[48px] max-h-[120px] resize-none py-3 px-4 rounded-xl bg-dark-900/60 border-white/10 placeholder:text-dark-500 text-sm leading-6"
                 rows={1}
               />
               <Button
                 onClick={handleSend}
                 disabled={!input.trim() || isStreaming}
                 size="icon"
-                className="h-[40px] w-[40px] flex-shrink-0"
+                className="h-[48px] w-[48px] flex-shrink-0 rounded-xl bg-gradient-to-br from-primary-500/90 to-primary-600/90 hover:from-primary-400 hover:to-primary-500 text-white shadow-lg shadow-primary-500/20"
               >
                 {isStreaming ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

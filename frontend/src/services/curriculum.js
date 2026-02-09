@@ -5,13 +5,18 @@ import api from './api';
  */
 
 /**
- * Generates a new curriculum from a goal and document.
+ * Generates a new curriculum from a goal and document(s).
  */
-const generateCurriculum = async (goal, documentId) => {
+const generateCurriculum = async (payload) => {
     return api.post('/curriculum/generate', {
-        title: goal,
-        document_id: documentId,
-        user_id: 'default_user'
+        title: payload.title,
+        document_ids: payload.document_ids || [],
+        user_id: payload.user_id || 'default_user',
+        time_budget_hours_per_week: payload.time_budget_hours_per_week || 5,
+        duration_weeks: payload.duration_weeks || 4,
+        start_date: payload.start_date || null,
+        llm_enhance: payload.llm_enhance || false,
+        llm_config: payload.llm_config || null
     });
 };
 
@@ -27,6 +32,34 @@ const getCurriculums = async () => {
  */
 const getCurriculum = async (id) => {
     return api.get(`/curriculum/${id}`);
+};
+
+const getTimeline = async (id) => {
+    return api.get(`/curriculum/${id}/timeline`);
+};
+
+const getMetrics = async (id) => {
+    return api.get(`/curriculum/${id}/metrics`);
+};
+
+const toggleTask = async (taskId) => {
+    return api.post(`/curriculum/task/${taskId}/toggle`);
+};
+
+const getWeekReport = async (weekId) => {
+    return api.get(`/curriculum/week/${weekId}/report`);
+};
+
+const startCheckpointRecall = async (checkpointId) => {
+    return api.post(`/curriculum/checkpoint/${checkpointId}/start-recall`);
+};
+
+const completeCheckpoint = async (checkpointId) => {
+    return api.post(`/curriculum/checkpoint/${checkpointId}/complete`);
+};
+
+const replanCurriculum = async (id) => {
+    return api.post(`/curriculum/${id}/replan`);
 };
 
 /**
@@ -72,6 +105,13 @@ export default {
     toggleModule,
     generateModuleContent,
     deleteModule,
-    deleteCurriculum
+    deleteCurriculum,
+    getTimeline,
+    getMetrics,
+    toggleTask,
+    getWeekReport,
+    startCheckpointRecall,
+    completeCheckpoint,
+    replanCurriculum
 };
 

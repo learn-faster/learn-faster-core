@@ -1,15 +1,16 @@
 """
 Script to create the test database 'learnfast_test' if it doesn't exist.
 """
+import os
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import sys
 
-# Connection details from src/config.py (but connecting to 'postgres' db to create new db)
-DB_HOST = "localhost"
-DB_PORT = "5433"
-DB_USER = "learnfast"
-DB_PASSWORD = "password"
+# Connection details from environment or defaults
+DB_HOST = os.getenv("POSTGRES_HOST", "localhost")
+DB_PORT = int(os.getenv("POSTGRES_PORT", "5433"))
+DB_USER = os.getenv("POSTGRES_USER", "learnfast")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
 TEST_DB_NAME = "learnfast_test"
 
 def create_test_database():

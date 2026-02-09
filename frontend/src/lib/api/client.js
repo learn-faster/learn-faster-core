@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { getApiUrl } from '@/modules/open-notebook/lib/config'
+import { formatApiErrorMessage, parseApiError } from '@/lib/utils/api-error'
 
 // API client with runtime-configurable base URL
 // The base URL is fetched from the API config endpoint on first request
@@ -59,7 +60,14 @@ apiClient.interceptors.response.use(
         window.location.href = '/login'
       }
     }
-    return Promise.reject(error)
+    const { message, hint, status } = parseApiError(error)
+    const formatted = formatApiErrorMessage(error)
+    const err = new Error(message)
+    err.userMessage = formatted
+    err.status = status
+    err.hint = hint
+    err.raw = error
+    return Promise.reject(err)
   }
 )
 

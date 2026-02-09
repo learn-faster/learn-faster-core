@@ -2,6 +2,8 @@ import os
 import shutil
 import logging
 import subprocess
+import asyncio
+from datetime import datetime
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request
@@ -28,6 +30,12 @@ from src.database.init_db import initialize_databases
 from src.models.schemas import LearningPath
 from src.ingestion.youtube_utils import extract_video_id, fetch_transcript
 from src.config import settings  # Added
+from src.services.weekly_digest_scheduler import run_weekly_digest_scheduler
+from src.services.negotiation_scheduler import run_negotiation_scheduler
+from src.database.connections import postgres_conn
+from src.database.orm import SessionLocal
+from src.models.orm import UserSettings
+from src.queue.ingestion_queue import get_redis
 
 # Import new routers
 from src.routers import (
@@ -36,6 +44,7 @@ from src.routers import (
     study as study_router,
     folders as folders_router,
     analytics as analytics_router,
+    dashboard as dashboard_router,
     ai as ai_router,
     navigation as navigation_router,
     cognitive as cognitive_router,
@@ -44,7 +53,8 @@ from src.routers import (
     goals as goals_router,
     notifications as notifications_router,
     multidoc_graph as multidoc_graph_router,
-    fitbit as fitbit_router
+    fitbit as fitbit_router,
+    practice as practice_router
 )
 
 # Import Open Notebook components
@@ -99,8 +109,57 @@ async def lifespan(app: FastAPI):
     
     # Ensure upload directory exists
     os.makedirs(settings.upload_dir, exist_ok=True)
+
+    # Load user-level embedding settings (if present) into runtime config
+    try:
+        db = SessionLocal()
+        settings_row = db.query(UserSettings).filter_by(user_id="default_user").first()
+        if settings_row:
+            if settings_row.embedding_provider is not None:
+                settings.embedding_provider = settings_row.embedding_provider
+            if settings_row.embedding_model is not None:
+                settings.embedding_model = settings_row.embedding_model
+            if settings_row.embedding_api_key is not None:
+                settings.embedding_api_key = settings_row.embedding_api_key
+            if settings_row.embedding_base_url is not None:
+                settings.embedding_base_url = settings_row.embedding_base_url
+    except Exception as e:
+        logger.warning(f"Failed to load user embedding settings: {e}")
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
     
     logger.info("Components initialized successfully")
+
+    # Start weekly digest scheduler (optional)
+    weekly_task = None
+    weekly_stop_event = None
+    negotiation_task = None
+    negotiation_stop_event = None
+    if settings.enable_weekly_digest_scheduler:
+        weekly_stop_event = asyncio.Event()
+        weekly_task = asyncio.create_task(
+            run_weekly_digest_scheduler(
+                settings.weekly_digest_day,
+                settings.weekly_digest_hour,
+                settings.weekly_digest_minute,
+                weekly_stop_event
+            )
+        )
+        app.state.weekly_digest_task = weekly_task
+        app.state.weekly_digest_stop = weekly_stop_event
+        logger.info("Weekly digest scheduler started.")
+
+    # Start daily negotiation scheduler
+    negotiation_stop_event = asyncio.Event()
+    negotiation_task = asyncio.create_task(
+        run_negotiation_scheduler(negotiation_stop_event)
+    )
+    app.state.negotiation_task = negotiation_task
+    app.state.negotiation_stop = negotiation_stop_event
+    logger.info("Negotiation scheduler started.")
     
     # Start Open Notebook Command Worker
     worker_process = None
@@ -123,6 +182,21 @@ async def lifespan(app: FastAPI):
 
     yield
     
+    if weekly_stop_event:
+        weekly_stop_event.set()
+    if weekly_task:
+        try:
+            await weekly_task
+        except Exception:
+            pass
+    if negotiation_stop_event:
+        negotiation_stop_event.set()
+    if negotiation_task:
+        try:
+            await negotiation_task
+        except Exception:
+            pass
+
     # Shutdown worker
     if worker_process:
         logger.info("Stopping Open Notebook Command Worker...")
@@ -134,6 +208,12 @@ async def lifespan(app: FastAPI):
         logger.info("Worker stopped")
         
     logger.info("Shutting down LearnFast Core Engine...")
+
+    try:
+        from src.services.llm_service import llm_service
+        await llm_service.close()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -152,14 +232,16 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"message": "Internal Server Error", "detail": str(exc)},
     )
 
-# Configure CORS
+# Configure CORS - uses settings.cors_origins which auto-detects from env or defaults
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origins or ["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger.info(f"CORS configured with origins: {settings.cors_origins}")
 
 # Include new Feature Routers
 app.include_router(documents_api_router.router)
@@ -167,6 +249,7 @@ app.include_router(flashcards_router.router)
 app.include_router(study_router.router)
 app.include_router(folders_router.router)
 app.include_router(analytics_router.router)
+app.include_router(dashboard_router.router)
 app.include_router(ai_router.router)
 app.include_router(navigation_router.router)
 app.include_router(cognitive_router.router)
@@ -175,6 +258,7 @@ app.include_router(resources_router.router)
 app.include_router(goals_router.router)
 app.include_router(notifications_router.router)
 app.include_router(multidoc_graph_router.router)
+app.include_router(practice_router.router)
 app.include_router(fitbit_router.router, prefix="/api/fitbit")
 app.include_router(notebook_router, prefix="/api")
 
@@ -187,11 +271,50 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 os.makedirs("data/screenshots", exist_ok=True)
 app.mount("/screenshots", StaticFiles(directory="data/screenshots"), name="screenshots")
 app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads") # Mount uploads
-app.mount("/extracted_images", StaticFiles(directory="data/extracted_images"), name="extracted_images")  # Multimodal assets
+extracted_images_dir = "data/extracted_images"
+os.makedirs(extracted_images_dir, exist_ok=True)
+app.mount("/extracted_images", StaticFiles(directory=extracted_images_dir), name="extracted_images")  # Multimodal assets
 
 @app.get("/")
 async def root():
     return FileResponse("src/static/index.html")
+
+@app.get("/health")
+async def health():
+    return {
+        "ok": True,
+        "service": "learnfast-core",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@app.get("/api/config")
+async def api_config():
+    db_status = "unknown"
+    try:
+        postgres_conn.execute_query("SELECT 1")
+        db_status = "online"
+    except Exception:
+        db_status = "offline"
+
+    redis_status = "disabled"
+    try:
+        redis = get_redis()
+        if redis:
+            redis.ping()
+            redis_status = "connected"
+        else:
+            redis_status = "disabled"
+    except Exception:
+        redis_status = "disconnected"
+
+    return {
+        "version": app.version,
+        "buildTime": None,
+        "latestVersion": None,
+        "hasUpdate": False,
+        "dbStatus": db_status,
+        "queueStatus": redis_status
+    }
 
 # --- Endpoint Migration Status ---
 # /ingest -> Moved to /api/documents/upload

@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { ConnectionErrorOverlay } from '@/components/errors/ConnectionErrorOverlay'
-import { getConfig, resetConfig } from '@/lib/config'
+import { getConfig, getHealth, resetConfig } from '@/lib/config'
 
 export function ConnectionGuard({ children }) {
   const [error, setError] = useState(null)
   const [isChecking, setIsChecking] = useState(true)
+  const [bypass, setBypass] = useState(false)
   // Use a ref to track checking status to avoid dependency cycles
   const isCheckingRef = useRef(false)
 
@@ -25,6 +26,7 @@ export function ConnectionGuard({ children }) {
     resetConfig()
 
     try {
+      await getHealth()
       const config = await getConfig()
 
       // Check if database is offline
@@ -50,9 +52,10 @@ export function ConnectionGuard({ children }) {
       // API is unreachable
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       const attemptedUrl =
-        typeof window !== 'undefined'
+        (err && err.attemptedUrl) ||
+        (typeof window !== 'undefined'
           ? `${window.location.origin}/api/config`
-          : undefined
+          : undefined)
 
       const apiError = {
         type: 'api-unreachable',
@@ -90,7 +93,21 @@ export function ConnectionGuard({ children }) {
 
   // Show overlay if there's an error
   if (error) {
-    return <ConnectionErrorOverlay error={error} onRetry={checkConnection} />
+    if (!bypass) {
+      return (
+        <ConnectionErrorOverlay
+          error={error}
+          onRetry={checkConnection}
+          onContinue={() => setBypass(true)}
+        />
+      )
+    }
+    return (
+      <>
+        <ConnectionStatusBanner error={error} onRetry={checkConnection} />
+        {children}
+      </>
+    )
   }
 
   // Show nothing while checking (prevents flash of content)
@@ -100,4 +117,22 @@ export function ConnectionGuard({ children }) {
 
   // Render children if connection is good
   return <>{children}</>
+}
+
+function ConnectionStatusBanner({ error, onRetry }) {
+  const message =
+    error?.details?.message ||
+    'API unreachable. You can continue, but features may not work.'
+
+  return (
+    <div className="w-full bg-amber-100 text-amber-900 border-b border-amber-200 px-4 py-2 text-sm flex items-center justify-between">
+      <div className="truncate">{message}</div>
+      <button
+        onClick={onRetry}
+        className="ml-4 px-3 py-1 rounded border border-amber-300 hover:bg-amber-200"
+      >
+        Retry
+      </button>
+    </div>
+  )
 }

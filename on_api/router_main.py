@@ -1,22 +1,25 @@
 from fastapi import APIRouter
 import logging
+import os
 from surrealdb import AsyncSurreal
+from src.config import settings
 
 logger = logging.getLogger("learnfast-core.on_api")
 
 router = APIRouter()
 
-# Use AsyncSurreal for async compatibility
-db = AsyncSurreal("http://localhost:8000/rpc")
+# Use AsyncSurreal for async compatibility with settings from environment
+db = AsyncSurreal(settings.surreal_url)
 
 async def init_surrealdb():
     try:
-        await db.signin({"username": "root", "password": "root"})
-        await db.use("learnfast", "open_notebook")
-        logger.info("Connected to SurrealDB successfully")
+        await db.signin({"username": settings.surreal_user, "password": settings.surreal_password})
+        await db.use(settings.surreal_namespace, settings.surreal_database)
+        logger.info(f"Connected to SurrealDB at {settings.surreal_url}")
     except Exception as e:
         logger.error(f"SurrealDB connection failed: {e}")
-        raise
+        # Don't raise - allow app to start with degraded functionality
+        logger.warning("SurrealDB features will be unavailable")
 
 # Import and include sub-routers
 # (We'll create these files next)
@@ -24,13 +27,16 @@ from .notebooks import router as notebooks_router
 from .sources import router as sources_router
 from .notes import router as notes_router
 from .chat import router as chat_router
+from .models import router as models_router
 
 router.include_router(notebooks_router)
 router.include_router(sources_router)
 router.include_router(notes_router)
 router.include_router(chat_router)
+router.include_router(models_router)
 
 @router.get("/config")
+@router.head("/config")
 async def get_config():
     return {
         "version": "0.1.0",

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import ForceGraph2D from 'react-force-graph-2d';
 import {
     Network,
@@ -20,14 +20,19 @@ import {
     Sparkles,
     CheckCircle2,
     Target,
-    Lock
+    Lock,
+    Plus,
+    SlidersHorizontal,
+    Link2
 } from 'lucide-react';
-import ConceptService from '../services/concepts';
+import GraphService from '../services/graphs';
 import ResourceService from '../services/resources';
 import useTimerStore from '../stores/useTimerStore';
 import useDocumentStore from '../stores/useDocumentStore';
 import { Card } from '../components/ui/card';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 /**
  * Premium Starfield Background with multiple parallax layers
@@ -92,17 +97,47 @@ const ConstructionHUD = ({ documents }) => {
  */
 const KnowledgeGraph = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { startSession } = useTimerStore();
     const { documents, fetchDocuments } = useDocumentStore();
 
     const [graphData, setGraphData] = useState({ nodes: [], links: [] });
     const [isLoading, setIsLoading] = useState(true);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [graphs, setGraphs] = useState([]);
+    const [selectedGraphId, setSelectedGraphId] = useState(null);
+    const [isGraphLoading, setIsGraphLoading] = useState(false);
+    const [showGraphModal, setShowGraphModal] = useState(false);
+    const [showBuildModal, setShowBuildModal] = useState(false);
+    const [editingGraph, setEditingGraph] = useState(null);
+    const [graphForm, setGraphForm] = useState({
+        name: '',
+        description: '',
+        document_ids: [],
+        llm_config: { provider: 'openai', model: '', base_url: '', api_key: '' }
+    });
+    const [buildMode, setBuildMode] = useState('existing');
+    const [buildSourceMode, setBuildSourceMode] = useState('filtered');
+    const [buildError, setBuildError] = useState('');
+    const [buildExtractionMaxChars, setBuildExtractionMaxChars] = useState('');
+    const [buildChunkSize, setBuildChunkSize] = useState('');
+    const [showConnections, setShowConnections] = useState(false);
+    const [showCrossLinks, setShowCrossLinks] = useState(true);
+    const [targetGraphId, setTargetGraphId] = useState('');
+    const [connectionContext, setConnectionContext] = useState('');
+    const [connectionSuggestions, setConnectionSuggestions] = useState([]);
+    const [selectedConnections, setSelectedConnections] = useState(new Set());
+    const [isSuggesting, setIsSuggesting] = useState(false);
     const [selectedNode, setSelectedNode] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchSuggestions, setSearchSuggestions] = useState([]);
     const [showGuide, setShowGuide] = useState(false);
+    const [guideDismissed, setGuideDismissed] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return localStorage.getItem('kgGuideDismissed') === '1';
+    });
     const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+    const [graphError, setGraphError] = useState('');
 
     const [activeNeighbors, setActiveNeighbors] = useState(new Set());
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -111,9 +146,14 @@ const KnowledgeGraph = () => {
     const [activeIntel, setActiveIntel] = useState(null);
     const [isLoadingIntel, setIsLoadingIntel] = useState(false);
     const [activeTab, setActiveTab] = useState('overview');
+    const [showGraphApiKey, setShowGraphApiKey] = useState(false);
 
     const fgRef = useRef();
     const containerRef = useRef();
+    const selectedGraph = useMemo(
+        () => graphs.find(g => g.id === selectedGraphId),
+        [graphs, selectedGraphId]
+    );
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -127,6 +167,227 @@ const KnowledgeGraph = () => {
         return () => resizeObserver.disconnect();
     }, []);
 
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const docIdParam = params.get('docId');
+        if (docIdParam) {
+            setShowGraphModal(true);
+            setEditingGraph(null);
+            setGraphForm((prev) => ({
+                ...prev,
+                document_ids: [Number(docIdParam)],
+            }));
+        }
+    }, [location.search]);
+
+    const loadGraphs = async () => {
+        try {
+            const data = await GraphService.listGraphs('default_user');
+            setGraphs(data || []);
+            if (!selectedGraphId && data && data.length > 0) {
+                setSelectedGraphId(data[0].id);
+            }
+        } catch (error) {
+            const msg = error?.userMessage || error?.message || 'Failed to load graphs.';
+            setGraphError(msg);
+            toast.error(msg);
+        }
+    };
+
+    const openCreateGraph = () => {
+        setEditingGraph(null);
+        setGraphForm({
+            name: '',
+            description: '',
+            document_ids: [],
+            llm_config: { provider: 'openai', model: '', base_url: '', api_key: '' }
+        });
+        setShowGraphModal(true);
+    };
+
+    const openEditGraph = (graph) => {
+        setEditingGraph(graph);
+        setGraphForm({
+            name: graph.name || '',
+            description: graph.description || '',
+            document_ids: graph.document_ids || [],
+            llm_config: graph.llm_config || { provider: 'openai', model: '', base_url: '', api_key: '' }
+        });
+        setShowGraphModal(true);
+    };
+
+    const handleSaveGraph = async () => {
+        try {
+            const payload = {
+                name: graphForm.name,
+                description: graphForm.description,
+                document_ids: graphForm.document_ids,
+                llm_config: graphForm.llm_config
+            };
+            let saved;
+            if (editingGraph) {
+                saved = await GraphService.updateGraph(editingGraph.id, payload);
+            } else {
+                saved = await GraphService.createGraph({ ...payload, user_id: 'default_user' });
+            }
+            await loadGraphs();
+            setSelectedGraphId(saved.id);
+            setShowGraphModal(false);
+        } catch (error) {
+            const msg = error?.userMessage || error?.message || 'Failed to save graph.';
+            setGraphError(msg);
+            toast.error(msg);
+        }
+    };
+
+    const toggleDocumentSelection = (docId) => {
+        setGraphForm((prev) => {
+            const has = prev.document_ids.includes(docId);
+            return {
+                ...prev,
+                document_ids: has
+                    ? prev.document_ids.filter(id => id !== docId)
+                    : [...prev.document_ids, docId]
+            };
+        });
+    };
+
+    const handleBuildGraph = async () => {
+        if (!selectedGraphId) return;
+        setBuildError('');
+        setIsGraphLoading(true);
+        try {
+            const payload = { build_mode: buildMode, source_mode: buildSourceMode };
+            const maxChars = Number(buildExtractionMaxChars);
+            const chunkSize = Number(buildChunkSize);
+            if (Number.isFinite(maxChars) && maxChars > 0) payload.extraction_max_chars = maxChars;
+            if (Number.isFinite(chunkSize) && chunkSize > 0) payload.chunk_size = chunkSize;
+            await GraphService.buildGraph(selectedGraphId, payload);
+            await fetchGraph(true);
+            await loadGraphs();
+            setShowBuildModal(false);
+        } catch (error) {
+            const msg = error?.userMessage || error?.message || 'Failed to build graph.';
+            setBuildError(msg);
+            setGraphError(msg);
+            await loadGraphs();
+            toast.error(msg);
+        } finally {
+            setIsGraphLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!showBuildModal || !isGraphLoading) return;
+        const interval = setInterval(() => {
+            loadGraphs();
+        }, 2000);
+        return () => clearInterval(interval);
+    }, [showBuildModal, isGraphLoading, loadGraphs]);
+
+    const fetchGraph = async (showSyncEffect = false) => {
+        if (!selectedGraphId) return;
+        if (showSyncEffect) setIsSyncing(true);
+        else if (graphData.nodes.length === 0) setIsLoading(true);
+
+        try {
+            const data = await GraphService.getGraphData(selectedGraphId, showCrossLinks);
+            if (!data || !data.nodes) {
+                setGraphData({ nodes: [], links: [] });
+                return;
+            }
+
+            const nodes = data.nodes.map(n => ({ ...n, id: String(n.id) }));
+            const nodeIds = new Set(nodes.map(n => n.id));
+
+            const sanitizedLinks = (data.links || []).filter(link => {
+                const s = String(link.source?.id || link.source);
+                const t = String(link.target?.id || link.target);
+                return nodeIds.has(s) && nodeIds.has(t);
+            });
+
+            const degrees = {};
+            sanitizedLinks.forEach(link => {
+                const s = String(link.source?.id || link.source);
+                const t = String(link.target?.id || link.target);
+                degrees[s] = (degrees[s] || 0) + 1;
+                degrees[t] = (degrees[t] || 0) + 1;
+            });
+
+            const sizedNodes = nodes.map(node => ({
+                ...node,
+                val: 4 + Math.min((degrees[node.id] || 0) * 1.5, 14)
+            }));
+
+            setGraphData({ nodes: sizedNodes, links: sanitizedLinks });
+
+            if (graphData.nodes.length === 0) {
+                setTimeout(() => {
+                    if (fgRef.current) {
+                        fgRef.current.zoomToFit(800, 50);
+                    }
+                }, 600);
+            }
+
+            if (data.nodes.length === 0 && !showSyncEffect && !guideDismissed) setShowGuide(true);
+        } catch (error) {
+            const msg = error?.userMessage || error?.message || 'Failed to fetch graph.';
+            setGraphError(msg);
+            if (showSyncEffect) {
+                toast.error(msg);
+            }
+            if (graphData.nodes.length === 0) setGraphData({ nodes: [], links: [] });
+        } finally {
+            setIsLoading(false);
+            if (showSyncEffect) setTimeout(() => setIsSyncing(false), 1000);
+        }
+    };
+
+    const handleSuggestConnections = async () => {
+        if (!selectedGraphId || !targetGraphId || !connectionContext.trim()) return;
+        setIsSuggesting(true);
+        try {
+            const data = await GraphService.suggestConnections(selectedGraphId, {
+                target_graph_id: targetGraphId,
+                context: connectionContext,
+                max_links: 20
+            });
+            const list = data?.connections || [];
+            setConnectionSuggestions(list);
+            setSelectedConnections(new Set(list.map((_, idx) => idx)));
+        } catch (error) {
+            const msg = error?.userMessage || error?.message || 'Failed to suggest connections.';
+            setGraphError(msg);
+            toast.error(msg);
+        } finally {
+            setIsSuggesting(false);
+        }
+    };
+
+    const handleSaveConnections = async () => {
+        if (!selectedGraphId || !targetGraphId) return;
+        const connections = connectionSuggestions.filter((_, idx) => selectedConnections.has(idx));
+        try {
+            await GraphService.saveConnections(selectedGraphId, {
+                target_graph_id: targetGraphId,
+                context: connectionContext,
+                connections: connections.map(c => ({
+                    from_scoped_id: c.from_scoped_id,
+                    to_scoped_id: c.to_scoped_id,
+                    confidence: c.confidence || 0.5,
+                    rationale: c.rationale || ''
+                })),
+                method: 'llm'
+            });
+            setShowConnections(false);
+        } catch (error) {
+            const msg = error?.userMessage || error?.message || 'Failed to save connections.';
+            setGraphError(msg);
+            toast.error(msg);
+        }
+    };
+
     useEffect(() => {
         if (!fgRef.current) return;
 
@@ -139,89 +400,56 @@ const KnowledgeGraph = () => {
     // Polling for Construction Updates
     useEffect(() => {
         let interval;
+        let isActive = true;
         const checkStatus = async () => {
-            await fetchDocuments();
-            // Check if any doc is ingesting
+            if (!isActive || document.visibilityState !== 'visible') return;
+            await fetchDocuments(true, { minIntervalMs: 8000 });
             const isIngesting = documents.some(d => d.status === 'ingesting' || d.status === 'processing');
             if (isIngesting) {
-                // If ingesting, fetch graph incrementally to show partial updates!
                 fetchGraph(false);
             }
         };
 
-        // Poll more frequently if something is happening
         const hasActiveJobs = documents.some(d => d.status === 'ingesting');
         if (hasActiveJobs) {
-            interval = setInterval(checkStatus, 2000);
+            interval = setInterval(checkStatus, 4000);
         } else {
-            // Just periodic check or rely on initial load
-            checkStatus(); // Load once
-            interval = setInterval(checkStatus, 10000);
+            checkStatus();
+            interval = setInterval(checkStatus, 15000);
         }
 
-        return () => clearInterval(interval);
-    }, [documents.length]);
-
-    const fetchGraph = async (showSyncEffect = false) => {
-        if (showSyncEffect) setIsSyncing(true);
-        else if (graphData.nodes.length === 0) setIsLoading(true); // Only show loading if empty
-
-        try {
-            const data = await ConceptService.getGraph("default_user");
-            if (!data || !data.nodes) {
-                setGraphData({ nodes: [], links: [] });
-                return;
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                checkStatus();
             }
+        };
+        document.addEventListener('visibilitychange', onVisibility);
 
-            // Data Sanitization: Normalize IDs to strings and filter invalid links
-            const nodes = data.nodes.map(n => ({ ...n, id: String(n.id) }));
-            const nodeIds = new Set(nodes.map(n => n.id));
-
-            const sanitizedLinks = (data.links || []).filter(link => {
-                const s = String(link.source?.id || link.source);
-                const t = String(link.target?.id || link.target);
-                return nodeIds.has(s) && nodeIds.has(t);
-            });
-
-            // Calculate Node Degree for Hierarchy-Based Sizing
-            const degrees = {};
-            sanitizedLinks.forEach(link => {
-                const s = String(link.source?.id || link.source);
-                const t = String(link.target?.id || link.target);
-                degrees[s] = (degrees[s] || 0) + 1;
-                degrees[t] = (degrees[t] || 0) + 1;
-            });
-
-            const sizedNodes = nodes.map(node => ({
-                ...node,
-                // Scale size between 4 and 18 based on degree
-                val: 4 + Math.min((degrees[node.id] || 0) * 1.5, 14)
-            }));
-
-            setGraphData({ nodes: sizedNodes, links: sanitizedLinks });
-
-            // Auto-zoom to fit after a short delay (only on first load)
-            if (graphData.nodes.length === 0) {
-                setTimeout(() => {
-                    if (fgRef.current) {
-                        fgRef.current.zoomToFit(800, 50);
-                    }
-                }, 600);
-            }
-
-            if (data.nodes.length === 0 && !showSyncEffect) setShowGuide(true);
-        } catch (error) {
-            console.error("Failed to fetch graph", error);
-            if (graphData.nodes.length === 0) setGraphData({ nodes: [], links: [] });
-        } finally {
-            setIsLoading(false);
-            if (showSyncEffect) setTimeout(() => setIsSyncing(false), 1000);
-        }
-    };
+        return () => {
+            isActive = false;
+            if (interval) clearInterval(interval);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
+    }, [documents.length, selectedGraphId]);
 
     useEffect(() => {
-        fetchGraph();
+        loadGraphs();
+        fetchDocuments();
     }, []);
+
+    useEffect(() => {
+        if (selectedGraphId) {
+            fetchGraph();
+        } else {
+            setGraphData({ nodes: [], links: [] });
+        }
+    }, [selectedGraphId, showCrossLinks]);
+
+    useEffect(() => {
+        if (graphData.nodes.length > 0 && showGuide) {
+            setShowGuide(false);
+        }
+    }, [graphData.nodes.length, showGuide]);
 
     // Smart Search Logic
     useEffect(() => {
@@ -231,7 +459,7 @@ const KnowledgeGraph = () => {
         }
         const lowerQuery = searchQuery.toLowerCase();
         const suggestions = graphData.nodes
-            .filter(n => n.name.toLowerCase().includes(lowerQuery))
+            .filter(n => (n.name || '').toLowerCase().includes(lowerQuery))
             .slice(0, 5); // Limit suggestions
         setSearchSuggestions(suggestions);
     }, [searchQuery, graphData.nodes]);
@@ -278,7 +506,9 @@ const KnowledgeGraph = () => {
             const data = await ResourceService.scoutResources(conceptName);
             setActiveIntel(data); // Expects { analogy, insight, question }
         } catch (error) {
-            console.error("Failed to load intel", error);
+            const msg = error?.userMessage || error?.message || 'Failed to load concept intel.';
+            setGraphError(msg);
+            toast.error(msg);
         } finally {
             setIsLoadingIntel(false);
         }
@@ -322,6 +552,10 @@ const KnowledgeGraph = () => {
             coreColor = '#22d3ee'; // Cyan-400
             glowColor = 'rgba(34, 211, 238, 0.6)';
             strokeColor = '#fff';
+        } else if (node.is_merged) {
+            coreColor = '#a855f7'; // Purple-500
+            glowColor = 'rgba(168, 85, 247, 0.5)';
+            strokeColor = '#fff';
         } else {
             // LOCKED - Brighter than before
             coreColor = '#64748b'; // Slate-500
@@ -342,6 +576,14 @@ const KnowledgeGraph = () => {
         }
 
         // Draw Core
+        ctx.save();
+        if (isSelected) {
+            ctx.shadowBlur = 26;
+            ctx.shadowColor = 'rgba(56, 189, 248, 0.65)';
+        } else if (isNeighbor) {
+            ctx.shadowBlur = 16;
+            ctx.shadowColor = 'rgba(129, 140, 248, 0.45)';
+        }
         ctx.beginPath();
         ctx.arc(node.x, node.y, nodeVal / 2.5, 0, 2 * Math.PI); // Larger core
         ctx.fillStyle = isSelected ? '#fff' : coreColor;
@@ -352,6 +594,7 @@ const KnowledgeGraph = () => {
         ctx.globalAlpha = isDimmed ? 0.45 : 1;
         ctx.fill();
         ctx.stroke();
+        ctx.restore();
         ctx.globalAlpha = 1; // Reset
 
         // Level of Detail (LOD) - Avoid overlap
@@ -359,7 +602,7 @@ const KnowledgeGraph = () => {
         // 1. Important statuses (Unlocked, Progress, Completed) at medium zoom
         // 2. Any node at very high zoom (to prevent clutter from Locked nodes)
         // 3. Selected node always
-        const isImportant = node.status === 'UNLOCKED' || node.status === 'IN_PROGRESS' || node.status === 'COMPLETED';
+        const isImportant = node.status === 'UNLOCKED' || node.status === 'IN_PROGRESS' || node.status === 'COMPLETED' || node.is_merged;
         const shouldShowLabel =
             isSelected ||
             (globalScale > 0.6) || // Show labels much earlier
@@ -384,22 +627,119 @@ const KnowledgeGraph = () => {
             ctx.fillStyle = isSelected ? '#fff' : `rgba(255, 255, 255, ${labelAlpha})`;
             ctx.fillText(label, node.x, node.y + nodeVal / 2 + 10);
         }
+
+        // Sparkle ring for selected node
+        if (isSelected) {
+            const t = Date.now() * 0.002;
+            const sparkleCount = 8;
+            for (let i = 0; i < sparkleCount; i += 1) {
+                const angle = t + (i * (Math.PI * 2)) / sparkleCount;
+                const radius = nodeVal * 1.9 + (i % 3) * 2;
+                const x = node.x + Math.cos(angle) * radius;
+                const y = node.y + Math.sin(angle) * radius;
+                ctx.beginPath();
+                ctx.fillStyle = 'rgba(56, 189, 248, 0.9)';
+                ctx.arc(x, y, 1.4 + (i % 2) * 0.6, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
     };
 
     return (
-        <div className="h-[calc(100vh-2rem)] flex flex-col gap-4 animate-fade-in relative z-10 font-sans pb-2">
-            {/* Header with Integrated Smart Search */}
-            <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 pointer-events-auto">
+        <div className="relative min-h-[calc(100vh-2rem)] overflow-hidden">
+            <div
+                className="absolute inset-0"
+                style={{
+                    background:
+                        'radial-gradient(circle at 15% 10%, rgba(56,189,248,0.25), transparent 45%), radial-gradient(circle at 85% 20%, rgba(59,130,246,0.18), transparent 40%), radial-gradient(circle at 50% 80%, rgba(168,85,247,0.2), transparent 45%), linear-gradient(180deg, #05060c 0%, #070b14 45%, #04070f 100%)'
+                }}
+            />
+            <div
+                className="absolute -top-24 -right-24 w-[520px] h-[520px] rounded-full blur-3xl opacity-60"
+                style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.45), transparent 70%)' }}
+            />
+            <div
+                className="absolute -bottom-32 -left-20 w-[620px] h-[620px] rounded-full blur-3xl opacity-50"
+                style={{ background: 'radial-gradient(circle, rgba(14,116,144,0.45), transparent 70%)' }}
+            />
+            <div
+                className="absolute inset-0 opacity-30"
+                style={{ background: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06), transparent 45%)' }}
+            />
+
+            <div className="min-h-[calc(100vh-2rem)] flex flex-col gap-5 animate-fade-in relative z-10 font-sans pb-3">
+            {/* Header with Integrated Graph Controls */}
+            <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-5 pointer-events-auto">
                 <div className="relative group">
-                    <h1 className="text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white via-cyan-400 to-primary-600 flex items-center gap-3">
+                    <h1 className="text-4xl md:text-5xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-white via-cyan-400 to-primary-600 flex items-center gap-3">
                         Neural Tree
                     </h1>
                     <div className="absolute -bottom-1 left-0 w-0 h-1 bg-cyan-500 group-hover:w-full transition-all duration-500 shadow-[0_0_15px_rgba(6,182,212,0.5)]" />
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-3 glass-morphism border-white/5 rounded-2xl px-4 py-2.5">
+                        <Network className="w-4 h-4 text-cyan-400" />
+                        <select
+                            className="bg-transparent text-sm text-white focus:outline-none w-52"
+                            value={selectedGraphId || ''}
+                            onChange={(e) => setSelectedGraphId(e.target.value)}
+                        >
+                            <option value="" disabled className="text-dark-500">Select graph</option>
+                            {graphs.map((graph) => (
+                                <option key={graph.id} value={graph.id} className="bg-dark-900 text-white">
+                                    {graph.name}
+                                </option>
+                            ))}
+                        </select>
+                        <button onClick={openCreateGraph} className="p-1.5 rounded-lg hover:bg-white/5 text-cyan-300">
+                            <Plus className="w-4 h-4" />
+                        </button>
+                        {selectedGraph && (
+                            <button onClick={() => openEditGraph(selectedGraph)} className="p-1.5 rounded-lg hover:bg-white/5 text-white/70">
+                                <SlidersHorizontal className="w-4 h-4" />
+                            </button>
+                        )}
+                    </div>
+
+                    {selectedGraph && (
+                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-white/5 bg-dark-900/40 text-[10px] font-black uppercase tracking-widest text-white/70">
+                            <span className={`w-2 h-2 rounded-full ${selectedGraph.status === 'ready' ? 'bg-cyan-400' : selectedGraph.status === 'building' ? 'bg-amber-400' : selectedGraph.status === 'error' ? 'bg-rose-400' : 'bg-slate-500'}`} />
+                            {selectedGraph.status || 'draft'}
+                            <span className="text-white/30">·</span>
+                            {selectedGraph.node_count || 0} nodes
+                        </div>
+                    )}
+
+                    <button
+                        onClick={() => setShowBuildModal(true)}
+                        className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-primary-600/80 to-cyan-500/80 text-white text-xs font-black uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-all"
+                        disabled={!selectedGraphId}
+                    >
+                        Build Graph
+                    </button>
+
+                    <button
+                        onClick={() => setShowConnections(true)}
+                        className="px-4 py-2.5 rounded-2xl glass-morphism border-white/5 text-cyan-200 text-xs font-black uppercase tracking-widest hover:bg-white/5 transition-all"
+                        disabled={!selectedGraphId}
+                    >
+                        Connections
+                    </button>
+
+                    <button
+                        onClick={() => setShowCrossLinks(!showCrossLinks)}
+                        className={`px-3 py-2.5 rounded-2xl border border-white/5 text-xs font-black uppercase tracking-widest transition-all ${showCrossLinks ? 'bg-purple-500/20 text-purple-200' : 'bg-dark-900/40 text-white/50 hover:bg-white/5'}`}
+                        title="Toggle cross-graph links"
+                    >
+                        <span className="inline-flex items-center gap-2">
+                            <Link2 className="w-4 h-4" />
+                            Links
+                        </span>
+                    </button>
+
                     {/* Smart Search Container */}
-                    <div className="relative w-80">
+                    <div className="relative w-72">
                         <div className={`flex items-center gap-3 px-4 py-2.5 glass-morphism border-white/5 rounded-2xl transition-all ${searchQuery ? 'border-cyan-500/30' : ''}`}>
                             <Search className={`w-4 h-4 transition-colors ${searchQuery ? 'text-cyan-400' : 'text-dark-500'}`} />
                             <input
@@ -432,7 +772,7 @@ const KnowledgeGraph = () => {
                                             className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-left text-sm transition-colors group"
                                         >
                                             <div className={`w-2 h-2 rounded-full ${node.status === 'COMPLETED' ? 'bg-amber-400' :
-                                                node.status === 'UNLOCKED' ? 'bg-cyan-400' : 'bg-slate-600'
+                                                node.status === 'UNLOCKED' ? 'bg-cyan-400' : node.is_merged ? 'bg-purple-400' : 'bg-slate-600'
                                                 } group-hover:scale-125 transition-transform`} />
                                             <span className="text-white font-semibold flex-1">{node.name}</span>
                                             <ChevronRight className="w-3 h-3 text-dark-600 group-hover:translate-x-1 transition-transform" />
@@ -452,6 +792,14 @@ const KnowledgeGraph = () => {
                     </button>
                 </div>
             </header>
+            <InlineErrorBanner
+                message={
+                    (selectedGraph && selectedGraph.status === 'error' && selectedGraph.error_message)
+                        ? selectedGraph.error_message
+                        : graphError
+                }
+                className="pointer-events-auto"
+            />
 
             <div className="flex-1 flex gap-6 overflow-hidden relative">
                 {/* Construction HUD */}
@@ -471,7 +819,21 @@ const KnowledgeGraph = () => {
                         <ChevronRight className="w-5 h-5" />
                     </button>
 
-                    {isLoading ? (
+                    {!selectedGraphId ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-dark-950/20 backdrop-blur-md text-center p-10">
+                            <Network className="w-12 h-12 text-cyan-400 mb-4" />
+                            <h3 className="text-2xl font-black text-white mb-2">No Graph Selected</h3>
+                            <p className="text-xs text-dark-400 max-w-md">
+                                Create a graph, choose documents, and build to generate the neural map.
+                            </p>
+                            <button
+                                onClick={openCreateGraph}
+                                className="mt-6 px-5 py-3 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white"
+                            >
+                                Create Graph
+                            </button>
+                        </div>
+                    ) : isLoading ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-dark-950/20 backdrop-blur-md">
                             <motion.div
                                 animate={{ rotate: 360 }}
@@ -487,6 +849,7 @@ const KnowledgeGraph = () => {
                             nodeCanvasObject={paintNode}
                             onNodeClick={handleNodeFocus}
                             linkColor={(link) => {
+                                if (link?.relationship === 'cross_graph') return 'rgba(168, 85, 247, 0.5)';
                                 if (!selectedNode || !link) return 'rgba(255, 255, 255, 0.15)'; // Brighter default
                                 const sId = String(link.source?.id || link.source);
                                 const tId = String(link.target?.id || link.target);
@@ -495,6 +858,7 @@ const KnowledgeGraph = () => {
                                 return isConnected ? 'rgba(6, 182, 212, 0.6)' : 'rgba(255, 255, 255, 0.05)';
                             }}
                             linkWidth={(link) => {
+                                if (link?.relationship === 'cross_graph') return 2.5;
                                 if (!selectedNode || !link) return 1.5; // Wider default
                                 const sId = String(link.source?.id || link.source);
                                 const tId = String(link.target?.id || link.target);
@@ -502,8 +866,21 @@ const KnowledgeGraph = () => {
                                 const isConnected = sId === nId || tId === nId;
                                 return isConnected ? 3 : 1.0;
                             }}
-                            linkDirectionalParticles={selectedNode ? 4 : 1}
-                            linkDirectionalParticleSpeed={selectedNode ? 0.01 : 0.003}
+                            linkDirectionalParticles={(link) => {
+                                if (!selectedNode || !link) return 0;
+                                const sId = String(link.source?.id || link.source);
+                                const tId = String(link.target?.id || link.target);
+                                const nId = String(selectedNode.id);
+                                return (sId === nId || tId === nId) ? 6 : 0;
+                            }}
+                            linkDirectionalParticleSpeed={selectedNode ? 0.014 : 0.003}
+                            linkDirectionalParticleColor={(link) => {
+                                if (!selectedNode || !link) return 'rgba(255,255,255,0.2)';
+                                const sId = String(link.source?.id || link.source);
+                                const tId = String(link.target?.id || link.target);
+                                const nId = String(selectedNode.id);
+                                return (sId === nId || tId === nId) ? 'rgba(56, 189, 248, 0.9)' : 'rgba(255,255,255,0.08)';
+                            }}
                             linkDirectionalParticleWidth={(link) => {
                                 if (!selectedNode || !link) return 1;
                                 const sId = String(link.source?.id || link.source);
@@ -524,6 +901,21 @@ const KnowledgeGraph = () => {
                                 }
                             }}
                         />
+                    )}
+
+                    {selectedGraphId && !isLoading && graphData.nodes.length === 0 && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-dark-950/10 backdrop-blur-sm text-center p-10">
+                            <h3 className="text-xl font-black text-white mb-2">Graph Empty</h3>
+                            <p className="text-xs text-dark-400 max-w-md">
+                                Build the graph from existing document graphs or rebuild with LLM extraction.
+                            </p>
+                            <button
+                                onClick={() => setShowBuildModal(true)}
+                                className="mt-6 px-5 py-3 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white"
+                            >
+                                Build Now
+                            </button>
+                        </div>
                     )}
 
                     {/* Controls Overlay */}
@@ -551,6 +943,7 @@ const KnowledgeGraph = () => {
                         {[
                             { color: 'bg-cyan-500', label: 'Frontier' },
                             { color: 'bg-amber-500', label: 'Masteries' },
+                            { color: 'bg-purple-500', label: 'Linked' },
                             { color: 'bg-slate-700', label: 'Locked' }
                         ].map(item => (
                             <div key={item.label} className="flex items-center gap-2 px-2 border-r border-white/5 last:border-0 cursor-help group/pill">
@@ -734,6 +1127,342 @@ const KnowledgeGraph = () => {
                 </AnimatePresence>
             </div>
 
+            {/* Graph Create/Edit Modal */}
+            <AnimatePresence>
+                {showGraphModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center p-8 bg-dark-950/90 backdrop-blur-3xl"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
+                            className="w-full max-w-3xl glass-morphism p-10 rounded-[3rem] relative border border-white/10 shadow-2xl"
+                        >
+                            <button onClick={() => setShowGraphModal(false)} className="absolute top-8 right-8 text-dark-400 hover:text-white transition-colors">
+                                <X className="w-6 h-6" />
+                            </button>
+                            <h3 className="text-3xl font-black text-white mb-6 tracking-tighter">
+                                {editingGraph ? 'Edit Graph' : 'Create Graph'}
+                            </h3>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div className="space-y-4">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">Graph Name</label>
+                                    <input
+                                        className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-cyan-500/40"
+                                        value={graphForm.name}
+                                        onChange={(e) => setGraphForm({ ...graphForm, name: e.target.value })}
+                                        placeholder="e.g. Biology Core"
+                                    />
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">Description</label>
+                                    <textarea
+                                        rows={3}
+                                        className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-cyan-500/40"
+                                        value={graphForm.description}
+                                        onChange={(e) => setGraphForm({ ...graphForm, description: e.target.value })}
+                                        placeholder="Purpose and focus of this graph"
+                                    />
+                                    <div className="pt-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">LLM Settings</label>
+                                        <div className="grid grid-cols-1 gap-3 mt-2">
+                                            <input
+                                                className="w-full px-4 py-2 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-primary-500/50"
+                                                value={graphForm.llm_config.provider || ''}
+                                                onChange={(e) => setGraphForm({ ...graphForm, llm_config: { ...graphForm.llm_config, provider: e.target.value } })}
+                                                placeholder="provider (openai, groq, ollama)"
+                                            />
+                                            <input
+                                                className="w-full px-4 py-2 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-primary-500/50"
+                                                value={graphForm.llm_config.model || ''}
+                                                onChange={(e) => setGraphForm({ ...graphForm, llm_config: { ...graphForm.llm_config, model: e.target.value } })}
+                                                placeholder="model"
+                                            />
+                                            <input
+                                                className="w-full px-4 py-2 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-primary-500/50"
+                                                value={graphForm.llm_config.base_url || ''}
+                                                onChange={(e) => setGraphForm({ ...graphForm, llm_config: { ...graphForm.llm_config, base_url: e.target.value } })}
+                                                placeholder="base_url (optional)"
+                                            />
+                                            <div className="relative">
+                                                <input
+                                                    type={showGraphApiKey ? "text" : "password"}
+                                                    className="w-full px-4 py-2 pr-20 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-primary-500/50"
+                                                    value={graphForm.llm_config.api_key || ''}
+                                                    onChange={(e) => setGraphForm({ ...graphForm, llm_config: { ...graphForm.llm_config, api_key: e.target.value } })}
+                                                    placeholder="api_key (optional)"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowGraphApiKey((prev) => !prev)}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-xl bg-white/10 text-white/80 hover:bg-white/20"
+                                                >
+                                                    {showGraphApiKey ? 'Hide' : 'Show'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">Documents</label>
+                                    <div className="mt-3 max-h-72 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+                                    {documents.length === 0 && (
+                                        <div className="text-xs text-dark-500 py-4">No documents found.</div>
+                                    )}
+                                    {documents.map((doc) => (
+                                        <button
+                                            key={doc.id}
+                                            onClick={() => toggleDocumentSelection(doc.id)}
+                                            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border transition-all ${graphForm.document_ids.includes(doc.id) ? 'border-cyan-500/40 bg-cyan-500/10' : 'border-white/5 bg-dark-900/40 hover:bg-white/5'}`}
+                                        >
+                                                <div className="text-left">
+                                                    <div className="text-sm text-white font-semibold">{doc.title || doc.filename}</div>
+                                                    <div className="text-[10px] text-dark-400">{doc.status}</div>
+                                                </div>
+                                                <div className={`w-3 h-3 rounded-full ${graphForm.document_ids.includes(doc.id) ? 'bg-cyan-400' : 'bg-dark-700'}`} />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-3 mt-8">
+                                <button onClick={() => setShowGraphModal(false)} className="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest text-dark-400 hover:text-white">
+                                    Cancel
+                                </button>
+                                <button onClick={handleSaveGraph} className="px-5 py-2 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white">
+                                    Save Graph
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Build Modal */}
+            <AnimatePresence>
+                {showBuildModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center p-8 bg-dark-950/90 backdrop-blur-3xl"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
+                            className="w-full max-w-xl glass-morphism p-10 rounded-[3rem] relative border border-white/10 shadow-2xl"
+                        >
+                            <button onClick={() => setShowBuildModal(false)} className="absolute top-8 right-8 text-dark-400 hover:text-white transition-colors">
+                                <X className="w-6 h-6" />
+                            </button>
+                            <h3 className="text-2xl font-black text-white mb-6 tracking-tighter">Build Mode</h3>
+                            <div className="space-y-4">
+                                <label className="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-dark-900/50">
+                                    <input
+                                        type="radio"
+                                        name="buildMode"
+                                        value="existing"
+                                        checked={buildMode === 'existing'}
+                                        onChange={() => setBuildMode('existing')}
+                                    />
+                                    <div>
+                                        <div className="text-sm font-bold text-white">Use Existing</div>
+                                        <div className="text-[10px] text-dark-400">Build from existing document graphs</div>
+                                    </div>
+                                </label>
+                                <label className="flex items-center gap-3 p-4 rounded-2xl border border-white/5 bg-dark-900/50">
+                                    <input
+                                        type="radio"
+                                        name="buildMode"
+                                        value="rebuild"
+                                        checked={buildMode === 'rebuild'}
+                                        onChange={() => setBuildMode('rebuild')}
+                                    />
+                                    <div>
+                                        <div className="text-sm font-bold text-white">Rebuild</div>
+                                        <div className="text-[10px] text-dark-400">Re-run extraction with LLM</div>
+                                    </div>
+                                </label>
+                            </div>
+                            <div className="mt-6">
+                                <p className="text-xs font-bold uppercase tracking-widest text-dark-500 mb-3">Source Text</p>
+                                <div className="flex flex-wrap gap-3">
+                                    {[
+                                        { value: 'filtered', label: 'Filtered Core' },
+                                        { value: 'raw', label: 'Raw Full Text' }
+                                    ].map((option) => (
+                                        <button
+                                            key={option.value}
+                                            onClick={() => setBuildSourceMode(option.value)}
+                                            className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest border transition-all ${buildSourceMode === option.value ? 'bg-cyan-500/15 text-cyan-300 border-cyan-400/40' : 'bg-dark-900/40 text-dark-400 border-white/5 hover:border-white/10'}`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-[10px] text-dark-500 mt-3">
+                                    Filtered mode removes boilerplate and repeats to focus on key concepts.
+                                </p>
+                            </div>
+                            {buildMode === 'rebuild' && (
+                                <div className="mt-6">
+                                    <p className="text-xs font-bold uppercase tracking-widest text-dark-500 mb-3">Extraction Limits</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <label className="flex flex-col gap-2 text-[10px] uppercase tracking-widest text-dark-500 font-bold">
+                                            Max chars / window
+                                            <input
+                                                type="number"
+                                                min="1000"
+                                                placeholder="50000"
+                                                value={buildExtractionMaxChars}
+                                                onChange={(e) => setBuildExtractionMaxChars(e.target.value)}
+                                                className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white text-sm focus:outline-none"
+                                            />
+                                        </label>
+                                        <label className="flex flex-col gap-2 text-[10px] uppercase tracking-widest text-dark-500 font-bold">
+                                            Chunk size
+                                            <input
+                                                type="number"
+                                                min="250"
+                                                placeholder="1000"
+                                                value={buildChunkSize}
+                                                onChange={(e) => setBuildChunkSize(e.target.value)}
+                                                className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white text-sm focus:outline-none"
+                                            />
+                                        </label>
+                                    </div>
+                                    <p className="text-[10px] text-dark-500 mt-3">
+                                        Smaller windows reduce token usage and avoid rate limits. Larger windows capture more context.
+                                    </p>
+                                </div>
+                            )}
+                            <InlineErrorBanner message={buildError} className="mt-4" />
+                            {isGraphLoading && (
+                                <div className="mt-5">
+                                    <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-dark-500 font-bold mb-2">
+                                        <span>Building Graph</span>
+                                        <span className="text-cyan-300">
+                                            {selectedGraph?.build_progress ? `${Math.round(selectedGraph.build_progress)}%` : 'in progress'}
+                                        </span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-dark-900/60 border border-white/5 overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-cyan-400/60 via-amber-400/70 to-cyan-400/60 animate-pulse"
+                                            style={{ width: `${Math.max(5, Math.min(100, selectedGraph?.build_progress || 10))}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-dark-500 mt-2">
+                                        {selectedGraph?.build_stage
+                                            ? `Stage: ${selectedGraph.build_stage.replaceAll('_', ' ')}`
+                                            : 'LLM extraction is running. This can take a few minutes for large documents.'}
+                                    </p>
+                                </div>
+                            )}
+                            <div className="flex justify-end gap-3 mt-8">
+                                <button onClick={() => setShowBuildModal(false)} className="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest text-dark-400 hover:text-white">
+                                    Cancel
+                                </button>
+                                <button onClick={handleBuildGraph} disabled={isGraphLoading} className="px-5 py-2 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white">
+                                    {isGraphLoading ? 'Building...' : 'Build'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Connections Modal */}
+            <AnimatePresence>
+                {showConnections && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center p-8 bg-dark-950/90 backdrop-blur-3xl"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
+                            className="w-full max-w-4xl glass-morphism p-10 rounded-[3rem] relative border border-white/10 shadow-2xl"
+                        >
+                            <button onClick={() => setShowConnections(false)} className="absolute top-8 right-8 text-dark-400 hover:text-white transition-colors">
+                                <X className="w-6 h-6" />
+                            </button>
+                            <h3 className="text-2xl font-black text-white mb-6 tracking-tighter">Cross-Graph Connections</h3>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div className="space-y-4">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">Target Graph</label>
+                                    <select
+                                        className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none"
+                                        value={targetGraphId}
+                                        onChange={(e) => setTargetGraphId(e.target.value)}
+                                    >
+                                        <option value="" disabled className="text-dark-500">Select target graph</option>
+                                        {graphs.filter(g => g.id !== selectedGraphId).map((graph) => (
+                                            <option key={graph.id} value={graph.id} className="bg-dark-900 text-white">
+                                                {graph.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {graphs.filter(g => g.id !== selectedGraphId).length === 0 && (
+                                        <div className="text-[10px] text-dark-500">Create another graph to connect.</div>
+                                    )}
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">Context</label>
+                                    <textarea
+                                        rows={4}
+                                        className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none"
+                                        value={connectionContext}
+                                        onChange={(e) => setConnectionContext(e.target.value)}
+                                        placeholder="Describe the context for linking these graphs"
+                                    />
+                                    <button
+                                        onClick={handleSuggestConnections}
+                                        className="w-full py-3 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white"
+                                        disabled={!targetGraphId || !connectionContext.trim() || isSuggesting}
+                                    >
+                                        {isSuggesting ? 'Analyzing...' : 'Suggest Connections'}
+                                    </button>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">Suggestions</label>
+                                    <div className="mt-3 max-h-72 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+                                        {connectionSuggestions.length === 0 && (
+                                            <div className="text-xs text-dark-500 py-4">No suggestions yet.</div>
+                                        )}
+                                        {connectionSuggestions.map((conn, idx) => (
+                                            <div key={`${conn.from_scoped_id}-${conn.to_scoped_id}-${idx}`} className="p-3 rounded-2xl border border-white/5 bg-dark-900/50 flex items-start gap-3">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedConnections.has(idx)}
+                                                    onChange={() => {
+                                                        const next = new Set(selectedConnections);
+                                                        if (next.has(idx)) next.delete(idx);
+                                                        else next.add(idx);
+                                                        setSelectedConnections(next);
+                                                    }}
+                                                />
+                                                <div>
+                                                    <div className="text-xs text-white font-semibold">
+                                                        {conn.from_scoped_id} → {conn.to_scoped_id}
+                                                    </div>
+                                                    <div className="text-[10px] text-dark-400">{conn.rationale || 'Suggested link'}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {connectionSuggestions.length > 0 && (
+                                        <div className="flex justify-end mt-4">
+                                            <button
+                                                onClick={handleSaveConnections}
+                                                className="px-5 py-2 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white"
+                                            >
+                                                Save Connections
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Premium Guide Modal */}
             <AnimatePresence>
                 {showGuide && (
@@ -746,7 +1475,16 @@ const KnowledgeGraph = () => {
                             className="max-w-xl w-full glass-morphism p-10 rounded-[3rem] relative border border-white/10 shadow-2xl overflow-hidden"
                         >
                             <div className="absolute top-0 right-0 p-8">
-                                <button onClick={() => setShowGuide(false)} className="text-dark-400 hover:text-white transition-colors">
+                                <button
+                                    onClick={() => {
+                                        setShowGuide(false);
+                                        setGuideDismissed(true);
+                                        if (typeof window !== 'undefined') {
+                                            localStorage.setItem('kgGuideDismissed', '1');
+                                        }
+                                    }}
+                                    className="text-dark-400 hover:text-white transition-colors"
+                                >
                                     <X className="w-6 h-6" />
                                 </button>
                             </div>
@@ -783,13 +1521,23 @@ const KnowledgeGraph = () => {
                                 </div>
                             </div>
 
-                            <button onClick={() => setShowGuide(false)} className="btn-primary w-full mt-12 py-4 font-black text-xs uppercase tracking-[0.3em] rounded-3xl">
+                            <button
+                                onClick={() => {
+                                    setShowGuide(false);
+                                    setGuideDismissed(true);
+                                    if (typeof window !== 'undefined') {
+                                        localStorage.setItem('kgGuideDismissed', '1');
+                                    }
+                                }}
+                                className="btn-primary w-full mt-12 py-4 font-black text-xs uppercase tracking-[0.3em] rounded-3xl"
+                            >
                                 Proceed to Nexus
                             </button>
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
+            </div>
         </div>
     );
 };

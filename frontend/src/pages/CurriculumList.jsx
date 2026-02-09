@@ -5,6 +5,7 @@ import { Plus, BookOpen, Clock, ChevronRight, GraduationCap, ArrowRight, Sparkle
 
 import curriculumService from '../services/curriculum';
 import api from '../services/api';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 const CurriculumList = () => {
     const navigate = useNavigate();
@@ -15,23 +16,49 @@ const CurriculumList = () => {
     // Create Modal State
     const [newGoal, setNewGoal] = useState('');
     const [selectedDoc, setSelectedDoc] = useState('');
+    const [selectedDocs, setSelectedDocs] = useState([]);
     const [documents, setDocuments] = useState([]);
     const [creatingStep, setCreatingStep] = useState('idle'); // idle, generating, done, error
     const [errorMessage, setErrorMessage] = useState('');
+    const [pageError, setPageError] = useState('');
+    const [hoursPerWeek, setHoursPerWeek] = useState(5);
+    const [durationWeeks, setDurationWeeks] = useState(4);
+    const [startDate, setStartDate] = useState('');
+    const [llmEnhance, setLlmEnhance] = useState(false);
+    const [metricsMap, setMetricsMap] = useState({});
 
     useEffect(() => {
         fetchCurriculums();
         fetchDocuments();
     }, []);
 
+    useEffect(() => {
+        if (!isCreating) return;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [isCreating]);
+
     const fetchCurriculums = async () => {
         try {
             const data = await curriculumService.getCurriculums();
             setCurriculums(data);
+            data.forEach((curr) => fetchMetrics(curr.id));
         } catch (error) {
-            console.error("Failed to load curriculums", error);
+            setPageError(error?.userMessage || error?.message || 'Failed to load curriculums.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchMetrics = async (curriculumId) => {
+        try {
+            const metrics = await curriculumService.getMetrics(curriculumId);
+            setMetricsMap(prev => ({ ...prev, [curriculumId]: metrics }));
+        } catch (error) {
+            console.error("Failed to load metrics", error);
         }
     };
 
@@ -42,7 +69,7 @@ const CurriculumList = () => {
             const docs = Array.isArray(res) ? res : (res.items || []);
             setDocuments(docs);
         } catch (error) {
-            console.error("Failed to load docs", error);
+            setPageError(error?.userMessage || error?.message || 'Failed to load documents.');
         }
     };
 
@@ -57,7 +84,14 @@ const CurriculumList = () => {
                 setTimeout(() => reject(new Error("Request timed out. Please try again.")), 300000)
             );
 
-            const requestPromise = curriculumService.generateCurriculum(newGoal, selectedDoc || null);
+            const requestPromise = curriculumService.generateCurriculum({
+                title: newGoal,
+                document_ids: selectedDocs.length ? selectedDocs : (selectedDoc ? [selectedDoc] : []),
+                time_budget_hours_per_week: Number(hoursPerWeek),
+                duration_weeks: Number(durationWeeks),
+                start_date: startDate || null,
+                llm_enhance: llmEnhance
+            });
 
             const newCurriculum = await Promise.race([requestPromise, timeoutPromise]);
 
@@ -68,12 +102,17 @@ const CurriculumList = () => {
                 setCreatingStep('idle');
                 setNewGoal('');
                 setSelectedDoc('');
+                setSelectedDocs([]);
+                setHoursPerWeek(5);
+                setDurationWeeks(4);
+                setStartDate('');
+                setLlmEnhance(false);
                 navigate(`/curriculum/${newCurriculum.id}`);
             }, 1000);
         } catch (error) {
             console.error("Failed to create", error);
             setCreatingStep('error');
-            setErrorMessage(typeof error === 'string' ? error : "Something went wrong. Please check your backend connection.");
+            setErrorMessage(error?.userMessage || error?.message || "Something went wrong. Please check your backend connection.");
         }
     };
 
@@ -116,6 +155,7 @@ const CurriculumList = () => {
             <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-dark-950 to-transparent z-0 pointer-events-none" />
 
             <div className="max-w-7xl mx-auto px-6 py-16 relative z-10">
+                <InlineErrorBanner message={pageError} className="mb-6" />
 
                 {/* Header Section */}
                 <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-20 gap-8">
@@ -147,7 +187,7 @@ const CurriculumList = () => {
                         whileHover={{ scale: 1.05, boxShadow: "0 0 20px rgba(139, 92, 246, 0.4)" }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => setIsCreating(true)}
-                        className="group relative flex items-center gap-3 bg-white text-dark-950 px-10 py-5 rounded-[2rem] font-black shadow-2xl transition-all overflow-hidden"
+                        className="group relative flex items-center gap-3 bg-gradient-to-r from-primary-500 to-indigo-500 text-white px-10 py-5 rounded-[2rem] font-black shadow-2xl transition-all overflow-hidden"
                     >
                         <div className="absolute inset-0 bg-gradient-to-r from-primary-400 to-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                         <span className="relative z-10 flex items-center gap-2 group-hover:text-white transition-colors">
@@ -192,14 +232,15 @@ const CurriculumList = () => {
                         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10"
                     >
                         {curriculums.map((curr) => (
-                            <CurriculumCard
-                                key={curr.id}
-                                curr={curr}
-                                navigate={navigate}
-                                variants={itemVariants}
-                                onDelete={(e) => handleDeleteCurriculum(curr.id, e)}
-                            />
-                        ))}
+                                <CurriculumCard
+                                    key={curr.id}
+                                    curr={curr}
+                                    metrics={metricsMap[curr.id]}
+                                    navigate={navigate}
+                                    variants={itemVariants}
+                                    onDelete={(e) => handleDeleteCurriculum(curr.id, e)}
+                                />
+                            ))}
                     </motion.div>
                 )}
             </div>
@@ -215,7 +256,17 @@ const CurriculumList = () => {
                 setNewGoal={setNewGoal}
                 selectedDoc={selectedDoc}
                 setSelectedDoc={setSelectedDoc}
+                selectedDocs={selectedDocs}
+                setSelectedDocs={setSelectedDocs}
                 documents={documents}
+                hoursPerWeek={hoursPerWeek}
+                setHoursPerWeek={setHoursPerWeek}
+                durationWeeks={durationWeeks}
+                setDurationWeeks={setDurationWeeks}
+                startDate={startDate}
+                setStartDate={setStartDate}
+                llmEnhance={llmEnhance}
+                setLlmEnhance={setLlmEnhance}
             />
         </div>
     );
@@ -223,8 +274,12 @@ const CurriculumList = () => {
 };
 
 // Sub-component for individual card to keep main clean
-const CurriculumCard = ({ curr, navigate, variants, onDelete }) => {
-    const progress = Math.round((curr.modules?.filter(m => m.is_completed).length / (curr.modules?.length || 1)) * 100);
+const CurriculumCard = ({ curr, metrics, navigate, variants, onDelete }) => {
+    const progress = Math.round(metrics?.progress_percent ?? ((curr.modules?.filter(m => m.is_completed).length / (curr.modules?.length || 1)) * 100));
+    const nextCheckpoint = metrics?.next_checkpoint_title;
+    const nextDue = metrics?.next_checkpoint_due;
+    const icon = curr.icon || '🧠';
+    const themeColor = curr.theme_color || '#8b5cf6';
 
     return (
         <motion.div
@@ -236,7 +291,7 @@ const CurriculumCard = ({ curr, navigate, variants, onDelete }) => {
             {/* Ambient Card Background */}
             <div
                 className="absolute top-0 right-0 w-64 h-64 opacity-10 rounded-bl-full transition-all group-hover:scale-150 group-hover:opacity-20 duration-1000 blur-3xl pointer-events-none"
-                style={{ backgroundColor: curr.theme_color || '#8b5cf6' }}
+                style={{ backgroundColor: themeColor }}
             />
 
             <div className="relative z-10 flex flex-col h-full">
@@ -246,7 +301,7 @@ const CurriculumCard = ({ curr, navigate, variants, onDelete }) => {
                         transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
                         className="text-6xl grayscale group-hover:grayscale-0 transition-all duration-500"
                     >
-                        {curr.icon}
+                        {icon}
                     </motion.span>
                     <div className="flex flex-col items-end gap-1">
                         <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border ${progress === 100
@@ -276,6 +331,14 @@ const CurriculumCard = ({ curr, navigate, variants, onDelete }) => {
                     {curr.description || "Synthesizing specialized knowledge for cognitive acceleration."}
                 </p>
 
+                <div className="mb-6 p-4 rounded-2xl bg-white/5 border border-white/5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Next Checkpoint</p>
+                    <p className="text-sm text-white font-bold">{nextCheckpoint || "No upcoming checkpoint"}</p>
+                    {nextDue && (
+                        <p className="text-[11px] text-slate-500 mt-1">Due: {new Date(nextDue).toLocaleDateString()}</p>
+                    )}
+                </div>
+
                 <div className="mt-auto pt-6 border-t border-white/5">
                     <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-tighter text-slate-500 mb-3">
                         <span>Path Mastery</span>
@@ -289,7 +352,7 @@ const CurriculumCard = ({ curr, navigate, variants, onDelete }) => {
                             transition={{ duration: 1.5, ease: "circOut" }}
                             className="h-full rounded-full shadow-[0_0_15px_rgba(139,92,246,0.5)]"
                             style={{
-                                backgroundColor: curr.theme_color || '#8b5cf6'
+                                backgroundColor: themeColor
                             }}
                         />
                     </div>
@@ -301,7 +364,32 @@ const CurriculumCard = ({ curr, navigate, variants, onDelete }) => {
 
 
 // Sub-component for Modal
-const CreateModal = ({ isOpen, onClose, step, errorMessage, onSubmit, newGoal, setNewGoal, selectedDoc, setSelectedDoc, documents }) => {
+const CreateModal = ({
+    isOpen,
+    onClose,
+    step,
+    errorMessage,
+    onSubmit,
+    newGoal,
+    setNewGoal,
+    selectedDoc,
+    setSelectedDoc,
+    selectedDocs,
+    setSelectedDocs,
+    documents,
+    hoursPerWeek,
+    setHoursPerWeek,
+    durationWeeks,
+    setDurationWeeks,
+    startDate,
+    setStartDate,
+    llmEnhance,
+    setLlmEnhance
+}) => {
+    const toggleDoc = (docId) => {
+        setSelectedDocs(prev => prev.includes(docId) ? prev.filter(id => id !== docId) : [...prev, docId]);
+    };
+
     return (
         <AnimatePresence>
             {isOpen && (
@@ -309,7 +397,7 @@ const CreateModal = ({ isOpen, onClose, step, errorMessage, onSubmit, newGoal, s
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 bg-dark-950/80 backdrop-blur-xl z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 bg-dark-950/80 backdrop-blur-xl z-50 flex items-center justify-center p-4 overflow-y-auto"
                     onClick={() => step !== 'generating' && onClose()}
                 >
                     <motion.div
@@ -317,13 +405,13 @@ const CreateModal = ({ isOpen, onClose, step, errorMessage, onSubmit, newGoal, s
                         animate={{ scale: 1, opacity: 1, y: 0 }}
                         exit={{ scale: 0.9, opacity: 0, y: 40 }}
                         onClick={(e) => e.stopPropagation()}
-                        className="bg-dark-900 border border-white/10 rounded-[3rem] w-full max-w-xl shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden"
+                        className="bg-dark-900 border border-white/10 rounded-[3rem] w-full max-w-xl max-h-[85vh] shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden"
                     >
                         {/* Modal Ambient Light */}
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary-500 to-transparent" />
                         <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary-600/20 rounded-full blur-3xl" />
 
-                        <div className="p-10 relative z-10">
+                        <div className="p-10 relative z-10 max-h-[85vh] overflow-y-auto custom-scrollbar">
                             {step === 'generating' ? (
                                 <div className="text-center py-16">
                                     <div className="relative w-32 h-32 mx-auto mb-10">
@@ -400,6 +488,70 @@ const CreateModal = ({ isOpen, onClose, step, errorMessage, onSubmit, newGoal, s
                                                     <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none text-primary-500">
                                                         <ChevronRight className="w-6 h-6 rotate-90" />
                                                     </div>
+                                                </div>
+                                                <div className="mt-4 p-4 rounded-2xl bg-dark-950 border border-white/5">
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3">Multi-Select Documents</p>
+                                                    <div className="max-h-40 overflow-y-auto space-y-2">
+                                                        {documents.map(doc => (
+                                                            <label key={doc.id} className="flex items-center gap-3 text-sm text-slate-300">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={selectedDocs.includes(doc.id)}
+                                                                    onChange={() => toggleDoc(doc.id)}
+                                                                    className="h-4 w-4 rounded border-white/10 bg-dark-900 text-primary-500 focus:ring-primary-500"
+                                                                />
+                                                                <span>{doc.title || doc.filename || `Document ${doc.id}`}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-3">
+                                                    <label className="block text-[10px] font-black text-primary-400 uppercase tracking-[0.3em] ml-1">Hours per Week</label>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max="40"
+                                                        value={hoursPerWeek}
+                                                        onChange={(e) => setHoursPerWeek(e.target.value)}
+                                                        className="w-full px-6 py-4 rounded-3xl bg-dark-950 border border-white/5 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 outline-none transition-all text-lg font-bold"
+                                                    />
+                                                </div>
+                                                <div className="space-y-3">
+                                                    <label className="block text-[10px] font-black text-primary-400 uppercase tracking-[0.3em] ml-1">Duration (Weeks)</label>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max="52"
+                                                        value={durationWeeks}
+                                                        onChange={(e) => setDurationWeeks(e.target.value)}
+                                                        className="w-full px-6 py-4 rounded-3xl bg-dark-950 border border-white/5 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 outline-none transition-all text-lg font-bold"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-3">
+                                                    <label className="block text-[10px] font-black text-primary-400 uppercase tracking-[0.3em] ml-1">Start Date</label>
+                                                    <input
+                                                        type="date"
+                                                        value={startDate}
+                                                        onChange={(e) => setStartDate(e.target.value)}
+                                                        className="w-full px-6 py-4 rounded-3xl bg-dark-950 border border-white/5 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 outline-none transition-all text-lg font-bold"
+                                                    />
+                                                </div>
+                                                <div className="space-y-3">
+                                                    <label className="block text-[10px] font-black text-primary-400 uppercase tracking-[0.3em] ml-1">LLM Enhancement</label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setLlmEnhance(!llmEnhance)}
+                                                        className={`w-full px-6 py-4 rounded-3xl border transition-all text-sm font-black uppercase tracking-widest ${llmEnhance ? 'bg-primary-500/20 border-primary-400 text-primary-200' : 'bg-dark-950 border-white/5 text-slate-400'}`}
+                                                    >
+                                                        {llmEnhance ? 'Enabled' : 'Disabled'}
+                                                    </button>
+                                                    <p className="text-[11px] text-slate-500">Adds explanations and examples only.</p>
                                                 </div>
                                             </div>
                                         </div>

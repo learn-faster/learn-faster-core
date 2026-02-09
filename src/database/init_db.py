@@ -62,6 +62,17 @@ def initialize_orm_tables():
         
         # Manually migrate 'user_settings' table
         migrate_user_settings_table()
+        # Manually migrate 'goals' table
+        migrate_goals_table()
+        # Manually migrate 'fitbit_daily_metrics' table
+        migrate_fitbit_daily_metrics_table()
+        # Manually migrate 'daily_plan_entries' and 'agent_email_messages' tables
+        migrate_daily_plan_entries_table()
+        migrate_agent_email_messages_table()
+        # Manually migrate 'curriculums' table
+        migrate_curriculums_table()
+        # Manually migrate 'knowledge_graphs' table
+        migrate_knowledge_graphs_table()
         
         return True
     except Exception as e:
@@ -91,7 +102,14 @@ def migrate_documents_table():
         ("word_count", "INTEGER DEFAULT 0"),
         ("difficulty_score", "FLOAT"),
         ("language", "VARCHAR"),
-        ("scanned_prob", "FLOAT DEFAULT 0.0")
+        ("scanned_prob", "FLOAT DEFAULT 0.0"),
+        ("raw_extracted_text", "TEXT"),
+        ("filtered_extracted_text", "TEXT"),
+        ("source_url", "VARCHAR"),
+        ("source_type", "VARCHAR"),
+        ("content_profile", "JSON"),
+        ("ocr_status", "VARCHAR"),
+        ("ocr_provider", "VARCHAR")
     ]
     
     for col_name, col_type in cols_to_add:
@@ -106,8 +124,10 @@ def migrate_documents_table():
 def migrate_user_settings_table():
     """Add new columns to user_settings table if they are missing."""
     cols_to_add = [
+        ("timezone", "VARCHAR DEFAULT 'UTC'"),
         ("email", "VARCHAR"),
         ("resend_api_key", "VARCHAR"),
+        ("resend_reply_domain", "VARCHAR"),
         ("current_streak", "INTEGER DEFAULT 0"),
         ("longest_streak", "INTEGER DEFAULT 0"),
         ("last_activity_date", "TIMESTAMP"),
@@ -118,11 +138,22 @@ def migrate_user_settings_table():
         ("email_daily_reminder", "BOOLEAN DEFAULT TRUE"),
         ("email_streak_alert", "BOOLEAN DEFAULT TRUE"),
         ("email_weekly_digest", "BOOLEAN DEFAULT TRUE"),
+        ("weekly_digest_day", "INTEGER DEFAULT 6"),
+        ("weekly_digest_hour", "INTEGER DEFAULT 18"),
+        ("weekly_digest_minute", "INTEGER DEFAULT 0"),
+        ("weekly_digest_last_sent_at", "TIMESTAMP"),
         ("llm_config", "JSON"),
+        ("embedding_provider", "VARCHAR"),
+        ("embedding_model", "VARCHAR"),
+        ("embedding_api_key", "VARCHAR"),
+        ("embedding_base_url", "VARCHAR"),
         ("use_biometrics", "BOOLEAN DEFAULT FALSE"),
         ("fitbit_client_id", "VARCHAR"),
         ("fitbit_client_secret", "VARCHAR"),
         ("fitbit_redirect_uri", "VARCHAR"),
+        ("bedtime", "VARCHAR"),
+        ("email_negotiation_enabled", "BOOLEAN DEFAULT TRUE"),
+        ("email_negotiation_last_sent_at", "TIMESTAMP"),
         ("created_at", "TIMESTAMP"),
         ("updated_at", "TIMESTAMP")
     ]
@@ -133,6 +164,127 @@ def migrate_user_settings_table():
             print(f"Added column {col_name} to user_settings table")
         except Exception as e:
             # Ignore error if column already exists
+            pass
+
+
+def migrate_goals_table():
+    """Add goal ladder columns to goals table if they are missing."""
+    cols_to_add = [
+        ("short_term_goals", "JSON"),
+        ("near_term_goals", "JSON"),
+        ("long_term_goals", "JSON")
+    ]
+    for col_name, col_type in cols_to_add:
+        try:
+            postgres_conn.execute_write(f"ALTER TABLE goals ADD COLUMN {col_name} {col_type}")
+            print(f"Added column {col_name} to goals table")
+        except Exception:
+            pass
+
+
+def migrate_fitbit_daily_metrics_table():
+    """Ensure fitbit_daily_metrics table exists."""
+    try:
+        postgres_conn.execute_write("""
+            CREATE TABLE IF NOT EXISTS fitbit_daily_metrics (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES user_settings(id),
+                date DATE NOT NULL,
+                sleep_duration_hours FLOAT,
+                sleep_efficiency FLOAT,
+                resting_heart_rate FLOAT,
+                readiness_score FLOAT,
+                summary JSON,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP
+            )
+        """)
+        postgres_conn.execute_write("CREATE INDEX IF NOT EXISTS idx_fitbit_daily_metrics_user_date ON fitbit_daily_metrics(user_id, date)")
+    except Exception:
+        pass
+
+
+def migrate_daily_plan_entries_table():
+    """Ensure daily_plan_entries table exists."""
+    try:
+        postgres_conn.execute_write("""
+            CREATE TABLE IF NOT EXISTS daily_plan_entries (
+                id VARCHAR PRIMARY KEY,
+                user_id VARCHAR DEFAULT 'default_user',
+                date DATE,
+                item_id VARCHAR,
+                title VARCHAR NOT NULL,
+                item_type VARCHAR DEFAULT 'study',
+                goal_id VARCHAR,
+                planned_minutes INTEGER DEFAULT 30,
+                completed BOOLEAN DEFAULT FALSE,
+                completed_at TIMESTAMP,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP
+            )
+        """)
+        postgres_conn.execute_write("CREATE INDEX IF NOT EXISTS idx_daily_plan_entries_user_date ON daily_plan_entries(user_id, date)")
+    except Exception:
+        pass
+
+
+def migrate_agent_email_messages_table():
+    """Ensure agent_email_messages table exists."""
+    try:
+        postgres_conn.execute_write("""
+            CREATE TABLE IF NOT EXISTS agent_email_messages (
+                id VARCHAR PRIMARY KEY,
+                user_id VARCHAR DEFAULT 'default_user',
+                direction VARCHAR DEFAULT 'outbound',
+                thread_id VARCHAR,
+                subject VARCHAR,
+                from_email VARCHAR,
+                to_email VARCHAR,
+                body_text TEXT,
+                metadata JSON,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        postgres_conn.execute_write("CREATE INDEX IF NOT EXISTS idx_agent_email_user ON agent_email_messages(user_id, created_at)")
+    except Exception:
+        pass
+
+
+def migrate_curriculums_table():
+    """Add new columns to curriculums table if they are missing."""
+    cols_to_add = [
+        ("start_date", "DATE DEFAULT CURRENT_DATE"),
+        ("duration_weeks", "INTEGER DEFAULT 4"),
+        ("time_budget_hours_per_week", "INTEGER DEFAULT 5"),
+        ("llm_enhance", "BOOLEAN DEFAULT FALSE"),
+        ("llm_config", "JSONB DEFAULT '{}'::jsonb"),
+        ("status", "VARCHAR DEFAULT 'active'"),
+        ("progress", "FLOAT DEFAULT 0.0"),
+        ("target_concept", "VARCHAR"),
+        ("created_at", "TIMESTAMP"),
+        ("updated_at", "TIMESTAMP")
+    ]
+    for col_name, col_type in cols_to_add:
+        try:
+            postgres_conn.execute_write(f"ALTER TABLE curriculums ADD COLUMN {col_name} {col_type}")
+            print(f"Added column {col_name} to curriculums table")
+        except Exception:
+            pass
+
+
+def migrate_knowledge_graphs_table():
+    """Add new columns to knowledge_graphs table if they are missing."""
+    cols_to_add = [
+        ("error_message", "TEXT"),
+        ("build_progress", "FLOAT DEFAULT 0.0"),
+        ("build_stage", "VARCHAR")
+    ]
+    for col_name, col_type in cols_to_add:
+        try:
+            postgres_conn.execute_write(f"ALTER TABLE knowledge_graphs ADD COLUMN {col_name} {col_type}")
+            print(f"Added column {col_name} to knowledge_graphs table")
+        except Exception:
             pass
 
 

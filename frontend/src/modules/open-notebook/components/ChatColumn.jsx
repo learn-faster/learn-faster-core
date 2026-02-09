@@ -88,6 +88,7 @@ export function ChatColumn({ notebookId, contextSelections }) {
     <ChatPanel
       title={t.chat.chatWithNotebook}
       contextType="notebook"
+      className="rounded-none border-0 shadow-none bg-transparent"
       messages={chat.messages}
       isStreaming={chat.isSending}
       contextIndicators={null}

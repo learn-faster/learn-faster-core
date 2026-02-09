@@ -144,25 +144,22 @@ class PathResolver:
             # 2. Filter out completed concepts
             # Get user's completed concepts
             active_path = []
-            
-            # Check completion status for each
-            for concept in full_path_names:
-                # We need to check if user completed it.
-                # Inefficient to query one by one. get_user_state does it all.
-                # Or just query specific check.
-                
-                check_query = """
-                    MATCH (:User {uid: $user_id})-[:COMPLETED]->(:Concept {name: $concept})
-                    RETURN count(*) as cnt
+            if full_path_names:
+                completed_query = """
+                    MATCH (:User {uid: $user_id})-[:COMPLETED]->(c:Concept)
+                    WHERE c.name IN $concepts
+                    RETURN collect(c.name) as completed
                 """
-                check = self.connection.execute_query(check_query, {
-                    "user_id": user_id, 
-                    "concept": concept
+                completed_res = self.connection.execute_query(completed_query, {
+                    "user_id": user_id,
+                    "concepts": full_path_names
                 })
-                
-                is_completed = check and check[0]['cnt'] > 0
-                
-                if not is_completed:
+                completed_set = set(completed_res[0]["completed"]) if completed_res and completed_res[0].get("completed") else set()
+            else:
+                completed_set = set()
+
+            for concept in full_path_names:
+                if concept not in completed_set:
                     active_path.append(concept)
             
             if not active_path:

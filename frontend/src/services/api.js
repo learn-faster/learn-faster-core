@@ -1,20 +1,31 @@
 import axios from 'axios';
+import { getApiUrl } from '../lib/config';
+import { formatApiErrorMessage, parseApiError } from '../lib/utils/api-error';
+import { toast } from 'sonner';
 
 /**
  * Global Axios instance for API communication.
  * Configures the base URL for the backend and provides 
  * standardized response/error handling via interceptors.
  */
-export const API_URL = import.meta.env.VITE_API_URL || ''; // Use relative path for proxy
+export const API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || ''; // Legacy fallback
 
 const api = axios.create({
-    baseURL: API_URL + '/api',
+    baseURL: '/api',
     headers: {
         'Content-Type': 'application/json',
     },
 });
 
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
+    try {
+        const apiUrl = await getApiUrl();
+        const base = apiUrl ? apiUrl.replace(/\/$/, '') : '';
+        config.baseURL = base ? `${base}/api` : '/api';
+    } catch {
+        config.baseURL = '/api';
+    }
+
     const provider = localStorage.getItem('llm_provider');
     const apiKey = localStorage.getItem('llm_api_key');
     const baseUrl = localStorage.getItem('ollama_base_url');
@@ -36,10 +47,21 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response.data,
     (error) => {
-        // Extract Detail from FastAPI Exception or fallback to message
-        const message = error.response?.data?.detail || error.message || 'An unexpected error occurred';
-        console.error('API Error:', message);
-        return Promise.reject(message);
+        const { message, hint, status } = parseApiError(error);
+        const formatted = formatApiErrorMessage(error);
+        console.error('API Error:', formatted);
+
+        const shouldToast = !error?.config?.headers?.['X-Silent-Error'];
+        if (shouldToast) {
+            toast.error('Request failed', { description: formatted });
+        }
+
+        const err = new Error(message);
+        err.userMessage = formatted;
+        err.status = status;
+        err.hint = hint;
+        err.raw = error;
+        return Promise.reject(err);
     }
 );
 

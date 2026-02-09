@@ -1,6 +1,6 @@
 """
 Email Service for Agent Notifications.
-Uses Resend (free tier: 100 emails/day) for sending goal reminders, 
+Uses Resend (free tier: 100 emails/day) for sending goal reminders,
 streak alerts, quiz prompts, and weekly digests.
 """
 import os
@@ -8,23 +8,29 @@ from typing import Optional, List
 from datetime import datetime
 import httpx
 from src.utils.logger import logger
+from src.config import settings
 
 class EmailService:
     """
     Service for sending agent emails to users.
     Uses Resend API (https://resend.com) - free tier allows 100 emails/day.
-    
+
     Setup:
         1. Sign up at https://resend.com
         2. Get your API key from the dashboard
         3. Set RESEND_API_KEY environment variable
         4. Set RESEND_FROM_EMAIL (requires verified domain or use onboarding@resend.dev)
+        5. Optionally set FRONTEND_URL (defaults to http://localhost:5173)
     """
-    
+
     def __init__(self):
         self.api_key = os.getenv("RESEND_API_KEY")
         self.from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
         self.enabled = bool(self.api_key)
+        # Use frontend_url from settings, fallback to localhost
+        self.frontend_url = settings.frontend_url or os.getenv("FRONTEND_URL", "http://localhost:5173")
+        # Ensure no trailing slash
+        self.frontend_url = self.frontend_url.rstrip("/")
         
     async def send_email(
         self,
@@ -32,7 +38,8 @@ class EmailService:
         subject: str,
         html_content: str,
         text_content: Optional[str] = None,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        reply_to: Optional[str] = None
     ) -> bool:
         """
         Sends an email via Resend API.
@@ -60,7 +67,8 @@ class EmailService:
                         "to": [to_email],
                         "subject": subject,
                         "html": html_content,
-                        "text": text_content
+                        "text": text_content,
+                        "reply_to": reply_to
                     }
                 )
                 if response.status_code == 200:
@@ -84,7 +92,7 @@ class EmailService:
             <p>You've built an amazing <strong>{streak_days}-day streak</strong> — don't let it slip!</p>
             <p>Even a quick 5-minute review can keep the momentum going.</p>
             <div style="margin: 24px 0;">
-                <a href="http://localhost:5173" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
+                <a href="{self.frontend_url}" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
                     Save Your Streak →
                 </a>
             </div>
@@ -111,7 +119,7 @@ class EmailService:
             <p>With <strong>{days_left} days</strong> left, you need about <strong>{hours_per_day:.1f} extra hours/day</strong> to catch up.</p>
             <p>Don't worry — even small sessions add up. Ready to log some time?</p>
             <div style="margin: 24px 0;">
-                <a href="http://localhost:5173" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
+                <a href="{self.frontend_url}" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
                     Work on This Goal →
                 </a>
             </div>
@@ -137,7 +145,7 @@ class EmailService:
             {preview}
             <p>Reviewing now helps cement these concepts in long-term memory.</p>
             <div style="margin: 24px 0;">
-                <a href="http://localhost:5173/study" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
+                <a href="{self.frontend_url}/study" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
                     Start Review →
                 </a>
             </div>
@@ -153,6 +161,7 @@ class EmailService:
         cards_reviewed: int,
         streak: int,
         goals_summary: List[dict],
+        curriculum_summary: Optional[List[dict]] = None,
         api_key: Optional[str] = None
     ) -> bool:
         """Sends a weekly progress digest."""
@@ -167,6 +176,40 @@ class EmailService:
         if not goals_html:
             goals_html = "<li>No active goals yet. Create one to start tracking!</li>"
         
+        curriculum_html = ""
+        if curriculum_summary:
+            rows = ""
+            for c in curriculum_summary[:3]:
+                title = c.get("title", "Curriculum")
+                progress = c.get("progress", 0)
+                next_cp = c.get("next_checkpoint", "—")
+                due = c.get("next_due", "—")
+                rows += f"""
+                <tr>
+                    <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">
+                        <div style="font-weight:600;color:#111827;">{title}</div>
+                        <div style="font-size:12px;color:#6b7280;">Next: {next_cp} · {due}</div>
+                    </td>
+                    <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:#4f46e5;">
+                        {progress:.0f}%
+                    </td>
+                </tr>
+                """
+            curriculum_html = f"""
+            <h3 style="margin-top:24px;">Curriculum Progress</h3>
+            <table style="width:100%;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th style="text-align:left;padding:10px 12px;font-size:12px;color:#6b7280;">Plan</th>
+                        <th style="text-align:right;padding:10px 12px;font-size:12px;color:#6b7280;">Progress</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+            """
+
         html = f"""
         <div style="font-family: system-ui, sans-serif; max-width: 500px; margin: 0 auto;">
             <h2 style="color: #6366f1;">Weekly Learning Digest 📚</h2>
@@ -188,9 +231,10 @@ class EmailService:
             </table>
             <h3>Goals Progress</h3>
             <ul>{goals_html}</ul>
+            {curriculum_html}
             <p>Keep up the great work! 💪</p>
             <div style="margin: 24px 0;">
-                <a href="http://localhost:5173/analytics" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
+                <a href="{self.frontend_url}/analytics" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">
                     View Full Analytics →
                 </a>
             </div>
