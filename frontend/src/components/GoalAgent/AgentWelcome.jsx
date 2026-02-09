@@ -1,6 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Send, Sparkles } from 'lucide-react';
 import { agentApi } from '../../services/agent';
+import cognitiveService from '../../services/cognitive';
+import useLLMConfig from '../../hooks/useLLMConfig';
+import { LLM_PROVIDERS } from '../../lib/llmProviders';
+import { motion } from 'framer-motion';
+import CelestialBackground from './CelestialBackground';
+import SolarCoreIcon from './SolarCoreIcon';
 
 const AgentWelcome = ({ onStart, onSkip }) => {
   const canvasRef = useRef(null);
@@ -11,8 +17,22 @@ const AgentWelcome = ({ onStart, onSkip }) => {
   ]);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState('');
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [configError, setConfigError] = useState('');
 
-  const visibleMessages = useMemo(() => messages.slice(-6), [messages]);
+  const {
+    provider,
+    apiKey,
+    ollamaUrl,
+    model,
+    isConfigured,
+    isLoaded,
+    saveConfig,
+    setProvider,
+    setApiKey,
+    setOllamaUrl,
+    setModel
+  } = useLLMConfig();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -144,24 +164,45 @@ const AgentWelcome = ({ onStart, onSkip }) => {
     }
   };
 
+  const needsBaseUrl = provider === 'ollama' || provider === 'ollama_cloud' || provider === 'custom' || ['openrouter','together','fireworks','mistral','deepseek','perplexity','huggingface'].includes(provider);
+  const needsApiKey = provider !== 'ollama';
+
+  const handleActivateCore = async () => {
+    setConfigError('');
+    setIsSavingConfig(true);
+    try {
+      saveConfig({
+        provider,
+        apiKey,
+        ollamaUrl,
+        model
+      });
+      const llmConfig = {
+        provider,
+        api_key: apiKey,
+        model,
+        ...(needsBaseUrl ? { base_url: ollamaUrl } : {})
+      };
+      await agentApi.saveSettings({ llm_config: llmConfig });
+      await cognitiveService.updateSettings({ llm_config: llmConfig });
+    } catch (e) {
+      setConfigError(e?.userMessage || e?.message || 'Unable to save LLM config.');
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[130] bg-dark-950/95 backdrop-blur-2xl overflow-hidden">
-      <div className="absolute inset-0 universe-stars opacity-90" />
+      <CelestialBackground className="absolute inset-0 opacity-90" />
       <div className="absolute inset-0 bg-gradient-to-br from-amber-500/15 via-transparent to-orange-500/20" />
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_30%_10%,rgba(251,191,36,0.25),transparent_40%),radial-gradient(circle_at_70%_20%,rgba(245,158,11,0.25),transparent_45%)]" />
 
       <div className="relative z-10 h-full w-full px-6 py-8">
         <div className="absolute top-6 left-6 right-6 flex items-center justify-between pointer-events-auto z-20">
-          <div className="flex items-center gap-3 rounded-full border border-white/10 bg-dark-900/60 px-4 py-2 backdrop-blur-xl">
-            <div className="agent-orb h-8 w-8 rounded-full flex items-center justify-center">
-              <span className="agent-orb-shell">
-                <span className="agent-orb-halo" />
-                <span className="agent-orb-aurora" />
-                <span className="agent-orb-ring" />
-                <span className="agent-orb-core" />
-                <span className="agent-orb-star agent-orb-star-1" />
-                <span className="agent-orb-star agent-orb-star-2" />
-              </span>
+          <div className="flex items-center gap-3 rounded-full border border-amber-500/20 bg-dark-900/60 px-4 py-2 backdrop-blur-xl">
+            <div className="h-8 w-8 rounded-full flex items-center justify-center">
+              <SolarCoreIcon size={28} />
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-[0.3em] text-amber-300 font-black">Goal Agent</p>
@@ -191,53 +232,144 @@ const AgentWelcome = ({ onStart, onSkip }) => {
             </p>
           </div>
 
-          <div className="w-full max-w-3xl rounded-[2.5rem] border border-amber-500/20 bg-dark-900/70 backdrop-blur-xl p-6 shadow-[0_0_40px_rgba(251,191,36,0.2)]">
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-amber-300 font-black">
-              <Sparkles className="w-3 h-3" /> Agent Channel
-            </div>
-            <div className="mt-4 space-y-3 max-h-48 overflow-y-auto custom-scrollbar">
-              {visibleMessages.map((msg, idx) => (
-                <div key={`${msg.role}-${idx}`} className={`text-sm ${msg.role === 'user' ? 'text-right text-primary-100' : 'text-left text-white'}`}>
-                  <span className={`inline-block px-3 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-amber-500/20' : 'bg-white/5 border border-white/10'}`}>
-                    {msg.content}
-                  </span>
-                </div>
-              ))}
-              {isSending && (
-                <div className="text-xs text-dark-400">Agent is analyzing...</div>
-              )}
-              {error && (
-                <div className="text-xs text-rose-300">{error}</div>
-              )}
-            </div>
-
-            <div className="mt-5 relative">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="e.g., Learn React for interviews in 4 weeks"
-                className="w-full pr-12 pl-4 py-4 rounded-2xl bg-dark-950/80 border border-amber-500/30 text-sm text-white placeholder:text-dark-500 focus:border-amber-400/80 focus:ring-2 focus:ring-amber-500/30 resize-none h-[60px] shadow-[0_0_30px_rgba(251,191,36,0.25)]"
+          <motion.div
+            initial={{ y: 120, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 1.2, ease: 'easeOut' }}
+            className="mb-6 flex items-center justify-center"
+          >
+            <div className="relative w-[140px] h-[140px]">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 16, repeat: Infinity, ease: 'linear' }}
+                className="absolute inset-0 rounded-full border border-amber-500/30"
               />
-              <button
-                onClick={sendMessage}
-                disabled={!input.trim() || isSending}
-                className="absolute right-3 top-3 p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-white disabled:opacity-40"
+              <motion.div
+                animate={{ rotate: -360 }}
+                transition={{ duration: 22, repeat: Infinity, ease: 'linear' }}
+                className="absolute inset-3 rounded-full border border-amber-500/20"
+              />
+              <motion.div
+                animate={{ y: [0, -6, 0] }}
+                transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+                className="absolute inset-0 flex items-center justify-center"
               >
-                <Send className="w-4 h-4" />
-              </button>
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-300/40 to-orange-500/30 border border-amber-500/50 shadow-[0_0_40px_rgba(251,191,36,0.5)] flex items-center justify-center">
+                  <SolarCoreIcon size={56} />
+                </div>
+              </motion.div>
             </div>
+          </motion.div>
 
-            <div className="mt-4 flex items-center justify-between text-[10px] text-dark-400">
-              <span>Ask a goal, timeframe, or learning focus.</span>
-              <button
-                onClick={onStart}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold uppercase tracking-[0.2em] text-[10px]"
-              >
-                Start Onboarding <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+          {!isLoaded ? (
+            <div className="w-full max-w-2xl rounded-[2.5rem] border border-amber-500/20 bg-dark-900/70 backdrop-blur-xl p-8 text-center text-dark-300">
+              Initializing learning core...
             </div>
-          </div>
+          ) : !isConfigured ? (
+            <div className="w-full max-w-2xl rounded-[2.5rem] border border-amber-500/20 bg-dark-900/70 backdrop-blur-xl p-8 shadow-[0_0_40px_rgba(251,191,36,0.2)]">
+              <div className="text-center">
+                <p className="text-[10px] uppercase tracking-[0.4em] text-amber-200/70 font-black">Mission Preparation</p>
+                <h2 className="text-2xl md:text-3xl font-black text-white mt-3">Initialize Learning Core</h2>
+                <p className="text-dark-300 mt-3">
+                  Select a provider and model to dock the agent.
+                </p>
+              </div>
+              <div className="mt-6 space-y-3">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.3em] text-amber-200/70 font-black mb-2">Provider</label>
+                  <select
+                    value={provider}
+                    onChange={(e) => setProvider(e.target.value)}
+                    className="w-full rounded-2xl bg-dark-950/80 border border-amber-500/30 text-sm text-white px-4 py-3 focus:border-amber-400/80 focus:ring-2 focus:ring-amber-500/30"
+                  >
+                    {LLM_PROVIDERS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.3em] text-amber-200/70 font-black mb-2">Model</label>
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="e.g. gpt-4o-mini"
+                    className="w-full rounded-2xl bg-dark-950/80 border border-amber-500/30 text-sm text-white px-4 py-3 focus:border-amber-400/80 focus:ring-2 focus:ring-amber-500/30"
+                  />
+                </div>
+                {needsApiKey && (
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-[0.3em] text-amber-200/70 font-black mb-2">API Key</label>
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="Enter API key"
+                      className="w-full rounded-2xl bg-dark-950/80 border border-amber-500/30 text-sm text-white px-4 py-3 focus:border-amber-400/80 focus:ring-2 focus:ring-amber-500/30"
+                    />
+                  </div>
+                )}
+                {needsBaseUrl && (
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-[0.3em] text-amber-200/70 font-black mb-2">Base URL</label>
+                    <input
+                      value={ollamaUrl}
+                      onChange={(e) => setOllamaUrl(e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                      className="w-full rounded-2xl bg-dark-950/80 border border-amber-500/30 text-sm text-white px-4 py-3 focus:border-amber-400/80 focus:ring-2 focus:ring-amber-500/30"
+                    />
+                  </div>
+                )}
+                {configError && (
+                  <div className="text-xs text-rose-300">{configError}</div>
+                )}
+                <button
+                  onClick={handleActivateCore}
+                  disabled={isSavingConfig || (needsApiKey && !apiKey.trim()) || !model.trim()}
+                  className="w-full mt-2 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold uppercase tracking-[0.2em] text-[11px] disabled:opacity-40"
+                >
+                  {isSavingConfig ? 'Activating...' : 'Activate Core'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full max-w-3xl rounded-[2.5rem] border border-amber-500/20 bg-dark-900/70 backdrop-blur-xl p-6 shadow-[0_0_40px_rgba(251,191,36,0.2)]">
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-amber-300 font-black">
+                <Sparkles className="w-3 h-3" /> Interstellar Uplink
+              </div>
+              <div className="mt-5 relative">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Awaiting mission briefing..."
+                  className="w-full pr-12 pl-4 py-4 rounded-2xl bg-dark-950/80 border border-amber-500/30 text-sm text-white placeholder:text-dark-500 focus:border-amber-400/80 focus:ring-2 focus:ring-amber-500/30 resize-none h-[64px] shadow-[0_0_30px_rgba(251,191,36,0.25)]"
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={!input.trim() || isSending}
+                  className="absolute right-3 top-3 p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-white disabled:opacity-40"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="mt-2 text-[11px] text-dark-400">
+                {isSending ? 'Agent is analyzing...' : 'Awaiting your mission details.'}
+              </div>
+              {error && (
+                <div className="mt-1 text-[11px] text-rose-300">{error}</div>
+              )}
+
+              <div className="mt-4 flex items-center justify-between text-[10px] text-dark-400">
+                <span>Ask a goal, timeframe, or learning focus.</span>
+                <button
+                  onClick={onStart}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold uppercase tracking-[0.2em] text-[10px]"
+                >
+                  Start Onboarding <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

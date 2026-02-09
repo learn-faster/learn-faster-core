@@ -1,7 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Send, Bot, User, AlertTriangle, Gauge } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { agentApi } from '../../services/agent';
+import CelestialBackground from './CelestialBackground';
+import SolarCoreIcon from './SolarCoreIcon';
 
 const AgentChat = ({ status, onOpenSettings }) => {
   const [messages, setMessages] = useState([]);
@@ -10,10 +12,20 @@ const AgentChat = ({ status, onOpenSettings }) => {
   const [isNegotiating, setIsNegotiating] = useState(false);
   const [saveState, setSaveState] = useState({});
   const endRef = useRef(null);
+  const scrollRef = useRef(null);
+
+  const scrollToBottomIfNearEnd = useCallback((behavior = 'auto') => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < 180) {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    }
+  }, []);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+    scrollToBottomIfNearEnd('smooth');
+  }, [messages, isLoading, scrollToBottomIfNearEnd]);
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -178,104 +190,142 @@ const AgentChat = ({ status, onOpenSettings }) => {
   };
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between text-xs text-dark-400">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] uppercase tracking-[0.2em] text-primary-200/70">Agent Status</span>
-          {status?.email_configured ? (
-            <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-200">Email ready</span>
-          ) : (
-            <span className="text-[10px] px-2 py-1 rounded-full bg-amber-500/15 text-amber-200">Email missing</span>
-          )}
-        </div>
-        {!status?.email_configured && (
-          <button onClick={onOpenSettings} className="text-primary-300 hover:text-primary-200 text-[11px] font-semibold">Set it up</button>
-        )}
-      </div>
+    <div className="h-full flex flex-col relative">
+      <CelestialBackground className="absolute inset-0 opacity-70" />
 
-      <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 custom-scrollbar">
-        {messages.map((msg, idx) => (
-          <MessageBubble
-            key={idx}
-            message={msg}
-            onQuickAction={handleQuickAction}
-            saveConfig={saveState[idx]}
-            onToggleAction={(action) => toggleActionSelection(idx, action)}
-            onSaveSelected={() => handleSaveSelected(idx)}
-            onUpdateSaveConfig={(field, value) => updateSaveConfig(idx, field, value)}
-          />
-        ))}
-        {isLoading && (
-          <div className="flex items-center gap-2 text-xs text-dark-400">
-            <Bot className="w-4 h-4" /> Thinking...
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-6 space-y-4 custom-scrollbar relative z-10">
+        <div className="w-full space-y-4">
+          <div className="flex items-center justify-between text-xs text-dark-400">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.25em] text-amber-200/70">Agent Channel</span>
+              {status?.email_configured ? (
+                <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-200">Email ready</span>
+              ) : (
+                <span className="text-[10px] px-2 py-1 rounded-full bg-amber-500/15 text-amber-200">Email missing</span>
+              )}
+            </div>
+            {!status?.email_configured && (
+              <button onClick={onOpenSettings} className="text-amber-200 hover:text-amber-100 text-[11px] font-semibold">Set it up</button>
+            )}
           </div>
-        )}
-        <div ref={endRef} />
+
+          <div className="rounded-[24px] bg-dark-950/60 border border-white/10 shadow-[0_0_32px_rgba(0,0,0,0.35)] p-4 space-y-4">
+            {messages.map((msg, idx) => (
+              <MessageBubble
+                key={idx}
+                message={msg}
+                onQuickAction={handleQuickAction}
+                saveConfig={saveState[idx]}
+                onToggleAction={(action) => toggleActionSelection(idx, action)}
+                onSaveSelected={() => handleSaveSelected(idx)}
+                onUpdateSaveConfig={(field, value) => updateSaveConfig(idx, field, value)}
+              />
+            ))}
+            {isLoading && (
+              <div className="flex items-center gap-2 text-xs text-dark-400">
+                <Bot className="w-4 h-4" /> Thinking...
+              </div>
+            )}
+            <div ref={endRef} />
+          </div>
+        </div>
       </div>
 
-      <div className="p-4 border-t border-white/5">
-        <div className="mb-3 flex items-center justify-between">
-          <button
-            onClick={handleNegotiate}
-            disabled={isNegotiating}
-            className="flex items-center gap-2 text-[11px] px-3 py-2 rounded-full bg-white/5 text-primary-200 hover:bg-white/10 disabled:opacity-40"
-          >
-            <Gauge className="w-3.5 h-3.5" />
-            Recalculate pacing
-          </button>
-          <span className="text-[10px] text-dark-500">Ask for a faster or lighter timeline</span>
+      <div className="px-5 pb-5 relative z-10">
+        <div className="w-full rounded-[22px] bg-dark-950/70 border border-white/10 p-4 shadow-[0_0_32px_rgba(0,0,0,0.35)]">
+          <div className="mb-2 flex items-center justify-between">
+            <button
+              onClick={handleNegotiate}
+              disabled={isNegotiating}
+              className="flex items-center gap-2 text-[11px] px-3 py-2 rounded-full bg-white/5 text-amber-200 hover:bg-white/10 disabled:opacity-40"
+            >
+              <Gauge className="w-3.5 h-3.5" />
+              Recalculate pacing
+            </button>
+            <span className="text-[10px] text-dark-500">Ask for a faster or lighter timeline</span>
+          </div>
+          <div className="relative">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about goals, schedules, or study plans..."
+              className="w-full pr-20 pl-4 py-2.5 rounded-full bg-dark-900/70 border border-amber-500/20 text-sm text-white placeholder:text-dark-500 focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim() || isLoading}
+              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-full bg-amber-500 hover:bg-amber-400 text-[11px] font-semibold text-white disabled:opacity-40"
+            >
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="mt-1.5 text-[10px] text-dark-500">Guardrails are enabled — I stay focused on your goals.</div>
         </div>
-        <div className="relative">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask about goals, schedules, or study plans..."
-            className="w-full pr-12 pl-4 py-3 rounded-2xl bg-dark-900/70 border border-white/10 text-sm text-white placeholder:text-dark-500 focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/20 resize-none h-[52px]"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim() || isLoading}
-            className="absolute right-2 top-2.5 p-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-white disabled:opacity-40"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="mt-2 text-[10px] text-dark-500">Guardrails are enabled — I stay focused on your goals.</div>
       </div>
     </div>
   );
+};
+
+const stripThinking = (content = '') => {
+  const thinkBlock = /<think>[\s\S]*?<\/think>/gi;
+  const reasoningBlock = /(^|\n)(?:THINKING|REASONING|INTERNAL):[\s\S]*$/i;
+  let found = false;
+  const extracted = [];
+  let cleaned = content.replace(thinkBlock, (match) => {
+    found = true;
+    extracted.push(match);
+    return '';
+  });
+  if (reasoningBlock.test(cleaned)) {
+    found = true;
+    const match = cleaned.match(reasoningBlock);
+    if (match && match[0]) extracted.push(match[0]);
+    cleaned = cleaned.replace(reasoningBlock, '');
+  }
+  const hidden = extracted.join('\n').trim();
+  return { text: cleaned.trim(), hadThinking: found, hidden };
 };
 
 const MessageBubble = ({ message, onQuickAction, saveConfig, onToggleAction, onSaveSelected, onUpdateSaveConfig }) => {
   const isUser = message.role === 'user';
   const hasActions = Array.isArray(message.suggested_actions) && message.suggested_actions.length > 0;
   const selectedCount = saveConfig?.selected?.length || 0;
+  const { text, hadThinking, hidden } = stripThinking(message.content || '');
+  const [showReasoning, setShowReasoning] = useState(false);
   return (
     <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && (
-        <div className="w-7 h-7 rounded-full agent-orb flex items-center justify-center">
-          <span className="agent-orb-shell agent-orb-mini">
-            <span className="agent-orb-halo" />
-            <span className="agent-orb-aurora" />
-            <span className="agent-orb-ring" />
-            <span className="agent-orb-core" />
-            <span className="agent-orb-star agent-orb-star-1" />
-            <span className="agent-orb-star agent-orb-star-2" />
-          </span>
+        <div className="w-9 h-9 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shadow-[0_0_24px_rgba(251,191,36,0.35)]">
+          <SolarCoreIcon size={22} />
         </div>
       )}
-      <div className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${isUser ? 'bg-primary-500/90 text-white' : 'bg-dark-900/70 border border-white/10 text-white shadow-[0_0_30px_rgba(139,92,246,0.08)]'}`}>
+      <div className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${isUser ? 'bg-amber-500/15 text-amber-100 border border-amber-500/30' : 'bg-dark-900/70 border border-amber-500/20 text-white shadow-[0_0_30px_rgba(251,191,36,0.12)] agent-stardust'}`}>
         {message.guardrail?.status === 'out_of_domain' && (
           <div className="mb-2 text-[11px] text-amber-300 flex items-center gap-1">
             <AlertTriangle className="w-3 h-3" /> Outside goal scope — I’ll steer back to your learning.
           </div>
         )}
-        <div className="prose prose-invert prose-sm max-w-none prose-p:my-1">
+        <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-strong:text-amber-100 prose-code:text-amber-200 prose-code:bg-white/5 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-dark-950/80 prose-pre:border prose-pre:border-white/10 prose-pre:rounded-xl prose-pre:p-3 prose-pre:shadow-[0_0_20px_rgba(0,0,0,0.3)] agent-chat-content">
           <ReactMarkdown>
-            {message.content}
+            {text || message.content}
           </ReactMarkdown>
         </div>
+        {hadThinking && !isUser && (
+          <div className="mt-2 text-[11px] text-dark-400">
+            <button
+              onClick={() => setShowReasoning((v) => !v)}
+              className="text-amber-200 hover:text-amber-100 underline underline-offset-2"
+            >
+              {showReasoning ? 'Hide reasoning' : 'Show reasoning'}
+            </button>
+          </div>
+        )}
+        {showReasoning && hidden && !isUser && (
+          <div className="mt-2 text-[11px] text-dark-300 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+            <pre className="whitespace-pre-wrap">{hidden}</pre>
+          </div>
+        )}
         {Array.isArray(message.tool_events) && message.tool_events.length > 0 && (
           <div className="mt-3 space-y-2">
             {message.tool_events.map((evt, idx) => (
@@ -291,7 +341,7 @@ const MessageBubble = ({ message, onQuickAction, saveConfig, onToggleAction, onS
               <button
                 key={idx}
                 onClick={() => onQuickAction(action)}
-                className="text-[10px] px-2 py-1 rounded-full bg-primary-500/20 text-primary-200 hover:bg-primary-500/30"
+                className="text-[10px] px-2 py-1 rounded-full bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
               >
                 {action}
               </button>
@@ -360,7 +410,7 @@ const MessageBubble = ({ message, onQuickAction, saveConfig, onToggleAction, onS
         )}
       </div>
       {isUser && (
-        <div className="w-7 h-7 rounded-full bg-primary-500/20 text-primary-200 flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-200 flex items-center justify-center">
           <User className="w-4 h-4" />
         </div>
       )}
