@@ -15,6 +15,7 @@ const Settings = () => {
   const [connected, setConnected] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [backendHealth, setBackendHealth] = useState(null);
+  const [lastTraceId, setLastTraceId] = useState(() => (localStorage.getItem('opik_last_trace_id') || ''));
 
   // Settings state
   const [settings, setSettings] = useState({
@@ -32,6 +33,14 @@ const Settings = () => {
       base_url: '',
       api_key: ''
     },
+    opik_config: {
+      enabled: false,
+      api_key: '',
+      workspace: '',
+      url_override: '',
+      project_name: '',
+      use_local: false
+    },
     resend_api_key: ''
   });
 
@@ -45,6 +54,20 @@ const Settings = () => {
       navigate('/settings', { replace: true });
     }
   }, [location]);
+
+
+  useEffect(() => {
+    const refreshTrace = () => {
+      setLastTraceId(localStorage.getItem('opik_last_trace_id') || '');
+    };
+    refreshTrace();
+    window.addEventListener('focus', refreshTrace);
+    window.addEventListener('storage', refreshTrace);
+    return () => {
+      window.removeEventListener('focus', refreshTrace);
+      window.removeEventListener('storage', refreshTrace);
+    };
+  }, []);
 
   const checkBackend = async () => {
     try {
@@ -72,6 +95,7 @@ const Settings = () => {
         use_biometrics: settingsData.use_biometrics || false,
         llm_config: settingsData.llm_config || prev.llm_config,
         embedding_config: settingsData.embedding_config || prev.embedding_config,
+        opik_config: settingsData.opik_config || prev.opik_config,
         resend_api_key: settingsData.resend_api_key || ''
       }));
       await checkBackend();
@@ -226,6 +250,88 @@ const Settings = () => {
                   </label>
                 </motion.div>
               )}
+            </div>
+          </div>
+
+          {/* Observability (Opik) */}
+          <div className="bg-dark-900/50 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-colors">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2.5 rounded-xl bg-purple-500/10">
+                <Shield className="w-5 h-5 text-purple-400" />
+              </div>
+              <h2 className="text-xl font-semibold">Observability (Opik)</h2>
+            </div>
+            <div className="space-y-4">
+              <label className="flex items-center justify-between cursor-pointer">
+                <span className="text-sm text-gray-300">Enable tracing</span>
+                <div className="relative inline-flex items-center">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={settings.opik_config?.enabled || false}
+                    onChange={(e) => setSettings({
+                      ...settings,
+                      opik_config: { ...settings.opik_config, enabled: e.target.checked }
+                    })}
+                  />
+                  <div className="w-11 h-6 bg-dark-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
+                </div>
+              </label>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
+                <input
+                  type="password"
+                  value={settings.opik_config?.api_key || ''}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    opik_config: { ...settings.opik_config, api_key: e.target.value }
+                  })}
+                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-2.5 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all outline-none"
+                  placeholder="opik_..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Workspace</label>
+                <input
+                  type="text"
+                  value={settings.opik_config?.workspace || ''}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    opik_config: { ...settings.opik_config, workspace: e.target.value }
+                  })}
+                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-2.5 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all outline-none"
+                  placeholder="your-workspace"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">URL Override (optional)</label>
+                <input
+                  type="text"
+                  value={settings.opik_config?.url_override || ''}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    opik_config: { ...settings.opik_config, url_override: e.target.value }
+                  })}
+                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-2.5 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all outline-none"
+                  placeholder="https://www.comet.com/"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Project Name</label>
+                <input
+                  type="text"
+                  value={settings.opik_config?.project_name || ''}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    opik_config: { ...settings.opik_config, project_name: e.target.value }
+                  })}
+                  className="w-full bg-white/5 border border-white/5 rounded-xl px-4 py-2.5 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all outline-none"
+                  placeholder="learnfast-core"
+                />
+              </div>
+              <div className="text-xs text-gray-500">
+                Latest trace: <span className="text-gray-300">{lastTraceId || '—'}</span>
+              </div>
             </div>
           </div>
 

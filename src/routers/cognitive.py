@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
@@ -9,8 +9,10 @@ from openai import AsyncOpenAI
 from src.database.orm import get_db
 from src.services.cognitive_service import cognitive_service
 from src.services.llm_service import llm_service
-from src.models.orm import UserSettings
+from src.models.orm import UserSettings, Document
 from src.config import settings as app_settings
+from src.ingestion.ingestion_engine import IngestionEngine
+from src.utils.logger import logger
 
 router = APIRouter(prefix="/api/cognitive", tags=["Cognitive Space"])
 
@@ -32,6 +34,12 @@ class SettingsUpdate(BaseModel):
     embedding_model: Optional[str] = None
     embedding_api_key: Optional[str] = None
     embedding_base_url: Optional[str] = None
+    embedding_dimensions: Optional[int] = None
+
+
+class EmbeddingReindexRequest(BaseModel):
+    document_ids: Optional[List[int]] = None
+    chunk_size: Optional[int] = None
 
 
 @router.get("/overview")
@@ -67,6 +75,15 @@ def get_settings(user_id: str = "default_user", db: Session = Depends(get_db)):
         db.add(settings_row)
         db.commit()
     
+    stored_config = getattr(settings_row, "llm_config", None) or {}
+    embedding_config = stored_config.get("embedding_config") if isinstance(stored_config, dict) else {}
+    legacy_dim = stored_config.get("embedding_dimensions") if isinstance(stored_config, dict) else None
+    embedding_dimensions = (
+        embedding_config.get("dimensions")
+        if isinstance(embedding_config, dict) and embedding_config.get("dimensions") is not None
+        else legacy_dim
+    )
+
     return {
         "target_retention": settings_row.target_retention,
         "daily_new_limit": settings_row.daily_new_limit,
@@ -85,7 +102,8 @@ def get_settings(user_id: str = "default_user", db: Session = Depends(get_db)):
         "embedding_provider": getattr(settings_row, "embedding_provider", None),
         "embedding_model": getattr(settings_row, "embedding_model", None),
         "embedding_api_key": getattr(settings_row, "embedding_api_key", ""),
-        "embedding_base_url": getattr(settings_row, "embedding_base_url", None)
+        "embedding_base_url": getattr(settings_row, "embedding_base_url", None),
+        "embedding_dimensions": embedding_dimensions or app_settings.embedding_dimensions
     }
 
 
@@ -144,15 +162,31 @@ def update_settings(
         settings_row.embedding_api_key = data.embedding_api_key
     if data.embedding_base_url is not None:
         settings_row.embedding_base_url = data.embedding_base_url or None
+    if data.embedding_dimensions is not None:
+        try:
+            settings_row_embedding_dimensions = int(data.embedding_dimensions)
+        except (TypeError, ValueError):
+            settings_row_embedding_dimensions = None
 
     # Store embedding config in user settings for visibility
-    if data.embedding_provider is not None or data.embedding_model is not None or data.embedding_base_url is not None:
+    if data.embedding_provider is not None or data.embedding_model is not None or data.embedding_base_url is not None or data.embedding_dimensions is not None:
         config = getattr(settings_row, "llm_config", None) or {}
         config["embeddings"] = {
             "provider": data.embedding_provider if data.embedding_provider is not None else config.get("embeddings", {}).get("provider"),
             "model": data.embedding_model if data.embedding_model is not None else config.get("embeddings", {}).get("model"),
             "base_url": data.embedding_base_url if data.embedding_base_url is not None else config.get("embeddings", {}).get("base_url")
         }
+        embed_cfg = config.get("embedding_config") or {}
+        if data.embedding_provider is not None:
+            embed_cfg["provider"] = data.embedding_provider
+        if data.embedding_model is not None:
+            embed_cfg["model"] = data.embedding_model
+        if data.embedding_base_url is not None:
+            embed_cfg["base_url"] = data.embedding_base_url
+        if data.embedding_dimensions is not None:
+            embed_cfg["dimensions"] = settings_row_embedding_dimensions
+            config["embedding_dimensions"] = settings_row_embedding_dimensions
+        config["embedding_config"] = embed_cfg
         setattr(settings_row, "llm_config", config)
     
     db.commit()
@@ -166,6 +200,8 @@ def update_settings(
         setattr(app_settings, "embedding_api_key", settings_row.embedding_api_key)
     if settings_row.embedding_base_url is not None:
         setattr(app_settings, "embedding_base_url", settings_row.embedding_base_url)
+    if data.embedding_dimensions is not None and settings_row_embedding_dimensions:
+        setattr(app_settings, "embedding_dimensions", settings_row_embedding_dimensions)
     # Reset embedding client cache so new settings take effect immediately
     llm_service._embedding_client = None
     llm_service._embedding_provider = None
@@ -295,3 +331,45 @@ async def llm_health(user_id: str = "default_user", db: Session = Depends(get_db
         return {"ok": False, "provider": provider, "model": model, "base_url": effective_base, "detail": str(e)}
 
     return {"ok": True, "provider": provider, "model": model, "base_url": effective_base, "detail": "Connected"}
+
+
+@router.post("/reindex-embeddings")
+async def reindex_embeddings(
+    payload: EmbeddingReindexRequest,
+    background_tasks: BackgroundTasks,
+    user_id: str = "default_user",
+    db: Session = Depends(get_db)
+):
+    """
+    Rebuild vector embeddings for documents using extracted text.
+    """
+    try:
+        query = db.query(Document)
+        if payload.document_ids:
+            query = query.filter(Document.id.in_(payload.document_ids))
+        docs = query.all()
+
+        candidates = [d for d in docs if (d.filtered_extracted_text or d.extracted_text or d.raw_extracted_text)]
+        if not candidates:
+            return {"status": "no_documents", "documents_total": 0, "documents_queued": 0}
+
+        engine = IngestionEngine()
+
+        async def _reindex_single(doc_id: int, text: str, chunk_size: Optional[int]):
+            try:
+                await engine.reindex_document_vectors(text, doc_id, chunk_size=chunk_size)
+            except Exception as e:
+                logger.error(f"Reindex failed for doc {doc_id}: {e}")
+
+        for doc in candidates:
+            text = doc.filtered_extracted_text or doc.extracted_text or doc.raw_extracted_text or ""
+            background_tasks.add_task(_reindex_single, doc.id, text, payload.chunk_size)
+
+        return {
+            "status": "started",
+            "documents_total": len(candidates),
+            "documents_queued": len(candidates)
+        }
+    except Exception as e:
+        logger.error(f"Failed to start embedding reindex: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start reindexing.")

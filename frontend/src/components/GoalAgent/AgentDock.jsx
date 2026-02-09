@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MessageSquare, Sparkles, Settings as SettingsIcon, X, ChevronUp } from 'lucide-react';
+import { MessageSquare, Sparkles, Settings as SettingsIcon, X, ChevronUp, Maximize2, Minimize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AgentChat from './AgentChat';
 import AgentOnboarding from './AgentOnboarding';
 import AgentSettings from './AgentSettings';
 import AgentWelcome from './AgentWelcome';
 import { agentApi } from '../../services/agent';
+import SolarCoreIcon from './SolarCoreIcon';
 
 const ONBOARDING_KEY = 'agent_onboarding_complete';
 const WELCOME_DISMISSED_KEY = 'agent_welcome_dismissed';
+const DEEP_SPACE_MODE_KEY = 'agent_deep_space_mode';
 
 const AgentDock = () => {
   const [open, setOpen] = useState(false);
@@ -16,6 +18,7 @@ const AgentDock = () => {
   const [status, setStatus] = useState(null);
   const [showOnboardingBar, setShowOnboardingBar] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const refreshStatus = async () => {
     try {
@@ -32,6 +35,12 @@ const AgentDock = () => {
     const welcomeDismissed = localStorage.getItem(WELCOME_DISMISSED_KEY) === 'true';
     setShowOnboardingBar(!hasOnboarded);
     setShowWelcome(!hasOnboarded && !welcomeDismissed);
+    const storedMode = localStorage.getItem(DEEP_SPACE_MODE_KEY);
+    if (storedMode === 'fullscreen') {
+      setIsFullscreen(true);
+    } else if (storedMode === 'modal') {
+      setIsFullscreen(false);
+    }
   }, []);
 
   const badges = useMemo(() => {
@@ -48,6 +57,18 @@ const AgentDock = () => {
     setShowWelcome(false);
   };
 
+  const openWelcome = () => {
+    setShowWelcome(true);
+  };
+
+  const toggleFullscreen = () => {
+    setIsFullscreen((prev) => {
+      const next = !prev;
+      localStorage.setItem(DEEP_SPACE_MODE_KEY, next ? 'fullscreen' : 'modal');
+      return next;
+    });
+  };
+
   const handleOnboardingComplete = () => {
     localStorage.setItem(ONBOARDING_KEY, 'true');
     setShowOnboardingBar(false);
@@ -56,8 +77,12 @@ const AgentDock = () => {
     setActiveTab('chat');
   };
 
+  const panelClass = isFullscreen
+    ? 'fixed inset-0'
+    : 'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(1100px,92vw)] h-[min(82vh,860px)]';
+
   return (
-    <>
+    <div className="agent-grav-area">
       {showWelcome && (
         <AgentWelcome
           onStart={startOnboarding}
@@ -113,7 +138,7 @@ const AgentDock = () => {
       {/* Floating launcher */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-[120] w-11 h-11 md:w-12 md:h-12 rounded-2xl shadow-lg shadow-primary-500/30 flex items-center justify-center text-white hover:scale-[1.03] transition-transform agent-orb overflow-hidden"
+        className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-[120] w-12 h-12 md:w-14 md:h-14 rounded-full shadow-lg shadow-amber-500/30 flex items-center justify-center text-white transition-transform agent-launcher agent-grav-target overflow-hidden"
         style={{
           right: 'max(24px, env(safe-area-inset-right))',
           bottom: 'max(24px, env(safe-area-inset-bottom))'
@@ -123,40 +148,39 @@ const AgentDock = () => {
         {open ? (
           <ChevronUp className="w-5 h-5" />
         ) : (
-          <span className="agent-orb-shell">
-            <span className="agent-orb-halo" />
-            <span className="agent-orb-aurora" />
-            <span className="agent-orb-ring" />
-            <span className="agent-orb-core" />
-            <span className="agent-orb-star agent-orb-star-1" />
-            <span className="agent-orb-star agent-orb-star-2" />
-            <span className="agent-orb-star agent-orb-star-3" />
-            <span className="agent-orb-star agent-orb-star-4" />
-          </span>
+          <SolarCoreIcon className="solar-core-icon" size={44} />
         )}
       </button>
 
-      {/* Drawer */}
+      {/* Deep Space Modal */}
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ opacity: 0, x: 30 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 30 }}
-            className="fixed bottom-20 right-6 z-[110] w-[440px] md:w-[460px] max-w-[94vw] h-[76vh] rounded-[28px] bg-dark-950/95 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden flex flex-col agent-dock-panel"
-          >
-            <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[105] bg-dark-950/80 backdrop-blur-xl"
+              onClick={() => setOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.97 }}
+              className={`${panelClass} z-[110] ${isFullscreen ? 'rounded-none' : 'rounded-[36px]'} bg-dark-950/95 backdrop-blur-2xl border border-white/10 shadow-[0_0_80px_rgba(251,191,36,0.2)] overflow-hidden flex flex-col agent-dock-panel agent-grav-target`}
+            >
+            <div className="px-6 py-3 border-b border-white/5 flex items-center justify-between gap-4 agent-grav-pull">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
-                  <MessageSquare className="w-4 h-4" />
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500/30 to-orange-500/20 flex items-center justify-center text-white shadow-lg shadow-amber-500/20 border border-amber-500/30">
+                  <SolarCoreIcon className="solar-core-icon" size={28} />
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-white tracking-wide">Goal Agent</p>
-                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                <div className="flex flex-col">
+                  <p className="text-xs font-semibold text-white tracking-wide">Goal Agent</p>
+                  <div className="flex flex-wrap items-center gap-2">
                     {badges.map((b, idx) => (
                       <span
                         key={idx}
-                        className={`text-[10px] px-2 py-1 rounded-full ${b.ok ? 'bg-emerald-500/15 text-emerald-200' : 'bg-amber-500/15 text-amber-200'}`}
+                        className={`text-[9px] px-2 py-0.5 rounded-full ${b.ok ? 'bg-emerald-500/15 text-emerald-200' : 'bg-amber-500/15 text-amber-200'}`}
                       >
                         {b.label}
                       </span>
@@ -164,33 +188,46 @@ const AgentDock = () => {
                   </div>
                 </div>
               </div>
-              <button onClick={() => setOpen(false)} className="text-dark-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
+
+              <div className="flex items-center gap-2">
+                <TabButton label="Chat" icon={MessageSquare} active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} />
+                <TabButton label="Onboarding" icon={Sparkles} active={activeTab === 'onboarding'} onClick={() => setActiveTab('onboarding')} />
+                <TabButton label="Settings" icon={SettingsIcon} active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openWelcome}
+                  className="text-[11px] px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-amber-100 border border-white/10"
+                  title="Open welcome screen"
+                >
+                  Welcome
+                </button>
+                <button
+                  onClick={toggleFullscreen}
+                  className="text-[11px] px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-amber-100 border border-white/10"
+                  title={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+                >
+                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+                <button onClick={() => setOpen(false)} className="text-dark-400 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="px-5 py-3 border-b border-white/5 flex gap-2">
-              <TabButton label="Chat" icon={MessageSquare} active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} />
-              <TabButton label="Onboarding" icon={Sparkles} active={activeTab === 'onboarding'} onClick={() => setActiveTab('onboarding')} />
-              <TabButton label="Settings" icon={SettingsIcon} active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
-            </div>
-
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 agent-grav-pull">
               {activeTab === 'chat' && <AgentChat status={status} onOpenSettings={() => setActiveTab('settings')} />}
               {activeTab === 'onboarding' && (
                 <AgentOnboarding onComplete={handleOnboardingComplete} onOpenSettings={() => setActiveTab('settings')} />
               )}
               {activeTab === 'settings' && <AgentSettings onSaved={refreshStatus} />}
             </div>
-
-            <div className="px-5 py-3 border-t border-white/5 flex items-center justify-between text-[10px] text-dark-500">
-              <span>Guardrails: Soft domain</span>
-              <button onClick={startOnboarding} className="text-primary-300 hover:text-primary-200">Rerun onboarding</button>
-            </div>
-          </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 };
 

@@ -4,10 +4,12 @@ Handles communication with various LLM providers to generate flashcards,
 multiple-choice questions, and personalized learning paths.
 """
 import json
+import time
 import httpx
 import traceback
 import re
 import os
+from typing import Optional
 from openai import AsyncOpenAI, APIConnectionError, APIStatusError
 from src.config import settings
 from openai import (
@@ -19,9 +21,47 @@ from openai import (
     RateLimitError
 )
 from src.services.prompts import FLASHCARD_PROMPT_TEMPLATE, QUESTION_PROMPT_TEMPLATE, LEARNING_PATH_PROMPT_TEMPLATE, CONCEPT_EXTRACTION_PROMPT_TEMPLATE
-from opik import configure, track
+from src.observability.opik import build_opik_config, init_opik, get_opik_context
+from opik import track
 from src.utils.logger import logger
 from starlette.concurrency import run_in_threadpool
+
+class RateLimitException(ValueError):
+    def __init__(self, message: str, retry_after_seconds: Optional[int] = None):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+def _extract_retry_after_seconds(error: Exception) -> Optional[int]:
+    # Try standard header first
+    retry_after = None
+    try:
+        if hasattr(error, "response") and error.response is not None:
+            headers = getattr(error.response, "headers", {}) or {}
+            retry_after = headers.get("retry-after") or headers.get("Retry-After")
+    except Exception:
+        retry_after = None
+    if retry_after:
+        try:
+            return int(float(retry_after))
+        except Exception:
+            pass
+
+    # Parse text like: "Please try again in 1m45.235199999s"
+    try:
+        msg = str(error)
+        match = re.search(r"try again in\s+([0-9]+)m([0-9]+(?:\.[0-9]+)?)s", msg)
+        if match:
+            minutes = int(match.group(1))
+            seconds = float(match.group(2))
+            return int(minutes * 60 + seconds)
+        match = re.search(r"try again in\s+([0-9]+(?:\.[0-9]+)?)s", msg)
+        if match:
+            return int(float(match.group(1)))
+    except Exception:
+        pass
+
+    return None
 
 class LLMService:
     """
@@ -52,9 +92,7 @@ class LLMService:
 
         if settings.use_opik:
             try:
-                if settings.opik_api_key and not os.getenv("OPIK_API_KEY"):
-                    os.environ["OPIK_API_KEY"] = settings.opik_api_key
-                configure()
+                init_opik(build_opik_config())
             except Exception as e:
                 logger.warning(f"Opik configuration failed: {e}")
 
@@ -115,7 +153,7 @@ class LLMService:
             tuple[AsyncOpenAI, str]: A tuple of (client, model_name).
         """
         if not config:
-            return self.client, self.model
+            return self.client, self.model, self.provider
 
         # Support both objects (Pydantic) and dictionaries
         provider = (getattr(config, 'provider', None) or (config.get('provider') if isinstance(config, dict) else 'openai')).lower()
@@ -171,18 +209,34 @@ class LLMService:
             base_url=effective_base_url,
             api_key=effective_api_key or "sk-no-key", # Dummy key if none to avoid validation error
             http_client=self.http_client
-        ), model
+        ), model, provider
 
 
+
+
+    def _update_opik_span(self, metadata=None, usage=None, model=None, provider=None):
+        ctx = get_opik_context()
+        if ctx is None:
+            return
+        try:
+            ctx.update_current_span(
+                metadata=metadata,
+                usage=usage,
+                model=model,
+                provider=provider
+            )
+        except Exception:
+            pass
 
     @track
     async def get_chat_completion(self, messages: list[dict], response_format: str = None, config=None) -> str:
         """
         Generic method to get chat completions from the configured LLM provider.
         """
-        client, model = self._get_client_for_config(config)
+        client, model, provider = self._get_client_for_config(config)
         
         try:
+            start_ts = time.perf_counter()
             api_response_format = None
             if response_format == "json":
                 api_response_format = {"type": "json_object"}
@@ -193,6 +247,16 @@ class LLMService:
                 response_format=api_response_format
             )
             
+            latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            usage = getattr(response, "usage", None)
+            if usage is not None and hasattr(usage, "model_dump"):
+                usage = usage.model_dump()
+            self._update_opik_span(
+                metadata={"latency_ms": latency_ms, "response_format": response_format},
+                usage=usage,
+                model=model,
+                provider=provider
+            )
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"LLM Chat Error: {type(e).__name__}: {e}")
@@ -200,9 +264,12 @@ class LLMService:
             if hasattr(e, 'response'):
                 try:
                     logger.error(f"DEBUG: Error Response Body: {e.response.text}")
-                except:
+                except Exception:
                     pass
             user_msg = self._format_llm_error(e)
+            if isinstance(e, RateLimitError):
+                retry_after = _extract_retry_after_seconds(e)
+                raise RateLimitException(user_msg, retry_after_seconds=retry_after) from e
             raise ValueError(user_msg) from e
 
     @track
@@ -212,7 +279,7 @@ class LLMService:
         """
         import base64
         
-        client, model = self._get_client_for_config(config)
+        client, model, provider = self._get_client_for_config(config)
         
         def _read_image():
             with open(image_path, "rb") as image_file:
@@ -237,6 +304,16 @@ class LLMService:
                         ]
                     }
                 ]
+            )
+            latency_ms = int((time.perf_counter() - start_ts) * 1000)
+            usage = getattr(response, "usage", None)
+            if usage is not None and hasattr(usage, "model_dump"):
+                usage = usage.model_dump()
+            self._update_opik_span(
+                metadata={"latency_ms": latency_ms, "response_format": response_format},
+                usage=usage,
+                model=model,
+                provider=provider
             )
             return response.choices[0].message.content
         except Exception as e:

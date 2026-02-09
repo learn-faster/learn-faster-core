@@ -169,6 +169,7 @@ class DocumentResponse(DocumentBase):
     """Schema for document API responses."""
     id: int  # Adapted to int match learn-fast-core DB
     file_type: Optional[FileType] = FileType.OTHER
+    display_type: Optional[str] = None
     file_path: Optional[str] = None
     upload_date: datetime
     status: str = "pending"
@@ -202,6 +203,10 @@ class DocumentResponse(DocumentBase):
     ingestion_error: Optional[str] = None
     linked_to_graph: bool = False
     graph_link_count: int = 0
+    ingestion_job_status: Optional[str] = None
+    ingestion_job_phase: Optional[str] = None
+    ingestion_job_message: Optional[str] = None
+    ingestion_job_updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-3.5-turbo"
     use_opik: bool = False
     opik_api_key: str = ""
+    opik_workspace: str = ""
+    opik_url_override: str = ""
+    opik_project: str = ""
+    opik_use_local: bool = False
 
     # Embedding Settings
     embedding_provider: str = "ollama"  # openai, ollama
@@ -125,6 +129,8 @@ class Settings(BaseSettings):
     extraction_max_chars: int = 50000
     rewrite_model: Optional[str] = None
     rewrite_context_window: int = 10000
+    llm_rate_limit_retry_attempts: int = 3
+    llm_rate_limit_max_cooldown_seconds: int = 300
 
     # Weekly Digest Scheduler (server-side)
     enable_weekly_digest_scheduler: bool = False
@@ -143,6 +149,9 @@ class Settings(BaseSettings):
     redis_url: Optional[str] = None
     redis_queue_name: str = "learnfast"
     redis_job_timeout: int = 3600
+
+    # Background queue
+    rq_enabled: bool = False
 
     # Fitbit OAuth
     fitbit_redirect_uri: Optional[str] = None

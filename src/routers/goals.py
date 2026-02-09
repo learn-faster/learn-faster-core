@@ -9,6 +9,7 @@ from datetime import datetime
 import os
 import uuid
 from src.config import settings
+from src.observability.opik import build_opik_config, init_opik
 
 from src.database.orm import get_db
 from src.models.orm import Goal, FocusSession, DailyPlanEntry, AgentEmailMessage
@@ -310,7 +311,8 @@ async def chat_with_agent(
 async def update_agent_settings(
     settings: AgentSettings,
     user_id: str = "default_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """
     Update Agent settings (LLM config, etc).
@@ -333,7 +335,11 @@ async def update_agent_settings(
     
     # Also keep agent_llm for backward compatibility with goal_agent.py current logic
     new_config["agent_llm"] = settings.llm_config.model_dump()
-    
+
+    # Persist Opik settings if provided
+    if settings.opik_config is not None:
+        new_config["opik"] = settings.opik_config
+
     user_settings.llm_config = new_config
     
     # Explicitly flag modification for JSON column
@@ -387,6 +393,13 @@ async def update_agent_settings(
         user_settings.weekly_digest_minute = settings.weekly_digest_minute
     
     db.commit()
+    try:
+        opik_cfg = build_opik_config(user_settings)
+        init_opik(opik_cfg)
+        if request is not None:
+            request.app.state.opik_config = opik_cfg
+    except Exception:
+        pass
     return {"status": "updated", "settings": settings.model_dump()}
 
 @router.get("/agent/settings")
@@ -426,7 +439,8 @@ async def get_agent_settings(
             "timezone": "UTC",
             "weekly_digest_day": 6,
             "weekly_digest_hour": 18,
-            "weekly_digest_minute": 0
+            "weekly_digest_minute": 0,
+            "opik_config": {"enabled": False, "api_key": "", "workspace": "", "url_override": "", "project_name": "", "use_local": False}
         }
     
     # Try to load from consolidated agent_settings first
@@ -479,7 +493,8 @@ async def get_agent_settings(
         "timezone": user_settings.timezone or "UTC",
         "weekly_digest_day": user_settings.weekly_digest_day if user_settings.weekly_digest_day is not None else 6,
         "weekly_digest_hour": user_settings.weekly_digest_hour if user_settings.weekly_digest_hour is not None else 18,
-        "weekly_digest_minute": user_settings.weekly_digest_minute if user_settings.weekly_digest_minute is not None else 0
+        "weekly_digest_minute": user_settings.weekly_digest_minute if user_settings.weekly_digest_minute is not None else 0,
+        "opik_config": (user_settings.llm_config.get("opik", {}) if user_settings.llm_config else {})
     }
 
 
