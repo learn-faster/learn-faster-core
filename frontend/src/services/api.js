@@ -45,7 +45,15 @@ api.interceptors.request.use(async (config) => {
  * Formats backend error messages (FastAPI 'detail') for easier consumption by UI.
  */
 api.interceptors.response.use(
-    (response) => response.data,
+    (response) => {
+        try {
+            const traceId = response?.headers?.["x-opik-trace-id"];
+            if (traceId) localStorage.setItem("opik_last_trace_id", traceId);
+            const project = response?.headers?.["x-opik-project"];
+            if (project) localStorage.setItem("opik_project", project);
+        } catch {}
+        return response.data;
+    },
     (error) => {
         const { message, hint, status } = parseApiError(error);
         const formatted = formatApiErrorMessage(error);

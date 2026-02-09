@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import cognitiveService from '../services/cognitive';
 import { getHealth } from '../lib/config';
+import { LLM_PROVIDERS } from '../lib/llmProviders';
 
 /**
  * Global Settings Drawer
@@ -52,21 +53,6 @@ const Settings = ({ isOpen, onClose }) => {
     const [backendHealthLoading, setBackendHealthLoading] = useState(false);
     const [llmHealth, setLlmHealth] = useState(null);
     const [llmHealthLoading, setLlmHealthLoading] = useState(false);
-
-    const LLM_PROVIDERS = [
-        { value: 'openai', label: 'OpenAI' },
-        { value: 'groq', label: 'Groq' },
-        { value: 'openrouter', label: 'OpenRouter' },
-        { value: 'together', label: 'Together' },
-        { value: 'fireworks', label: 'Fireworks' },
-        { value: 'mistral', label: 'Mistral' },
-        { value: 'deepseek', label: 'DeepSeek' },
-        { value: 'perplexity', label: 'Perplexity' },
-        { value: 'huggingface', label: 'Hugging Face' },
-        { value: 'ollama', label: 'Ollama (Local)' },
-        { value: 'ollama_cloud', label: 'Ollama (Cloud)' },
-        { value: 'custom', label: 'OpenAI-Compatible' }
-    ];
 
     const EMBEDDING_PROVIDERS = [
         { value: 'openai', label: 'OpenAI' },

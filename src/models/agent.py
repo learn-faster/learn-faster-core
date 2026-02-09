@@ -56,6 +56,7 @@ class AgentSettings(BaseModel):
     weekly_digest_day: Optional[int] = None
     weekly_digest_hour: Optional[int] = None
     weekly_digest_minute: Optional[int] = None
+    opik_config: Optional[Dict[str, Any]] = None
 
 # --- State Definitions ---
 

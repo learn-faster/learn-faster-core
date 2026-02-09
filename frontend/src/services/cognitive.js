@@ -56,6 +56,10 @@ const checkLlmHealth = async (userId = 'default_user') => {
     });
 };
 
+const reindexEmbeddings = async (payload = {}, userId = 'default_user') => {
+    return api.post(`/cognitive/reindex-embeddings?user_id=${userId}`, payload);
+};
+
 export default {
     getOverview,
     getRecommendation,
@@ -65,5 +69,6 @@ export default {
     getSettings,
     updateSettings,
     checkEmbeddingHealth,
-    checkLlmHealth
+    checkLlmHealth,
+    reindexEmbeddings
 };

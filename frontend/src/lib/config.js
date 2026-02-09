@@ -173,6 +173,7 @@ async function fetchConfig() {
         hasUpdate: data.hasUpdate || false,
         dbStatus: data.dbStatus, // Can be undefined for old backends
         queueStatus: data.queueStatus,
+        queueWorkers: data.queueWorkers,
       }
       if (isDev) console.log('✅ [Config] Successfully loaded API config:', config)
       return config

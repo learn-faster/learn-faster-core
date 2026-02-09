@@ -19,7 +19,8 @@ from src.services.memory_service import memory_service
 from src.services.screenshot_service import screenshot_service
 from src.services.email_service import email_service
 from src.config import settings
-from opik import configure, track
+from src.observability.opik import build_opik_config, init_opik, get_opik_context
+from opik import track
 
 
 
@@ -84,12 +85,19 @@ class GoalManifestationAgent:
     def __init__(self):
         if settings.use_opik:
             try:
-                if settings.opik_api_key and not os.getenv("OPIK_API_KEY"):
-                    os.environ["OPIK_API_KEY"] = settings.opik_api_key
-                configure()
+                init_opik(build_opik_config())
             except Exception as e:
                 logger.warning(f"Opik configuration failed: {e}")
         self.workflow = self._build_graph()
+
+    def _update_opik_span(self, metadata=None):
+        ctx = get_opik_context()
+        if ctx is None:
+            return
+        try:
+            ctx.update_current_span(metadata=metadata)
+        except Exception:
+            pass
 
     def _build_graph(self):
         workflow = StateGraph(GraphState)
@@ -122,6 +130,7 @@ class GoalManifestationAgent:
         """
         Analyses the user's request and current state to decide the next step.
         """
+        self._update_opik_span({"node": "planner"})
         messages = state["messages"]
         agent_state = state["agent_state"]
         scratchpad = memory_service.get_scratchpad(agent_state.user_context.user_id)
@@ -266,6 +275,7 @@ class GoalManifestationAgent:
         """
         Executes the tool call determined by the planner.
         """
+        self._update_opik_span({"node": "executor"})
         tool_call = state.get("tool_call")
         result_msg = "No action taken."
         
@@ -273,6 +283,7 @@ class GoalManifestationAgent:
 
         if tool_call:
             name = tool_call.get("name")
+            self._update_opik_span({"node": "executor", "tool": name})
             args = tool_call.get("args", {})
             user_id = state["agent_state"].user_context.user_id
             
@@ -342,6 +353,7 @@ class GoalManifestationAgent:
         """
         Analyzes the result of execution.
         """
+        self._update_opik_span({"node": "analyzer"})
         # We could add more logic here to update the Goal objects in the state
         # For now, just pass through
         return {"messages": []} # No new message, just state update if we had it
@@ -351,6 +363,7 @@ class GoalManifestationAgent:
         """
         Generates the final response to the user.
         """
+        self._update_opik_span({"node": "user_interface"})
         messages = state["messages"]
         agent_state = state["agent_state"]
         
