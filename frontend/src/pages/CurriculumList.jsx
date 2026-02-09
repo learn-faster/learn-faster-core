@@ -30,6 +30,15 @@ const CurriculumList = () => {
         fetchDocuments();
     }, []);
 
+    useEffect(() => {
+        if (!isCreating) return;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [isCreating]);
+
     const fetchCurriculums = async () => {
         try {
             const data = await curriculumService.getCurriculums();
@@ -385,7 +394,7 @@ const CreateModal = ({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 bg-dark-950/80 backdrop-blur-xl z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 bg-dark-950/80 backdrop-blur-xl z-50 flex items-center justify-center p-4 overflow-y-auto"
                     onClick={() => step !== 'generating' && onClose()}
                 >
                     <motion.div
@@ -393,13 +402,13 @@ const CreateModal = ({
                         animate={{ scale: 1, opacity: 1, y: 0 }}
                         exit={{ scale: 0.9, opacity: 0, y: 40 }}
                         onClick={(e) => e.stopPropagation()}
-                        className="bg-dark-900 border border-white/10 rounded-[3rem] w-full max-w-xl shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden"
+                        className="bg-dark-900 border border-white/10 rounded-[3rem] w-full max-w-xl max-h-[85vh] shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden"
                     >
                         {/* Modal Ambient Light */}
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary-500 to-transparent" />
                         <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary-600/20 rounded-full blur-3xl" />
 
-                        <div className="p-10 relative z-10">
+                        <div className="p-10 relative z-10 max-h-[85vh] overflow-y-auto custom-scrollbar">
                             {step === 'generating' ? (
                                 <div className="text-center py-16">
                                     <div className="relative w-32 h-32 mx-auto mb-10">

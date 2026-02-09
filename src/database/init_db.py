@@ -69,6 +69,8 @@ def initialize_orm_tables():
         # Manually migrate 'daily_plan_entries' and 'agent_email_messages' tables
         migrate_daily_plan_entries_table()
         migrate_agent_email_messages_table()
+        # Manually migrate 'curriculums' table
+        migrate_curriculums_table()
         
         return True
     except Exception as e:
@@ -241,6 +243,28 @@ def migrate_agent_email_messages_table():
         postgres_conn.execute_write("CREATE INDEX IF NOT EXISTS idx_agent_email_user ON agent_email_messages(user_id, created_at)")
     except Exception:
         pass
+
+
+def migrate_curriculums_table():
+    """Add new columns to curriculums table if they are missing."""
+    cols_to_add = [
+        ("start_date", "DATE DEFAULT CURRENT_DATE"),
+        ("duration_weeks", "INTEGER DEFAULT 4"),
+        ("time_budget_hours_per_week", "INTEGER DEFAULT 5"),
+        ("llm_enhance", "BOOLEAN DEFAULT FALSE"),
+        ("llm_config", "JSONB DEFAULT '{}'::jsonb"),
+        ("status", "VARCHAR DEFAULT 'active'"),
+        ("progress", "FLOAT DEFAULT 0.0"),
+        ("target_concept", "VARCHAR"),
+        ("created_at", "TIMESTAMP"),
+        ("updated_at", "TIMESTAMP")
+    ]
+    for col_name, col_type in cols_to_add:
+        try:
+            postgres_conn.execute_write(f"ALTER TABLE curriculums ADD COLUMN {col_name} {col_type}")
+            print(f"Added column {col_name} to curriculums table")
+        except Exception:
+            pass
 
 
 def initialize_databases():

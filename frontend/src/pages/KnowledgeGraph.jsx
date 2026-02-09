@@ -520,6 +520,14 @@ const KnowledgeGraph = () => {
         }
 
         // Draw Core
+        ctx.save();
+        if (isSelected) {
+            ctx.shadowBlur = 26;
+            ctx.shadowColor = 'rgba(56, 189, 248, 0.65)';
+        } else if (isNeighbor) {
+            ctx.shadowBlur = 16;
+            ctx.shadowColor = 'rgba(129, 140, 248, 0.45)';
+        }
         ctx.beginPath();
         ctx.arc(node.x, node.y, nodeVal / 2.5, 0, 2 * Math.PI); // Larger core
         ctx.fillStyle = isSelected ? '#fff' : coreColor;
@@ -530,6 +538,7 @@ const KnowledgeGraph = () => {
         ctx.globalAlpha = isDimmed ? 0.45 : 1;
         ctx.fill();
         ctx.stroke();
+        ctx.restore();
         ctx.globalAlpha = 1; // Reset
 
         // Level of Detail (LOD) - Avoid overlap
@@ -561,6 +570,22 @@ const KnowledgeGraph = () => {
 
             ctx.fillStyle = isSelected ? '#fff' : `rgba(255, 255, 255, ${labelAlpha})`;
             ctx.fillText(label, node.x, node.y + nodeVal / 2 + 10);
+        }
+
+        // Sparkle ring for selected node
+        if (isSelected) {
+            const t = Date.now() * 0.002;
+            const sparkleCount = 8;
+            for (let i = 0; i < sparkleCount; i += 1) {
+                const angle = t + (i * (Math.PI * 2)) / sparkleCount;
+                const radius = nodeVal * 1.9 + (i % 3) * 2;
+                const x = node.x + Math.cos(angle) * radius;
+                const y = node.y + Math.sin(angle) * radius;
+                ctx.beginPath();
+                ctx.fillStyle = 'rgba(56, 189, 248, 0.9)';
+                ctx.arc(x, y, 1.4 + (i % 2) * 0.6, 0, 2 * Math.PI);
+                ctx.fill();
+            }
         }
     };
 
@@ -756,8 +781,21 @@ const KnowledgeGraph = () => {
                                 const isConnected = sId === nId || tId === nId;
                                 return isConnected ? 3 : 1.0;
                             }}
-                            linkDirectionalParticles={selectedNode ? 4 : 1}
-                            linkDirectionalParticleSpeed={selectedNode ? 0.01 : 0.003}
+                            linkDirectionalParticles={(link) => {
+                                if (!selectedNode || !link) return 0;
+                                const sId = String(link.source?.id || link.source);
+                                const tId = String(link.target?.id || link.target);
+                                const nId = String(selectedNode.id);
+                                return (sId === nId || tId === nId) ? 6 : 0;
+                            }}
+                            linkDirectionalParticleSpeed={selectedNode ? 0.014 : 0.003}
+                            linkDirectionalParticleColor={(link) => {
+                                if (!selectedNode || !link) return 'rgba(255,255,255,0.2)';
+                                const sId = String(link.source?.id || link.source);
+                                const tId = String(link.target?.id || link.target);
+                                const nId = String(selectedNode.id);
+                                return (sId === nId || tId === nId) ? 'rgba(56, 189, 248, 0.9)' : 'rgba(255,255,255,0.08)';
+                            }}
                             linkDirectionalParticleWidth={(link) => {
                                 if (!selectedNode || !link) return 1;
                                 const sId = String(link.source?.id || link.source);
