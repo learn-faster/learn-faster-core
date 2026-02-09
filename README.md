@@ -53,17 +53,27 @@ Learning is usually fragmented across notes, videos, and flashcards, with little
 ---
 
 ## Screenshots
-Place your screenshots below.
 
-<!-- Screenshot: Dashboard -->
+<div align="center">
+  <h3>Interactive Dashboard</h3>
+  <img src="frontend/src/assets/dash.png" width="800" alt="Dashboard Overview">
+  <br/><br/>
+  
+  <h3>Document Management & Processing</h3>
+  <img src="frontend/src/assets/documents.png" width="800" alt="Document Ingestion">
+  <br/><br/>
 
-<!-- Screenshot: Practice Engine -->
+  <h3>Adaptive Practice Engine</h3>
+  <img src="frontend/src/assets/prac.png" width="800" alt="Practice Sessions">
+  <br/><br/>
 
-<!-- Screenshot: Analytics -->
+  <h3>Customizable Curriculum</h3>
+  <img src="frontend/src/assets/curri.png" width="800" alt="Learning Path">
+  <br/><br/>
 
-<!-- Screenshot: Knowledge Graph -->
-
-<!-- Screenshot: Agent -->
+  <h3>Knowledge Graph & Concept Map</h3>
+  <img src="frontend/src/assets/screen.png" width="800" alt="Knowledge Graph Visualization">
+</div>
 
 ---
 
