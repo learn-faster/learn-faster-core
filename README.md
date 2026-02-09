@@ -68,11 +68,11 @@ Learning is usually fragmented across notes, videos, and flashcards, with little
   <br/><br/>
 
   <h3>Customizable Curriculum</h3>
-  <img src="frontend/src/assets/curri.png" width="800" alt="Learning Path">
+  <img src="frontend/src/assets/curri.png" width="800">
   <br/><br/>
 
-  <h3>Knowledge Graph & Concept Map</h3>
-  <img src="frontend/src/assets/screen.png" width="800" alt="Knowledge Graph Visualization">
+  <h3>Welcome Screen</h3>
+  <img src="frontend/src/assets/welcome.png" width="800">
 </div>
 
 ---
@@ -119,8 +119,8 @@ See `docs/PROJECT_OVERVIEW.md`, `docs/PROJECT_UPDATE_SUMMARY.md`, and `SYSTEM_AR
 
 ### 1) Setup
 ```bash
-git clone https://github.com/your-repo/learn-faster-core.git
-cd learn-faster-core
+git clone https://github.com/learn-faster/Learn_Better.git
+cd Learn_Better
 cp .env.example .env
 ```
 Edit `.env` with your API keys and DB settings.
