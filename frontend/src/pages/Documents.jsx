@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Plus,
   Search,
@@ -13,7 +13,8 @@ import {
   FileCode,
   Network,
   RotateCcw,
-  Pencil
+  Pencil,
+  Play
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,7 +23,7 @@ import FileUpload from '../components/documents/FileUpload';
 import useDocumentStore from '../stores/useDocumentStore';
 import cognitiveService from '../services/cognitive';
 import InlineErrorBanner from '../components/common/InlineErrorBanner';
-import { getConfig } from '../lib/config';
+import { getConfig, resetConfig } from '../lib/config';
 
 const STATUS_STYLES = {
   uploading: 'bg-amber-500/15 text-amber-200 border border-amber-500/30',
@@ -32,7 +33,9 @@ const STATUS_STYLES = {
   extracted: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
   complete: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
   completed: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
-  failed: 'bg-rose-500/15 text-rose-200 border border-rose-500/30'
+  failed: 'bg-rose-500/15 text-rose-200 border border-rose-500/30',
+  rate_limited: 'bg-amber-500/15 text-amber-200 border border-amber-500/30',
+  paused: 'bg-amber-500/15 text-amber-200 border border-amber-500/30'
 };
 
 const FOLDER_COLORS = [
@@ -52,6 +55,8 @@ const EMBEDDING_PROVIDERS = [
   { value: 'huggingface', label: 'Hugging Face' },
   { value: 'custom', label: 'OpenAI-Compatible' }
 ];
+
+const EMBEDDING_DIM_PRESETS = [256, 384, 512, 768, 1024, 1536, 3072];
 
 const Documents = () => {
   const {
@@ -90,17 +95,44 @@ const Documents = () => {
   const [embeddingHealth, setEmbeddingHealth] = useState(null);
   const [embeddingHealthLoading, setEmbeddingHealthLoading] = useState(false);
   const [queueStatus, setQueueStatus] = useState(null);
+  const [queueWorkers, setQueueWorkers] = useState(null);
+  const [queueTesting, setQueueTesting] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
+  const [reindexError, setReindexError] = useState(null);
   const [embeddingSettings, setEmbeddingSettings] = useState({
     embedding_provider: 'ollama',
     embedding_model: 'embeddinggemma:latest',
     embedding_api_key: '',
-    embedding_base_url: 'http://localhost:11434'
+    embedding_base_url: 'http://localhost:11434',
+    embedding_dimensions: 768
   });
+  const [embeddingDimSelection, setEmbeddingDimSelection] = useState('768');
+  const [embeddingDimCustom, setEmbeddingDimCustom] = useState('768');
+  const progressTrackerRef = useRef(new Map());
 
   useEffect(() => {
     fetchDocuments(false, { force: true });
     fetchFolders();
   }, [fetchDocuments, fetchFolders]);
+
+  useEffect(() => {
+    const map = progressTrackerRef.current;
+    const now = Date.now();
+    documents.forEach((doc) => {
+      const progress = Number(doc.ingestion_progress ?? 0);
+      const existing = map.get(doc.id);
+      if (!existing) {
+        map.set(doc.id, { progress, changedAt: now, prevProgress: progress, prevChangedAt: now });
+      } else if (existing.progress !== progress) {
+        map.set(doc.id, {
+          progress,
+          changedAt: now,
+          prevProgress: existing.progress,
+          prevChangedAt: existing.changedAt
+        });
+      }
+    });
+  }, [documents]);
 
   useEffect(() => {
     checkEmbeddingHealth();
@@ -111,12 +143,39 @@ const Documents = () => {
       try {
         const cfg = await getConfig();
         setQueueStatus(cfg?.queueStatus || null);
+        setQueueWorkers(typeof cfg?.queueWorkers === 'number' ? cfg.queueWorkers : null);
       } catch {
         setQueueStatus('disconnected');
+        setQueueWorkers(null);
       }
     };
     loadQueueStatus();
   }, []);
+
+  const refreshQueueStatus = async () => {
+    setQueueTesting(true);
+    try {
+      resetConfig();
+      const cfg = await getConfig();
+      setQueueStatus(cfg?.queueStatus || null);
+      setQueueWorkers(typeof cfg?.queueWorkers === 'number' ? cfg.queueWorkers : null);
+      if (cfg?.queueStatus === 'connected') {
+        toast.success('Queue connected');
+      } else if (cfg?.queueStatus === 'no_workers') {
+        toast.info('Queue has no workers (running locally).');
+      } else if (cfg?.queueStatus === 'disabled') {
+        toast.info('Queue disabled (local processing)');
+      } else {
+        toast.error('Queue disconnected');
+      }
+    } catch (err) {
+      setQueueStatus('disconnected');
+      setQueueWorkers(null);
+      toast.error(err?.userMessage || err?.message || 'Failed to test queue connection.');
+    } finally {
+      setQueueTesting(false);
+    }
+  };
 
   useEffect(() => {
     if (isUploadOpen || showFolderModal || showSettingsModal || deleteModal) {
@@ -136,11 +195,11 @@ const Documents = () => {
 
     const tick = () => {
       if (!isActive || document.visibilityState !== 'visible') return;
-      fetchDocuments(true, { minIntervalMs: 6000 });
+      fetchDocuments(true, { minIntervalMs: hasProcessingDocs ? 8000 : 15000 });
     };
 
     if (hasProcessingDocs) {
-      interval = setInterval(tick, 3000);
+      interval = setInterval(tick, 6000);
     }
 
     const onVisibility = () => {
@@ -167,8 +226,17 @@ const Documents = () => {
         embedding_provider: data?.embedding_provider || prev.embedding_provider,
         embedding_model: data?.embedding_model || prev.embedding_model,
         embedding_api_key: data?.embedding_api_key || prev.embedding_api_key,
-        embedding_base_url: data?.embedding_base_url || prev.embedding_base_url
+        embedding_base_url: data?.embedding_base_url || prev.embedding_base_url,
+        embedding_dimensions: data?.embedding_dimensions || prev.embedding_dimensions
       }));
+      const dims = Number(data?.embedding_dimensions || embeddingSettings.embedding_dimensions || 768);
+      if (EMBEDDING_DIM_PRESETS.includes(dims)) {
+        setEmbeddingDimSelection(String(dims));
+        setEmbeddingDimCustom(String(dims));
+      } else {
+        setEmbeddingDimSelection('custom');
+        setEmbeddingDimCustom(String(dims));
+      }
       await checkEmbeddingHealth();
     } catch (err) {
       setSettingsError(err?.userMessage || err?.message || 'Failed to load embedding settings.');
@@ -200,7 +268,8 @@ const Documents = () => {
         embedding_provider: embeddingSettings.embedding_provider,
         embedding_model: embeddingSettings.embedding_model,
         embedding_api_key: embeddingSettings.embedding_api_key,
-        embedding_base_url: embeddingSettings.embedding_base_url
+        embedding_base_url: embeddingSettings.embedding_base_url,
+        embedding_dimensions: embeddingSettings.embedding_dimensions
       });
       await checkEmbeddingHealth();
       setShowSettingsModal(false);
@@ -208,6 +277,27 @@ const Documents = () => {
       setSettingsError(err?.userMessage || err?.message || 'Unable to save settings. Please try again.');
     } finally {
       setSettingsSaving(false);
+    }
+  };
+
+  const handleReindexEmbeddings = async () => {
+    setReindexError(null);
+    const confirmed = window.confirm('Reindex embeddings for all documents? This can take several minutes.');
+    if (!confirmed) return;
+    setReindexing(true);
+    try {
+      const res = await cognitiveService.reindexEmbeddings({});
+      if (res?.status === 'no_documents') {
+        toast.info('No documents available for reindexing.');
+      } else {
+        toast.success('Reindexing started.');
+      }
+    } catch (err) {
+      const msg = err?.userMessage || err?.message || 'Failed to start reindexing.';
+      setReindexError(msg);
+      toast.error(msg);
+    } finally {
+      setReindexing(false);
     }
   };
 
@@ -251,9 +341,9 @@ const Documents = () => {
       ? 'Unfiled'
       : folders.find(f => f.id === selectedFolderId)?.name || 'Folder';
 
-  const handleSynthesize = async (docId) => {
+  const handleSynthesize = async (docId, options = {}) => {
     try {
-      await synthesizeDocument(docId);
+      await synthesizeDocument(docId, options);
       toast.success('Processing queued');
     } catch (err) {
       toast.error(err?.userMessage || err?.message || 'Failed to start processing');
@@ -380,10 +470,19 @@ const Documents = () => {
                 ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
                 : queueStatus === 'disabled'
                   ? 'bg-white/5 text-dark-300 border-white/10'
-                  : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+                  : queueStatus === 'no_workers'
+                    ? 'bg-amber-500/10 text-amber-200 border-amber-500/20'
+                    : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
             }`}>
-              {queueStatus ? `Queue: ${queueStatus}` : 'Queue: checking'}
+              {queueStatus ? `Queue: ${queueStatus}${queueWorkers !== null ? ` (${queueWorkers})` : ''}` : 'Queue: checking'}
             </div>
+            <button
+              onClick={refreshQueueStatus}
+              disabled={queueTesting}
+              className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-dark-200 border border-white/10 text-xs disabled:opacity-60"
+            >
+              {queueTesting ? 'Testing...' : 'Test queue'}
+            </button>
             <button
               onClick={() => setIsUploadOpen(true)}
               className="px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-white text-sm font-semibold"
@@ -453,28 +552,78 @@ const Documents = () => {
           )}
         </AnimatePresence>
 
-        {isLoading ? (
+        {isLoading && documents.length === 0 ? (
           <div className="py-20 text-center text-dark-400">Loading documents...</div>
         ) : filteredDocs.length === 0 ? (
           <div className="py-20 text-center text-dark-400">No documents found.</div>
         ) : (
           <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' : 'space-y-3'}>
             {filteredDocs.map((doc) => {
-              const statusKey = doc.status || 'complete';
-              const statusClass = STATUS_STYLES[statusKey] || STATUS_STYLES.complete;
-              const iconType = doc.file_type?.toLowerCase();
-              const title = doc.title || doc.filename || `Document ${doc.id}`;
-              const isProcessing = ['processing', 'pending', 'ingesting', 'uploading', 'extracted'].includes(statusKey);
-              const canIngest = ['extracted', 'completed', 'failed'].includes(statusKey);
-              const ingestionProgress = Math.max(0, Math.min(100, Number(doc.ingestion_progress ?? 0)));
-              const readingProgress = Math.max(0, Math.min(100, Math.round((doc.reading_progress || 0) * 100)));
-              const displayProgress = isProcessing ? ingestionProgress : readingProgress;
+                const statusKey = doc.status || 'complete';
+                const statusClass = STATUS_STYLES[statusKey] || STATUS_STYLES.complete;
+                let iconType = (doc.display_type || doc.file_type || '').toLowerCase();
+                if (!iconType && doc.filename) {
+                  const name = doc.filename.toLowerCase();
+                  if (name.endsWith('.pdf')) iconType = 'pdf';
+                  else if (name.endsWith('.md') || name.endsWith('.markdown')) iconType = 'markdown';
+                  else if (name.endsWith('.txt') || name.endsWith('.text')) iconType = 'text';
+                  else if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif') || name.endsWith('.webp')) iconType = 'image';
+                  else if (name.endsWith('.mp4') || name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.m4a') || name.endsWith('.mov') || name.endsWith('.avi') || name.endsWith('.webm') || name.endsWith('.mkv')) iconType = 'video';
+                }
+                const title = doc.title || doc.filename || `Document ${doc.id}`;
+                const isProcessing = ['processing', 'pending', 'ingesting', 'uploading'].includes(statusKey);
+                const canIngest = ['extracted', 'completed', 'failed'].includes(statusKey);
+                const ingestionProgress = Math.max(0, Math.min(100, Number(doc.ingestion_progress ?? 0)));
+                const readingProgress = Math.max(0, Math.min(100, Math.round((doc.reading_progress || 0) * 100)));
+                const displayProgress = isProcessing ? ingestionProgress : readingProgress;
               const phase = (doc.ingestion_step || '').toLowerCase();
-              const queueState = isProcessing
+              const jobMessage = doc.ingestion_job_message;
+              const jobStatus = doc.ingestion_job_status;
+              const isRateLimited = phase === 'rate_limited'
+                || jobStatus === 'paused'
+                || (jobMessage && jobMessage.toLowerCase().includes('rate limit'));
+              const phaseLabel = phase ? phase.replace(/_/g, ' ') : '';
+              const messageLabel = jobMessage && (!phaseLabel || !jobMessage.toLowerCase().includes(phaseLabel))
+                ? jobMessage
+                : '';
+              let queueState = isProcessing
                 ? (phase.includes('queued') || statusKey === 'pending' ? 'queued' : (phase === 'initializing' ? 'starting' : 'running'))
                 : null;
-              const showQueueHint = isProcessing && displayProgress === 0 && queueState === 'queued';
-              return (
+              if (queueStatus !== 'connected' && queueState === 'queued') {
+                queueState = null;
+              }
+              if (queueState === 'running') {
+                queueState = null;
+              }
+              const showRetryExtract = ['processing', 'pending', 'ingesting'].includes(statusKey) && !isRateLimited;
+              const showRetryIngest = statusKey === 'extracted' && !isRateLimited;
+              const showQueueHint = isProcessing && displayProgress === 0 && queueState === 'queued' && queueStatus === 'connected';
+                const normalizeJobTime = (value) => {
+                  if (!value) return null;
+                  if (value instanceof Date) return value;
+                  if (typeof value === 'string') {
+                    const hasTimezone = /[zZ]|[+-]\d{2}:\d{2}$/.test(value);
+                    return new Date(hasTimezone ? value : `${value}Z`);
+                  }
+                  return new Date(value);
+                };
+                const lastUpdate = normalizeJobTime(doc.ingestion_job_updated_at);
+                const lastUpdateMinutes = lastUpdate ? Math.max(0, Math.floor((Date.now() - lastUpdate.getTime()) / 60000)) : null;
+                const progressEntry = progressTrackerRef.current.get(doc.id);
+                const progressAgeMinutes = progressEntry ? Math.max(0, Math.floor((Date.now() - progressEntry.changedAt) / 60000)) : null;
+              const isStalled = !isRateLimited && isProcessing && lastUpdateMinutes !== null && progressAgeMinutes !== null && lastUpdateMinutes >= 5 && progressAgeMinutes >= 5;
+                const prevProgress = progressEntry?.prevProgress ?? null;
+                const prevChangedAt = progressEntry?.prevChangedAt ?? null;
+                let etaMinutes = null;
+                if (isProcessing && prevProgress !== null && prevChangedAt && ingestionProgress > prevProgress) {
+                  const deltaProgress = ingestionProgress - prevProgress;
+                  const deltaMinutes = Math.max(1, (Date.now() - prevChangedAt) / 60000);
+                  const rate = deltaProgress / deltaMinutes;
+                  if (rate > 0 && ingestionProgress > 1 && ingestionProgress < 99) {
+                    etaMinutes = Math.ceil((100 - ingestionProgress) / rate);
+                  }
+                }
+                return (
                 <div
                   key={doc.id}
                   className={`rounded-2xl border border-white/10 bg-dark-900/60 p-4 hover:border-primary-500/30 transition ${viewMode === 'list' ? 'flex items-center gap-4' : 'space-y-3'}`}
@@ -486,8 +635,12 @@ const Documents = () => {
                       <Globe className="w-5 h-5 text-cyan-400" />
                     ) : (iconType === 'markdown' || iconType === 'text') ? (
                       <FileCode className="w-5 h-5 text-amber-400" />
-                    ) : (
+                    ) : iconType === 'video' ? (
+                      <Network className="w-5 h-5 text-indigo-400" />
+                    ) : iconType === 'image' ? (
                       <ImageIcon className="w-5 h-5 text-fuchsia-400" />
+                    ) : (
+                      <FileText className="w-5 h-5 text-primary-400" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -500,14 +653,19 @@ const Documents = () => {
                           </span>
                         )}
                         <span className={`text-[10px] px-2 py-1 rounded-full ${statusClass}`}>{doc.status || 'ready'}</span>
+                        {isRateLimited && (
+                          <span className={`text-[10px] px-2 py-1 rounded-full ${STATUS_STYLES.rate_limited}`}>
+                            Paused (rate limited)
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-dark-400">
-                      <span>{doc.file_type || 'file'}</span>
+                      <span className="uppercase tracking-wider text-dark-500">Type: {iconType || 'file'}</span>
                       {isProcessing ? (
-                        <span>{doc.ingestion_step || 'processing'} · {displayProgress}%</span>
+                        <span className="text-dark-300">Progress: {displayProgress}%</span>
                       ) : (
-                        <span>{readingProgress}% read</span>
+                        <span className="text-dark-300">Reading: {readingProgress}%</span>
                       )}
                       {doc.linked_to_graph && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 text-cyan-200 border border-cyan-500/20 px-2 py-0.5">
@@ -516,6 +674,25 @@ const Documents = () => {
                         </span>
                       )}
                     </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-dark-300">
+                      {isProcessing && phaseLabel && (
+                        <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 uppercase tracking-wider text-white/80">
+                          Phase: {phaseLabel}
+                        </span>
+                      )}
+                      {isProcessing && etaMinutes !== null && (
+                        <span className="text-dark-400">ETA ~{etaMinutes}m</span>
+                      )}
+                    </div>
+                    {isProcessing && messageLabel && !isRateLimited && (
+                      <div className="mt-1 text-[11px] text-dark-400">{messageLabel}</div>
+                    )}
+                    {isRateLimited && (
+                      <div className="mt-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1">
+                        Paused due to rate limits. Resume when ready.
+                        {jobMessage ? ` ${jobMessage}` : ''}
+                      </div>
+                    )}
                     {doc.ingestion_error && (
                       <div className="mt-2 text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg px-2 py-1">
                         {doc.ingestion_error}
@@ -526,14 +703,40 @@ const Documents = () => {
                         Queued. If this stays for a while, start the RQ worker to process jobs.
                       </div>
                     )}
-                    <div className="mt-2 h-1.5 bg-dark-950 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary-500"
-                        style={{ width: `${Math.max(5, displayProgress)}%` }}
-                      />
+                    {isProcessing && displayProgress === 0 && queueStatus !== 'connected' && (
+                      <div className="mt-2 text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1">
+                        Running locally (queue not connected).
+                      </div>
+                    )}
+                      {statusKey === 'extracted' && !isRateLimited && (
+                        <div className="mt-2 text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1">
+                          Ready to read. Graph pending.
+                        </div>
+                      )}
+                      {statusKey === 'extracted' && isRateLimited && (
+                        <div className="mt-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1">
+                          Graph build paused (rate limited).
+                        </div>
+                      )}
+                      {isStalled && (
+                        <div className="mt-2 text-[11px] text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-lg px-2 py-1">
+                          No updates for {lastUpdateMinutes} min and no progress change for {progressAgeMinutes} min. Try retrying extraction.
+                        </div>
+                      )}
+                      {lastUpdate && (
+                        <div className="mt-2 text-[11px] text-dark-500">
+                          Last update: {lastUpdate.toLocaleTimeString()} · {lastUpdateMinutes}m ago
+                        </div>
+                      )}
+                      <div className="mt-2 h-1.5 bg-dark-950 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary-500"
+                          style={{ width: `${Math.max(5, displayProgress)}%` }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
+
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRename(doc); }}
                       className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-dark-200"
@@ -541,7 +744,7 @@ const Documents = () => {
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
-                    {canIngest && (
+                    {canIngest && !isRateLimited && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id); }}
                         className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300"
@@ -550,13 +753,40 @@ const Documents = () => {
                         <Network className="w-4 h-4" />
                       </button>
                     )}
-                    {doc.status === 'failed' && (
+                    {isRateLimited && (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id, { resume: true }); }}
+                          className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-emerald-300"
+                          title="Resume graph build"
+                        >
+                          <Play className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id, { resume: false }); }}
+                          className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-amber-300"
+                          title="Restart graph build"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                    {(doc.status === 'failed' || showRetryExtract) && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id); }}
                         className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-amber-300"
                         title="Retry extraction"
                       >
                         <RotateCcw className="w-4 h-4" />
+                      </button>
+                    )}
+                    {showRetryIngest && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id); }}
+                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-purple-300"
+                        title="Retry graph build"
+                      >
+                        <Network className="w-4 h-4" />
                       </button>
                     )}
                     <button
@@ -583,6 +813,9 @@ const Documents = () => {
               );
             })}
           </div>
+        )}
+        {isLoading && documents.length > 0 && (
+          <div className="mt-4 text-[11px] text-dark-400">Refreshing documents...</div>
         )}
       </main>
 
@@ -775,6 +1008,66 @@ const Documents = () => {
                     onChange={(e) => setEmbeddingSettings((prev) => ({ ...prev, embedding_model: e.target.value }))}
                     className="mt-1 w-full px-3 py-2 rounded-xl bg-dark-900/70 border border-white/10 text-sm text-white"
                   />
+                </div>
+                <div>
+                  <label className="text-xs text-dark-400">Embedding dimensions</label>
+                  <div className="mt-1 grid grid-cols-1 md:grid-cols-[160px_1fr] gap-3">
+                    <select
+                      value={embeddingDimSelection}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setEmbeddingDimSelection(value);
+                        if (value !== 'custom') {
+                          const next = Number(value);
+                          setEmbeddingDimCustom(String(next));
+                          setEmbeddingSettings((prev) => ({ ...prev, embedding_dimensions: next }));
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-dark-900/70 border border-white/10 text-sm text-white"
+                    >
+                      {EMBEDDING_DIM_PRESETS.map((dim) => (
+                        <option key={dim} value={String(dim)}>{dim}</option>
+                      ))}
+                      <option value="custom">Custom</option>
+                    </select>
+                    <input
+                      type="number"
+                      min="16"
+                      step="1"
+                      value={embeddingDimCustom}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setEmbeddingDimCustom(next);
+                        const parsed = Number(next);
+                        if (Number.isFinite(parsed) && parsed > 0) {
+                          setEmbeddingSettings((prev) => ({ ...prev, embedding_dimensions: parsed }));
+                          setEmbeddingDimSelection(EMBEDDING_DIM_PRESETS.includes(parsed) ? String(parsed) : 'custom');
+                        }
+                      }}
+                      disabled={embeddingDimSelection !== 'custom'}
+                      className="w-full px-3 py-2 rounded-xl bg-dark-900/70 border border-white/10 text-sm text-white disabled:opacity-60"
+                      placeholder="Custom dimensions"
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] text-amber-300">
+                    Changing dimensions requires re-indexing documents.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-dark-950/60 p-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest text-dark-400">Reindex Embeddings</p>
+                    <p className="text-xs text-dark-400">Rebuild vectors using the current embedding model.</p>
+                    {reindexError && (
+                      <p className="text-[11px] text-rose-300 mt-1">{reindexError}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleReindexEmbeddings}
+                    disabled={reindexing}
+                    className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-dark-200 border border-white/10 disabled:opacity-60"
+                  >
+                    {reindexing ? 'Reindexing...' : 'Reindex'}
+                  </button>
                 </div>
                 {showApiKey && (
                   <div>

@@ -610,7 +610,7 @@ class MultiDocGraphStorage:
             result = self.connection.execute_query(query, {
                 "scoped_id": scoped_id,
                 "global_name": concept_name.strip(),
-                "normalized_name": normalized,
+                "normalized": normalized,
                 "description": description,
                 "depth_level": depth_level,
                 "chunk_ids": chunk_ids,

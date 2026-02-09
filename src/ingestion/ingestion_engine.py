@@ -3,7 +3,8 @@
 import json
 import logging
 import os
-from typing import List, Optional, Tuple, Any, Dict
+import asyncio
+from typing import List, Optional, Tuple, Any, Dict, Callable
 from pydantic import ValidationError
 
 from dotenv import load_dotenv
@@ -13,7 +14,7 @@ from src.database.neo4j_conn import neo4j_conn
 from src.database.graph_storage import graph_storage
 from .vector_storage import VectorStorage
 from .document_processor import DocumentProcessor
-from src.services.llm_service import llm_service
+from src.services.llm_service import llm_service, RateLimitException
 from src.models.schemas import LLMConfig
 from src.config import settings
 
@@ -189,7 +190,9 @@ Content to analyze:
         on_progress: Optional[Any] = None, # Callable[[str, int], None]
         on_partial_schema: Optional[Any] = None, # Callable[[GraphSchema], None]
         llm_config: Optional[Any] = None,
-        extraction_max_chars: Optional[int] = None
+        extraction_max_chars: Optional[int] = None,
+        resume_from_window: int = 0,
+        on_window_complete: Optional[Callable[[int, int], None]] = None
     ) -> GraphSchema:
         """
         Extract knowledge graph structure from content chunks using LLM.
@@ -206,7 +209,9 @@ Content to analyze:
         total_windows = len(windows)
         
         last_error = None
-        for i, (window_content, start_idx, end_idx) in enumerate(windows):
+        resume_from_window = max(0, min(resume_from_window, total_windows - 1))
+        for i in range(resume_from_window, total_windows):
+            window_content, start_idx, end_idx = windows[i]
             logger.info(f"Processing extraction window {i+1}/{total_windows}")
             
             # Report Progress
@@ -226,11 +231,27 @@ Content to analyze:
                     base_url=base_url
                 )
 
-                response_text = await llm_service.get_chat_completion(
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format="json",
-                    config=config
-                )
+                retry_attempts = 0
+                max_retries = max(0, int(getattr(settings, "llm_rate_limit_retry_attempts", 3)))
+                max_cooldown = max(5, int(getattr(settings, "llm_rate_limit_max_cooldown_seconds", 300)))
+                while True:
+                    try:
+                        response_text = await llm_service.get_chat_completion(
+                            messages=[{"role": "user", "content": prompt}],
+                            response_format="json",
+                            config=config
+                        )
+                        break
+                    except RateLimitException as rl:
+                        retry_attempts += 1
+                        cooldown = rl.retry_after_seconds or 90
+                        cooldown = max(5, min(cooldown, max_cooldown))
+                        logger.warning(f"Rate limit hit. Cooling down for {cooldown}s (attempt {retry_attempts})")
+                        if on_progress:
+                            on_progress("cooldown", int(((i) / total_windows) * 80))
+                        await asyncio.sleep(cooldown)
+                        if retry_attempts >= max_retries:
+                            raise
                 
                 try:
                     # Use robust parsing from llm_service
@@ -288,13 +309,18 @@ Content to analyze:
 
                     schema = GraphSchema(**data)
                     schemas.append(schema)
-                    
-                    # Incremental Callback
-                    if on_partial_schema:
+                    if on_window_complete:
                         try:
-                            on_partial_schema(schema)
+                            on_window_complete(i, total_windows)
                         except Exception as e:
-                            logger.error(f"Partial schema callback failed: {e}")
+                            logger.error(f"Window completion callback failed: {e}")
+                        
+                        # Incremental Callback
+                        if on_partial_schema:
+                            try:
+                                on_partial_schema(schema)
+                            except Exception as e:
+                                logger.error(f"Partial schema callback failed: {e}")
 
                 except ValidationError as e:
                     logger.error(f"Schema validation failed in window {i+1}: {e}")
@@ -412,6 +438,50 @@ Content to analyze:
         except Exception as e:
             logger.error(f"Failed to store vector data: {str(e)}")
             raise ValueError(f"Vector data storage failed: {str(e)}") from e
+
+    async def reindex_document_vectors(
+        self,
+        extracted_text: str,
+        document_id: int,
+        chunk_size: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Rebuild vector embeddings for a single document using extracted text.
+        """
+        if not extracted_text or not extracted_text.strip():
+            raise ValueError("No extracted text available for reindexing.")
+
+        try:
+            processor = self.document_processor if not chunk_size else DocumentProcessor(chunk_size=chunk_size)
+            chunks = processor.chunk_content(extracted_text or "")
+            if chunks and isinstance(chunks[0], tuple):
+                chunks = [c[0] for c in chunks if c and c[0]]
+
+            if not chunks:
+                raise ValueError("No valid chunks produced for reindexing.")
+
+            # Remove existing vectors for this document
+            try:
+                self.vector_storage.delete_document_chunks(document_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete old vectors for doc {document_id}: {e}")
+
+            # Store fresh vectors
+            chunk_tags = ["general"] * len(chunks)
+            stored_chunk_ids = await self.store_vector_data(
+                doc_source=f"doc_{document_id}",
+                content_chunks=chunks,
+                concept_tags=chunk_tags,
+                document_id=document_id
+            )
+
+            return {
+                "document_id": document_id,
+                "chunks_stored": len(stored_chunk_ids)
+            }
+        except Exception as e:
+            logger.error(f"Vector reindex failed for doc {document_id}: {e}")
+            raise
     
     async def process_document_complete(
         self, 
@@ -524,7 +594,10 @@ Content to analyze:
         content_chunks: List[str],
         document_id: int,
         llm_config: Optional[Any] = None,
-        extraction_max_chars: Optional[int] = None
+        extraction_max_chars: Optional[int] = None,
+        on_progress: Optional[Any] = None,
+        resume_from_window: int = 0,
+        on_window_complete: Optional[Callable[[int, int], None]] = None
     ) -> Dict[str, Any]:
         """
         Extract and store graph structure with document scoping.
@@ -544,8 +617,11 @@ Content to analyze:
         # Extract graph structure
         schema = await self.extract_graph_structure(
             content_chunks,
+            on_progress=on_progress,
             llm_config=llm_config,
-            extraction_max_chars=extraction_max_chars
+            extraction_max_chars=extraction_max_chars,
+            resume_from_window=resume_from_window,
+            on_window_complete=on_window_complete
         )
         
         concepts_stored = 0
@@ -625,7 +701,10 @@ Content to analyze:
         document_id: int,
         llm_config: Optional[Any] = None,
         extraction_max_chars: Optional[int] = None,
-        chunk_size: Optional[int] = None
+        chunk_size: Optional[int] = None,
+        on_progress: Optional[Any] = None,
+        resume_from_window: int = 0,
+        on_window_complete: Optional[Callable[[int, int], None]] = None
     ) -> Dict[str, Any]:
         """
         Process a document using already extracted text (no file IO),
@@ -640,7 +719,10 @@ Content to analyze:
                 chunks,
                 document_id,
                 llm_config=llm_config,
-                extraction_max_chars=extraction_max_chars
+                extraction_max_chars=extraction_max_chars,
+                on_progress=on_progress,
+                resume_from_window=resume_from_window,
+                on_window_complete=on_window_complete
             )
 
             # Store vector data for this document

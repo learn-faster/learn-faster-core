@@ -263,7 +263,7 @@ const useDocumentStore = create((set, get) => ({
      * @async
      * @param {string} id - The document ID.
      */
-    synthesizeDocument: async (id) => {
+    synthesizeDocument: async (id, options = {}) => {
         // Optimistic update
         set((state) => ({
             documents: state.documents.map(d =>
@@ -272,7 +272,9 @@ const useDocumentStore = create((set, get) => ({
         }));
 
         try {
-            await api.post(`/documents/${id}/synthesize`);
+            const resume = options?.resume;
+            const params = typeof resume === 'boolean' ? { resume } : undefined;
+            await api.post(`/documents/${id}/synthesize`, null, params ? { params } : undefined);
             // No need to fetch immediately, the optimistic update holds it until polling takes over
         } catch (err) {
             console.error("Failed to start synthesis:", err);

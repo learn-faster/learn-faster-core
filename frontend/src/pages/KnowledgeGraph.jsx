@@ -59,34 +59,47 @@ const ConstructionHUD = ({ documents }) => {
             exit={{ opacity: 0, y: -20 }}
             className="absolute top-24 left-10 z-30 w-80 flex flex-col gap-2 pointer-events-none"
         >
-            {documents.map(doc => (
-                <div key={doc.id} className="p-4 glass-morphism rounded-2xl border border-amber-500/20 shadow-[0_0_15px_rgba(251,191,36,0.1)] backdrop-blur-md relative overflow-hidden">
-                    {/* Scanline Effect */}
-                    <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/5 to-transparent animate-scan" />
+            {documents.map(doc => {
+                const phase = (doc.ingestion_step || '').toLowerCase();
+                const jobStatus = doc.ingestion_job_status;
+                const jobMessage = doc.ingestion_job_message || '';
+                const isRateLimited = phase === 'rate_limited'
+                    || jobStatus === 'paused'
+                    || jobMessage.toLowerCase().includes('rate limit');
+                return (
+                    <div key={doc.id} className="p-4 glass-morphism rounded-2xl border border-white/10 shadow-[0_0_15px_rgba(255,255,255,0.08)] backdrop-blur-md relative overflow-hidden">
+                        {/* Scanline Effect */}
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-transparent animate-scan" />
 
-                    <div className="flex justify-between items-start mb-2 relative z-10">
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">Neural Construction</span>
+                        <div className="flex justify-between items-start mb-2 relative z-10">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-white/80 animate-pulse" />
+                                <span className="text-[10px] font-black uppercase tracking-widest text-white/80">Neural Construction</span>
+                                {isRateLimited && (
+                                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                                        Paused (rate limited)
+                                    </span>
+                                )}
+                            </div>
+                            <span className="text-[10px] font-bold text-white/60">{doc.ingestion_progress || 0}%</span>
                         </div>
-                        <span className="text-[10px] font-bold text-amber-500/70">{doc.ingestion_progress || 0}%</span>
-                    </div>
 
-                    <h4 className="text-sm font-bold text-white mb-1 truncate relative z-10">{doc.title}</h4>
-                    <p className="text-[10px] text-amber-200/60 font-mono mb-3 relative z-10">
-                        {doc.ingestion_step ? `> ${doc.ingestion_step}` : '> INITIALIZING UPLINK...'}
-                    </p>
+                        <h4 className="text-sm font-bold text-white mb-1 truncate relative z-10">{doc.title}</h4>
+                        <p className="text-[10px] text-white/50 font-mono mb-3 relative z-10">
+                            {doc.ingestion_step ? `> ${doc.ingestion_step}` : '> INITIALIZING UPLINK...'}
+                        </p>
 
-                    <div className="h-1 bg-dark-900/50 rounded-full overflow-hidden relative z-10">
-                        <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${doc.ingestion_progress || 5}%` }}
-                            transition={{ ease: "linear" }}
-                            className="h-full bg-amber-500/80 shadow-[0_0_10px_rgba(251,191,36,0.5)]"
-                        />
+                        <div className="h-1 bg-dark-900/50 rounded-full overflow-hidden relative z-10">
+                            <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${doc.ingestion_progress || 5}%` }}
+                                transition={{ ease: "linear" }}
+                                className="h-full bg-white/80 shadow-[0_0_10px_rgba(255,255,255,0.4)]"
+                            />
+                        </div>
                     </div>
-                </div>
-            ))}
+                );
+            })}
         </motion.div>
     );
 };
@@ -141,6 +154,8 @@ const KnowledgeGraph = () => {
 
     const [activeNeighbors, setActiveNeighbors] = useState(new Set());
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [isFocusMode, setIsFocusMode] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     // Concept Tutor State (Active Intel)
     const [activeIntel, setActiveIntel] = useState(null);
@@ -165,6 +180,18 @@ const KnowledgeGraph = () => {
         });
         resizeObserver.observe(containerRef.current);
         return () => resizeObserver.disconnect();
+    }, []);
+
+    useEffect(() => {
+        const onFullscreenChange = () => {
+            const active = Boolean(document.fullscreenElement);
+            setIsFullscreen(active);
+            if (!active) {
+                setIsFocusMode(false);
+            }
+        };
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
     }, []);
 
 
@@ -493,6 +520,25 @@ const KnowledgeGraph = () => {
         fgRef.current.zoom(3, 800);
     };
 
+    const toggleFocusMode = async () => {
+        if (!containerRef.current) return;
+        try {
+            if (!document.fullscreenElement) {
+                await containerRef.current.requestFullscreen();
+                setIsFocusMode(true);
+                setIsFullscreen(true);
+                setIsSidebarOpen(false);
+            } else {
+                await document.exitFullscreen();
+                setIsFullscreen(false);
+                setIsFocusMode(false);
+            }
+        } catch (err) {
+            const msg = err?.message || 'Fullscreen not available.';
+            toast.error(msg);
+        }
+    };
+
     // Active Intel Loading
     useEffect(() => {
         if (selectedNode && activeTab === 'intel') {
@@ -535,32 +581,32 @@ const KnowledgeGraph = () => {
 
         const nodeVal = node.val || 12;
 
-        // Color Logic - Bright Premium Palette
-        let coreColor = '#475569'; // Slate-600 base
-        let glowColor = 'rgba(255, 255, 255, 0)';
-        let strokeColor = 'rgba(255, 255, 255, 0.2)';
+        // Color Logic - Luminous Violet Palette
+        let coreColor = '#c4b5fd'; // Violet-300 base
+        let glowColor = 'rgba(167, 139, 250, 0.45)';
+        let strokeColor = 'rgba(255, 255, 255, 0.3)';
 
         if (node.status === 'COMPLETED') {
-            coreColor = '#fbbf24'; // Amber-400
-            glowColor = 'rgba(251, 191, 36, 0.5)';
-            strokeColor = '#fff';
+            coreColor = '#fde68a'; // Amber-200
+            glowColor = 'rgba(251, 191, 36, 0.55)';
+            strokeColor = 'rgba(255, 255, 255, 0.9)';
         } else if (node.status === 'IN_PROGRESS') {
-            coreColor = '#fb923c'; // Orange-400
-            glowColor = 'rgba(251, 146, 60, 0.5)';
-            strokeColor = '#fff';
+            coreColor = '#fbbf24'; // Amber-400
+            glowColor = 'rgba(251, 191, 36, 0.6)';
+            strokeColor = 'rgba(255, 255, 255, 0.9)';
         } else if (node.status === 'UNLOCKED') {
-            coreColor = '#22d3ee'; // Cyan-400
-            glowColor = 'rgba(34, 211, 238, 0.6)';
-            strokeColor = '#fff';
+            coreColor = '#a78bfa'; // Violet-400
+            glowColor = 'rgba(167, 139, 250, 0.7)';
+            strokeColor = 'rgba(255, 255, 255, 0.9)';
         } else if (node.is_merged) {
-            coreColor = '#a855f7'; // Purple-500
-            glowColor = 'rgba(168, 85, 247, 0.5)';
-            strokeColor = '#fff';
+            coreColor = '#8b5cf6'; // Violet-500
+            glowColor = 'rgba(139, 92, 246, 0.65)';
+            strokeColor = 'rgba(255, 255, 255, 0.85)';
         } else {
-            // LOCKED - Brighter than before
-            coreColor = '#64748b'; // Slate-500
-            glowColor = 'rgba(100, 116, 139, 0.2)';
-            strokeColor = 'rgba(255, 255, 255, 0.15)';
+            // LOCKED
+            coreColor = '#6b7280'; // Gray-500
+            glowColor = 'rgba(107, 114, 128, 0.25)';
+            strokeColor = 'rgba(255, 255, 255, 0.2)';
         }
 
         // Draw Glow (only if not locked or if selected)
@@ -651,35 +697,37 @@ const KnowledgeGraph = () => {
                 className="absolute inset-0"
                 style={{
                     background:
-                        'radial-gradient(circle at 15% 10%, rgba(56,189,248,0.25), transparent 45%), radial-gradient(circle at 85% 20%, rgba(59,130,246,0.18), transparent 40%), radial-gradient(circle at 50% 80%, rgba(168,85,247,0.2), transparent 45%), linear-gradient(180deg, #05060c 0%, #070b14 45%, #04070f 100%)'
+                        'radial-gradient(circle at 15% 10%, rgba(255,255,255,0.08), transparent 45%), radial-gradient(circle at 80% 18%, rgba(255,255,255,0.06), transparent 42%), radial-gradient(circle at 50% 80%, rgba(147,197,253,0.12), transparent 48%), linear-gradient(180deg, #03040b 0%, #070b16 45%, #04070f 100%)'
                 }}
             />
             <div
                 className="absolute -top-24 -right-24 w-[520px] h-[520px] rounded-full blur-3xl opacity-60"
-                style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.45), transparent 70%)' }}
+                style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.16), transparent 70%)' }}
             />
             <div
                 className="absolute -bottom-32 -left-20 w-[620px] h-[620px] rounded-full blur-3xl opacity-50"
-                style={{ background: 'radial-gradient(circle, rgba(14,116,144,0.45), transparent 70%)' }}
+                style={{ background: 'radial-gradient(circle, rgba(191,219,254,0.18), transparent 70%)' }}
             />
             <div
                 className="absolute inset-0 opacity-30"
                 style={{ background: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06), transparent 45%)' }}
             />
 
-            <div className="min-h-[calc(100vh-2rem)] flex flex-col gap-5 animate-fade-in relative z-10 font-sans pb-3">
+            <div className="min-h-[calc(100vh-2rem)] flex flex-col gap-5 animate-fade-in relative z-10 font-sans pb-3 px-2 md:px-6">
             {/* Header with Integrated Graph Controls */}
-            <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-5 pointer-events-auto">
+            {!isFocusMode && (
+            <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-5 pointer-events-auto pt-2">
                 <div className="relative group">
-                    <h1 className="text-4xl md:text-5xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-white via-cyan-400 to-primary-600 flex items-center gap-3">
-                        Neural Tree
+                    <h1 className="text-4xl md:text-5xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-white via-slate-200 to-white flex items-center gap-3">
+                        Knowledge Map
                     </h1>
-                    <div className="absolute -bottom-1 left-0 w-0 h-1 bg-cyan-500 group-hover:w-full transition-all duration-500 shadow-[0_0_15px_rgba(6,182,212,0.5)]" />
+                    <p className="text-sm text-slate-400 italic mt-2">Navigating your intellectual galaxy.</p>
+                    <div className="absolute -bottom-1 left-0 w-0 h-1 bg-white/70 group-hover:w-full transition-all duration-500 shadow-[0_0_15px_rgba(255,255,255,0.4)]" />
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-3 glass-morphism border-white/5 rounded-2xl px-4 py-2.5">
-                        <Network className="w-4 h-4 text-cyan-400" />
+                        <Network className="w-4 h-4 text-white/70" />
                         <select
                             className="bg-transparent text-sm text-white focus:outline-none w-52"
                             value={selectedGraphId || ''}
@@ -692,7 +740,7 @@ const KnowledgeGraph = () => {
                                 </option>
                             ))}
                         </select>
-                        <button onClick={openCreateGraph} className="p-1.5 rounded-lg hover:bg-white/5 text-cyan-300">
+                        <button onClick={openCreateGraph} className="p-1.5 rounded-lg hover:bg-white/5 text-white/80">
                             <Plus className="w-4 h-4" />
                         </button>
                         {selectedGraph && (
@@ -704,7 +752,7 @@ const KnowledgeGraph = () => {
 
                     {selectedGraph && (
                         <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-white/5 bg-dark-900/40 text-[10px] font-black uppercase tracking-widest text-white/70">
-                            <span className={`w-2 h-2 rounded-full ${selectedGraph.status === 'ready' ? 'bg-cyan-400' : selectedGraph.status === 'building' ? 'bg-amber-400' : selectedGraph.status === 'error' ? 'bg-rose-400' : 'bg-slate-500'}`} />
+                            <span className={`w-2 h-2 rounded-full ${selectedGraph.status === 'ready' ? 'bg-white' : selectedGraph.status === 'building' ? 'bg-white/60' : selectedGraph.status === 'error' ? 'bg-rose-400' : 'bg-slate-500'}`} />
                             {selectedGraph.status || 'draft'}
                             <span className="text-white/30">·</span>
                             {selectedGraph.node_count || 0} nodes
@@ -713,7 +761,7 @@ const KnowledgeGraph = () => {
 
                     <button
                         onClick={() => setShowBuildModal(true)}
-                        className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-primary-600/80 to-cyan-500/80 text-white text-xs font-black uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-all"
+                        className="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-black uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-all border border-white/10"
                         disabled={!selectedGraphId}
                     >
                         Build Graph
@@ -721,7 +769,7 @@ const KnowledgeGraph = () => {
 
                     <button
                         onClick={() => setShowConnections(true)}
-                        className="px-4 py-2.5 rounded-2xl glass-morphism border-white/5 text-cyan-200 text-xs font-black uppercase tracking-widest hover:bg-white/5 transition-all"
+                        className="px-4 py-2.5 rounded-2xl glass-morphism border-white/5 text-white/80 text-xs font-black uppercase tracking-widest hover:bg-white/5 transition-all"
                         disabled={!selectedGraphId}
                     >
                         Connections
@@ -729,7 +777,7 @@ const KnowledgeGraph = () => {
 
                     <button
                         onClick={() => setShowCrossLinks(!showCrossLinks)}
-                        className={`px-3 py-2.5 rounded-2xl border border-white/5 text-xs font-black uppercase tracking-widest transition-all ${showCrossLinks ? 'bg-purple-500/20 text-purple-200' : 'bg-dark-900/40 text-white/50 hover:bg-white/5'}`}
+                        className={`px-3 py-2.5 rounded-2xl border border-white/5 text-xs font-black uppercase tracking-widest transition-all ${showCrossLinks ? 'bg-white/15 text-white' : 'bg-dark-900/40 text-white/50 hover:bg-white/5'}`}
                         title="Toggle cross-graph links"
                     >
                         <span className="inline-flex items-center gap-2">
@@ -740,8 +788,8 @@ const KnowledgeGraph = () => {
 
                     {/* Smart Search Container */}
                     <div className="relative w-72">
-                        <div className={`flex items-center gap-3 px-4 py-2.5 glass-morphism border-white/5 rounded-2xl transition-all ${searchQuery ? 'border-cyan-500/30' : ''}`}>
-                            <Search className={`w-4 h-4 transition-colors ${searchQuery ? 'text-cyan-400' : 'text-dark-500'}`} />
+                        <div className={`flex items-center gap-3 px-4 py-2.5 glass-morphism border-white/5 rounded-2xl transition-all ${searchQuery ? 'border-white/30' : ''}`}>
+                            <Search className={`w-4 h-4 transition-colors ${searchQuery ? 'text-white' : 'text-dark-500'}`} />
                             <input
                                 type="text"
                                 placeholder="Locate a neural node..."
@@ -771,8 +819,8 @@ const KnowledgeGraph = () => {
                                             onClick={() => handleSelectSuggestion(node)}
                                             className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-left text-sm transition-colors group"
                                         >
-                                            <div className={`w-2 h-2 rounded-full ${node.status === 'COMPLETED' ? 'bg-amber-400' :
-                                                node.status === 'UNLOCKED' ? 'bg-cyan-400' : node.is_merged ? 'bg-purple-400' : 'bg-slate-600'
+                                            <div className={`w-2 h-2 rounded-full ${node.status === 'COMPLETED' ? 'bg-white/90' :
+                                                node.status === 'UNLOCKED' ? 'bg-white/70' : node.is_merged ? 'bg-white/50' : 'bg-slate-600'
                                                 } group-hover:scale-125 transition-transform`} />
                                             <span className="text-white font-semibold flex-1">{node.name}</span>
                                             <ChevronRight className="w-3 h-3 text-dark-600 group-hover:translate-x-1 transition-transform" />
@@ -785,13 +833,28 @@ const KnowledgeGraph = () => {
 
                     <button
                         onClick={() => fetchGraph(true)}
-                        className="p-2.5 glass-morphism border-white/5 rounded-2xl text-cyan-400 hover:bg-cyan-500/10 transition-all shadow-lg active:scale-95"
-                        title="Sync Data"
+                        className="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-black uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-all border border-white/10"
+                        title="Sync Intelligence"
                     >
-                        <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+                        <span className="inline-flex items-center gap-2">
+                            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                            Sync Intelligence
+                        </span>
+                    </button>
+
+                    <button
+                        onClick={toggleFocusMode}
+                        className="px-4 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-white text-xs font-black uppercase tracking-widest border border-white/10"
+                        title="Fullscreen Focus Mode"
+                    >
+                        <span className="inline-flex items-center gap-2">
+                            <Maximize2 className="w-4 h-4" />
+                            Focus
+                        </span>
                     </button>
                 </div>
             </header>
+            )}
             <InlineErrorBanner
                 message={
                     (selectedGraph && selectedGraph.status === 'error' && selectedGraph.error_message)
@@ -803,32 +866,36 @@ const KnowledgeGraph = () => {
 
             <div className="flex-1 flex gap-6 overflow-hidden relative">
                 {/* Construction HUD */}
-                <AnimatePresence>
-                    <ConstructionHUD documents={documents.filter(d => d.status === 'ingesting')} />
-                </AnimatePresence>
+                {!isFocusMode && (
+                    <AnimatePresence>
+                        <ConstructionHUD documents={documents.filter(d => d.status === 'ingesting' || d.status === 'processing' || (d.ingestion_step || '').toLowerCase() === 'rate_limited' || d.ingestion_job_status === 'paused')} />
+                    </AnimatePresence>
+                )}
 
                 {/* Main Viewport */}
                 <div ref={containerRef} className="flex-1 relative glass-dark rounded-[3rem] border border-white/5 overflow-hidden shadow-inner-white group">
                     <Starfield />
 
                     {/* Sidebar Toggle Button */}
-                    <button
-                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        className={`absolute top-1/2 -translate-y-1/2 right-4 z-30 p-2 glass-morphism rounded-full border border-white/10 text-cyan-400 hover:scale-110 transition-all ${isSidebarOpen ? '' : 'rotate-180'}`}
-                    >
-                        <ChevronRight className="w-5 h-5" />
-                    </button>
+                    {!isFocusMode && (
+                        <button
+                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                            className={`absolute top-1/2 -translate-y-1/2 right-4 z-30 p-2 glass-morphism rounded-full border border-white/10 text-white/80 hover:scale-110 transition-all ${isSidebarOpen ? '' : 'rotate-180'}`}
+                        >
+                            <ChevronRight className="w-5 h-5" />
+                        </button>
+                    )}
 
                     {!selectedGraphId ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-dark-950/20 backdrop-blur-md text-center p-10">
-                            <Network className="w-12 h-12 text-cyan-400 mb-4" />
+                            <Network className="w-12 h-12 text-white/80 mb-4" />
                             <h3 className="text-2xl font-black text-white mb-2">No Graph Selected</h3>
                             <p className="text-xs text-dark-400 max-w-md">
                                 Create a graph, choose documents, and build to generate the neural map.
                             </p>
                             <button
                                 onClick={openCreateGraph}
-                                className="mt-6 px-5 py-3 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white"
+                                className="mt-6 px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black uppercase tracking-widest text-white border border-white/10"
                             >
                                 Create Graph
                             </button>
@@ -838,7 +905,7 @@ const KnowledgeGraph = () => {
                             <motion.div
                                 animate={{ rotate: 360 }}
                                 transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                                className="w-20 h-20 border-t-2 border-r-2 border-cyan-500 rounded-full"
+                                className="w-20 h-20 border-t-2 border-r-2 border-white/70 rounded-full"
                             />
                             <p className="mt-8 text-[10px] font-black uppercase tracking-[0.5em] text-white/40">Synchronizing Synapses</p>
                         </div>
@@ -911,7 +978,7 @@ const KnowledgeGraph = () => {
                             </p>
                             <button
                                 onClick={() => setShowBuildModal(true)}
-                                className="mt-6 px-5 py-3 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white"
+                                className="mt-6 px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black uppercase tracking-widest text-white border border-white/10"
                             >
                                 Build Now
                             </button>
@@ -919,45 +986,58 @@ const KnowledgeGraph = () => {
                     )}
 
                     {/* Controls Overlay */}
-                    <div className="absolute bottom-10 left-10 flex gap-3 z-10 p-2 glass-morphism rounded-3xl border-white/10 border backdrop-blur-md">
-                        {[
-                            { icon: Compass, label: 'Center', action: () => fgRef.current?.zoomToFit(1000) },
-                            { icon: Maximize2, label: 'Sidebar', action: () => setIsSidebarOpen(!isSidebarOpen) },
-                            { icon: HelpCircle, label: 'Guide', action: () => setShowGuide(true) }
-                        ].map((btn) => (
-                            <button
-                                key={btn.label}
-                                onClick={(e) => { e.stopPropagation(); btn.action(); }}
-                                className="p-3 text-white/50 hover:text-cyan-400 hover:bg-white/5 rounded-2xl transition-all group relative"
-                            >
-                                <btn.icon className="w-5 h-5" />
-                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-dark-900 border border-white/10 rounded text-[9px] font-bold uppercase opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                                    {btn.label}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
+                    {!isFocusMode && (
+                        <div className="absolute bottom-10 left-10 flex gap-3 z-10 p-2 glass-morphism rounded-3xl border-white/10 border backdrop-blur-md">
+                            {[
+                                { icon: Compass, label: 'Center', action: () => fgRef.current?.zoomToFit(1000) },
+                                { icon: Maximize2, label: 'Focus', action: () => toggleFocusMode() },
+                                { icon: HelpCircle, label: 'Guide', action: () => setShowGuide(true) }
+                            ].map((btn) => (
+                                <button
+                                    key={btn.label}
+                                    onClick={(e) => { e.stopPropagation(); btn.action(); }}
+                                    className="p-3 text-white/50 hover:text-white hover:bg-white/5 rounded-2xl transition-all group relative"
+                                >
+                                    <btn.icon className="w-5 h-5" />
+                                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-dark-900 border border-white/10 rounded text-[9px] font-bold uppercase opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                        {btn.label}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
 
                     {/* Integrated Legend Pill */}
-                    <div className="absolute top-6 right-6 flex items-center gap-3 z-30 p-2 glass-morphism rounded-2xl border-white/5 opacity-40 hover:opacity-100 transition-opacity pointer-events-auto">
-                        {[
-                            { color: 'bg-cyan-500', label: 'Frontier' },
-                            { color: 'bg-amber-500', label: 'Masteries' },
-                            { color: 'bg-purple-500', label: 'Linked' },
-                            { color: 'bg-slate-700', label: 'Locked' }
-                        ].map(item => (
-                            <div key={item.label} className="flex items-center gap-2 px-2 border-r border-white/5 last:border-0 cursor-help group/pill">
-                                <div className={`w-1.5 h-1.5 rounded-full ${item.color} shadow-[0_0_8px_rgba(255,255,255,0.2)]`} />
-                                <span className="text-[10px] font-black text-white/60 uppercase tracking-tighter">{item.label}</span>
-                            </div>
-                        ))}
-                    </div>
+                    {!isFocusMode && (
+                        <div className="absolute top-6 right-6 flex items-center gap-3 z-30 p-2 glass-morphism rounded-2xl border-white/5 opacity-40 hover:opacity-100 transition-opacity pointer-events-auto">
+                            {[
+                                { color: 'bg-white', label: 'Frontier' },
+                                { color: 'bg-white/70', label: 'Masteries' },
+                                { color: 'bg-white/40', label: 'Linked' },
+                                { color: 'bg-slate-700', label: 'Locked' }
+                            ].map(item => (
+                                <div key={item.label} className="flex items-center gap-2 px-2 border-r border-white/5 last:border-0 cursor-help group/pill">
+                                    <div className={`w-1.5 h-1.5 rounded-full ${item.color} shadow-[0_0_8px_rgba(255,255,255,0.2)]`} />
+                                    <span className="text-[10px] font-black text-white/60 uppercase tracking-tighter">{item.label}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {isFocusMode && (
+                        <button
+                            onClick={toggleFocusMode}
+                            className="absolute top-5 right-5 z-40 px-4 py-2 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-black uppercase tracking-widest border border-white/10"
+                        >
+                            Exit Focus
+                        </button>
+                    )}
 
                 </div>
 
                 {/* Sidebar Panel */}
                 <AnimatePresence>
-                    {isSidebarOpen && (
+                    {isSidebarOpen && !isFocusMode && (
                         <motion.div
                             initial={{ width: 0, opacity: 0 }}
                             animate={{ width: "20rem", opacity: 1 }}
@@ -975,13 +1055,13 @@ const KnowledgeGraph = () => {
                                     >
                                         <Card className="flex-1 flex flex-col bg-dark-950/40 border-white/5 backdrop-blur-2xl rounded-[3rem] p-0 overflow-hidden">
                                             {/* Header Splash */}
-                                            <div className={`h-1.5 w-full ${selectedNode.status === 'COMPLETED' ? 'bg-amber-500' :
-                                                selectedNode.status === 'UNLOCKED' ? 'bg-cyan-500' : 'bg-slate-700'
+                                            <div className={`h-1.5 w-full ${selectedNode.status === 'COMPLETED' ? 'bg-white' :
+                                                selectedNode.status === 'UNLOCKED' ? 'bg-white/70' : 'bg-slate-700'
                                                 }`} />
 
                                             <div className="p-8 flex flex-col h-full">
                                                 <div className="flex justify-between items-start mb-6">
-                                                    <div className="px-3 py-1 rounded-full bg-white/5 border border-white/5 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-400 flex items-center gap-2">
+                                                    <div className="px-3 py-1 rounded-full bg-white/5 border border-white/5 text-[10px] font-black uppercase tracking-[0.2em] text-white/80 flex items-center gap-2">
                                                         <Target className="w-3 h-3" />
                                                         Active Focus
                                                     </div>
@@ -1026,14 +1106,14 @@ const KnowledgeGraph = () => {
                                                             <div className="grid grid-cols-2 gap-4">
                                                                 <button
                                                                     onClick={handleStartFocus}
-                                                                    className="flex flex-col items-center justify-center p-6 glass-morphism border-white/5 rounded-[2rem] hover:border-cyan-500/50 transition-all group"
+                                                                    className="flex flex-col items-center justify-center p-6 glass-morphism border-white/5 rounded-[2rem] hover:border-white/40 transition-all group"
                                                                 >
                                                                     <Timer className="w-6 h-6 text-white mb-2 group-hover:scale-110 transition-transform" />
                                                                     <span className="text-[10px] font-black uppercase tracking-widest text-white/70">Deep Focus</span>
                                                                 </button>
                                                                 <button
                                                                     onClick={() => navigate('/practice', { state: { searchTarget: selectedNode.name } })}
-                                                                    className="flex flex-col items-center justify-center p-6 glass-morphism border-white/5 rounded-[2rem] hover:border-primary-500/50 transition-all group"
+                                                                    className="flex flex-col items-center justify-center p-6 glass-morphism border-white/5 rounded-[2rem] hover:border-white/40 transition-all group"
                                                                 >
                                                                     <Zap className="w-6 h-6 text-white mb-2 group-hover:scale-110 transition-transform" />
                                                                     <span className="text-[10px] font-black uppercase tracking-widest text-white/70">Neural Stress</span>
@@ -1044,16 +1124,16 @@ const KnowledgeGraph = () => {
                                                         <div className="space-y-6">
                                                             {isLoadingIntel ? (
                                                                 <div className="py-20 flex flex-col items-center justify-center opacity-50">
-                                                                    <Sparkles className="w-10 h-10 text-cyan-500 animate-pulse mb-4" />
+                                                                    <Sparkles className="w-10 h-10 text-white/80 animate-pulse mb-4" />
                                                                     <p className="text-[9px] font-black uppercase tracking-widest">Generating Active Intel</p>
                                                                 </div>
                                                             ) : activeIntel ? (
                                                                 <div className="space-y-4 animate-fade-in">
                                                                     {/* Insight Card */}
-                                                                    <div className="p-5 bg-gradient-to-br from-cyan-900/20 to-transparent rounded-3xl border border-cyan-500/20">
+                                                                    <div className="p-5 bg-gradient-to-br from-white/10 to-transparent rounded-3xl border border-white/10">
                                                                         <div className="flex items-center gap-2 mb-3">
-                                                                            <Sparkles className="w-4 h-4 text-cyan-400" />
-                                                                            <h4 className="text-[10px] font-black uppercase tracking-widest text-cyan-200">Key Insight</h4>
+                                                                            <Sparkles className="w-4 h-4 text-white/80" />
+                                                                            <h4 className="text-[10px] font-black uppercase tracking-widest text-white/80">Key Insight</h4>
                                                                         </div>
                                                                         <p className="text-white text-sm font-medium leading-relaxed">
                                                                             "{activeIntel.insight}"
@@ -1061,10 +1141,10 @@ const KnowledgeGraph = () => {
                                                                     </div>
 
                                                                     {/* Analogy Card */}
-                                                                    <div className="p-5 bg-gradient-to-br from-amber-900/20 to-transparent rounded-3xl border border-amber-500/20">
+                                                                    <div className="p-5 bg-gradient-to-br from-white/10 to-transparent rounded-3xl border border-white/10">
                                                                         <div className="flex items-center gap-2 mb-3">
-                                                                            <Compass className="w-4 h-4 text-amber-400" />
-                                                                            <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-200">Mental Model</h4>
+                                                                            <Compass className="w-4 h-4 text-white/80" />
+                                                                            <h4 className="text-[10px] font-black uppercase tracking-widest text-white/80">Mental Model</h4>
                                                                         </div>
                                                                         <p className="text-white text-sm font-medium leading-relaxed italic">
                                                                             {activeIntel.analogy}
@@ -1072,10 +1152,10 @@ const KnowledgeGraph = () => {
                                                                     </div>
 
                                                                     {/* Socratic Question */}
-                                                                    <div className="p-5 bg-gradient-to-br from-purple-900/20 to-transparent rounded-3xl border border-purple-500/20">
+                                                                    <div className="p-5 bg-gradient-to-br from-white/10 to-transparent rounded-3xl border border-white/10">
                                                                         <div className="flex items-center gap-2 mb-3">
-                                                                            <HelpCircle className="w-4 h-4 text-purple-400" />
-                                                                            <h4 className="text-[10px] font-black uppercase tracking-widest text-purple-200">Challenge</h4>
+                                                                            <HelpCircle className="w-4 h-4 text-white/80" />
+                                                                            <h4 className="text-[10px] font-black uppercase tracking-widest text-white/80">Challenge</h4>
                                                                         </div>
                                                                         <p className="text-white text-sm font-bold leading-relaxed">
                                                                             {activeIntel.question}
@@ -1095,8 +1175,8 @@ const KnowledgeGraph = () => {
                                     </motion.div>
                                 ) : (
                                     <div className="h-full glass-dark rounded-[3rem] border border-dashed border-white/10 flex flex-col items-center justify-center p-8 text-center group">
-                                        <div className="w-20 h-20 bg-dark-900 border border-white/5 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-all duration-500 shadow-xl group-hover:shadow-cyan-500/20">
-                                            <Network className="w-8 h-8 text-dark-600 group-hover:text-cyan-400 transition-colors" />
+                                                                <div className="w-20 h-20 bg-dark-900 border border-white/5 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-all duration-500 shadow-xl group-hover:shadow-white/20">
+                                            <Network className="w-8 h-8 text-dark-600 group-hover:text-white/80 transition-colors" />
                                         </div>
                                         <h4 className="text-white text-[10px] font-black uppercase tracking-[0.2em] mb-3">Select Node</h4>
                                         <p className="text-[10px] text-dark-500 leading-relaxed font-medium max-w-[180px] mb-8">
@@ -1106,8 +1186,8 @@ const KnowledgeGraph = () => {
                                         {/* Integrated Legend */}
                                         <div className="flex flex-col gap-3 w-full max-w-[160px]">
                                             {[
-                                                { color: 'bg-cyan-500', label: 'Frontier', desc: 'Unlocked Concepts' },
-                                                { color: 'bg-amber-500', label: 'Mastered', desc: 'Core Stability' },
+                                                { color: 'bg-white', label: 'Frontier', desc: 'Unlocked Concepts' },
+                                                { color: 'bg-white/70', label: 'Mastered', desc: 'Core Stability' },
                                                 { color: 'bg-slate-700', label: 'Locked', desc: 'Hidden Nodes' }
                                             ].map(item => (
                                                 <div key={item.label} className="flex items-center gap-3 p-2 bg-white/5 rounded-xl border border-white/5">
@@ -1149,7 +1229,7 @@ const KnowledgeGraph = () => {
                                 <div className="space-y-4">
                                     <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">Graph Name</label>
                                     <input
-                                        className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-cyan-500/40"
+                                        className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-white/40"
                                         value={graphForm.name}
                                         onChange={(e) => setGraphForm({ ...graphForm, name: e.target.value })}
                                         placeholder="e.g. Biology Core"
@@ -1157,7 +1237,7 @@ const KnowledgeGraph = () => {
                                     <label className="text-[10px] font-black uppercase tracking-widest text-dark-500">Description</label>
                                     <textarea
                                         rows={3}
-                                        className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-cyan-500/40"
+                                        className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-white/40"
                                         value={graphForm.description}
                                         onChange={(e) => setGraphForm({ ...graphForm, description: e.target.value })}
                                         placeholder="Purpose and focus of this graph"
@@ -1208,19 +1288,34 @@ const KnowledgeGraph = () => {
                                     {documents.length === 0 && (
                                         <div className="text-xs text-dark-500 py-4">No documents found.</div>
                                     )}
-                                    {documents.map((doc) => (
-                                        <button
-                                            key={doc.id}
-                                            onClick={() => toggleDocumentSelection(doc.id)}
-                                            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border transition-all ${graphForm.document_ids.includes(doc.id) ? 'border-cyan-500/40 bg-cyan-500/10' : 'border-white/5 bg-dark-900/40 hover:bg-white/5'}`}
-                                        >
+                                    {documents.map((doc) => {
+                                        const phase = (doc.ingestion_step || '').toLowerCase();
+                                        const jobStatus = doc.ingestion_job_status;
+                                        const jobMessage = doc.ingestion_job_message || '';
+                                        const isRateLimited = phase === 'rate_limited'
+                                            || jobStatus === 'paused'
+                                            || jobMessage.toLowerCase().includes('rate limit');
+                                        return (
+                                            <button
+                                                key={doc.id}
+                                                onClick={() => toggleDocumentSelection(doc.id)}
+                                                className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border transition-all ${graphForm.document_ids.includes(doc.id) ? 'border-white/40 bg-white/10' : 'border-white/5 bg-dark-900/40 hover:bg-white/5'}`}
+                                            >
                                                 <div className="text-left">
                                                     <div className="text-sm text-white font-semibold">{doc.title || doc.filename}</div>
-                                                    <div className="text-[10px] text-dark-400">{doc.status}</div>
+                                                    <div className="text-[10px] text-dark-400">
+                                                        {doc.status}
+                                                        {isRateLimited && (
+                                                            <span className="ml-2 text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                                                                Paused (rate limited)
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div className={`w-3 h-3 rounded-full ${graphForm.document_ids.includes(doc.id) ? 'bg-cyan-400' : 'bg-dark-700'}`} />
+                                                <div className={`w-3 h-3 rounded-full ${graphForm.document_ids.includes(doc.id) ? 'bg-white' : 'bg-dark-700'}`} />
                                             </button>
-                                        ))}
+                                        );
+                                    })}
                                     </div>
                                 </div>
                             </div>
@@ -1229,7 +1324,7 @@ const KnowledgeGraph = () => {
                                 <button onClick={() => setShowGraphModal(false)} className="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest text-dark-400 hover:text-white">
                                     Cancel
                                 </button>
-                                <button onClick={handleSaveGraph} className="px-5 py-2 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white">
+                                <button onClick={handleSaveGraph} className="px-5 py-2 rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black uppercase tracking-widest text-white border border-white/10">
                                     Save Graph
                                 </button>
                             </div>
@@ -1291,7 +1386,7 @@ const KnowledgeGraph = () => {
                                         <button
                                             key={option.value}
                                             onClick={() => setBuildSourceMode(option.value)}
-                                            className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest border transition-all ${buildSourceMode === option.value ? 'bg-cyan-500/15 text-cyan-300 border-cyan-400/40' : 'bg-dark-900/40 text-dark-400 border-white/5 hover:border-white/10'}`}
+                                            className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest border transition-all ${buildSourceMode === option.value ? 'bg-white/10 text-white border-white/30' : 'bg-dark-900/40 text-dark-400 border-white/5 hover:border-white/10'}`}
                                         >
                                             {option.label}
                                         </button>
@@ -1338,13 +1433,13 @@ const KnowledgeGraph = () => {
                                 <div className="mt-5">
                                     <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-dark-500 font-bold mb-2">
                                         <span>Building Graph</span>
-                                        <span className="text-cyan-300">
+                                        <span className="text-white/80">
                                             {selectedGraph?.build_progress ? `${Math.round(selectedGraph.build_progress)}%` : 'in progress'}
                                         </span>
                                     </div>
                                     <div className="h-2 rounded-full bg-dark-900/60 border border-white/5 overflow-hidden">
                                         <div
-                                            className="h-full bg-gradient-to-r from-cyan-400/60 via-amber-400/70 to-cyan-400/60 animate-pulse"
+                                            className="h-full bg-gradient-to-r from-white/40 via-white/70 to-white/40 animate-pulse"
                                             style={{ width: `${Math.max(5, Math.min(100, selectedGraph?.build_progress || 10))}%` }}
                                         />
                                     </div>
@@ -1359,7 +1454,7 @@ const KnowledgeGraph = () => {
                                 <button onClick={() => setShowBuildModal(false)} className="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest text-dark-400 hover:text-white">
                                     Cancel
                                 </button>
-                                <button onClick={handleBuildGraph} disabled={isGraphLoading} className="px-5 py-2 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white">
+                                <button onClick={handleBuildGraph} disabled={isGraphLoading} className="px-5 py-2 rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black uppercase tracking-widest text-white border border-white/10">
                                     {isGraphLoading ? 'Building...' : 'Build'}
                                 </button>
                             </div>
@@ -1412,7 +1507,7 @@ const KnowledgeGraph = () => {
                                     />
                                     <button
                                         onClick={handleSuggestConnections}
-                                        className="w-full py-3 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white"
+                                        className="w-full py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black uppercase tracking-widest text-white border border-white/10"
                                         disabled={!targetGraphId || !connectionContext.trim() || isSuggesting}
                                     >
                                         {isSuggesting ? 'Analyzing...' : 'Suggest Connections'}
@@ -1450,7 +1545,7 @@ const KnowledgeGraph = () => {
                                         <div className="flex justify-end mt-4">
                                             <button
                                                 onClick={handleSaveConnections}
-                                                className="px-5 py-2 rounded-2xl bg-gradient-to-r from-primary-600 to-cyan-500 text-xs font-black uppercase tracking-widest text-white"
+                                                className="px-5 py-2 rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black uppercase tracking-widest text-white border border-white/10"
                                             >
                                                 Save Connections
                                             </button>
@@ -1493,20 +1588,20 @@ const KnowledgeGraph = () => {
 
                             <div className="space-y-8">
                                 <div className="flex gap-6 items-start">
-                                    <div className="w-12 h-12 rounded-3xl bg-cyan-500/20 flex items-center justify-center shrink-0 border border-cyan-500/30">
-                                        <Sparkles className="w-6 h-6 text-cyan-400" />
+                                    <div className="w-12 h-12 rounded-3xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
+                                        <Sparkles className="w-6 h-6 text-white/80" />
                                     </div>
                                     <div>
-                                        <h4 className="text-white font-black text-xs uppercase tracking-widest mb-2">The Frontier (Cyan)</h4>
+                                        <h4 className="text-white font-black text-xs uppercase tracking-widest mb-2">The Frontier</h4>
                                         <p className="text-xs text-dark-400 leading-relaxed">These are concepts you have unlocked. They are the next step in your cognitive evolution.</p>
                                     </div>
                                 </div>
                                 <div className="flex gap-6 items-start">
-                                    <div className="w-12 h-12 rounded-3xl bg-amber-500/20 flex items-center justify-center shrink-0 border border-amber-500/30">
-                                        <CheckCircle2 className="w-6 h-6 text-amber-400" />
+                                    <div className="w-12 h-12 rounded-3xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
+                                        <CheckCircle2 className="w-6 h-6 text-white/80" />
                                     </div>
                                     <div>
-                                        <h4 className="text-white font-black text-xs uppercase tracking-widest mb-2">Stability (Amber)</h4>
+                                        <h4 className="text-white font-black text-xs uppercase tracking-widest mb-2">Stability</h4>
                                         <p className="text-xs text-dark-400 leading-relaxed">Concepts you have already mastered. They form your intellectual core.</p>
                                     </div>
                                 </div>
@@ -1529,7 +1624,7 @@ const KnowledgeGraph = () => {
                                         localStorage.setItem('kgGuideDismissed', '1');
                                     }
                                 }}
-                                className="btn-primary w-full mt-12 py-4 font-black text-xs uppercase tracking-[0.3em] rounded-3xl"
+                                className="w-full mt-12 py-4 font-black text-xs uppercase tracking-[0.3em] rounded-3xl bg-white/10 hover:bg-white/20 text-white border border-white/10"
                             >
                                 Proceed to Nexus
                             </button>
