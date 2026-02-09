@@ -74,7 +74,7 @@ function ContentSelectionPanel({
   handleSourceModeChange,
   handleNoteToggle,
   queryClient,
-}: any) {
+}) {
   const { t, language } = useTranslation()
 
   // Cache all translation strings at render time to avoid repeated Proxy accesses in loops
@@ -108,7 +108,7 @@ function ContentSelectionPanel({
   const sourceModes = [
     { value: 'insights', label: tr.summary },
     { value: 'full', label: tr.fullContent },
-  ] as const
+  ]
 
   return (
     <div className="flex flex-col gap-4">
@@ -126,7 +126,7 @@ function ContentSelectionPanel({
             {tr.itemsSelected.replace(
               '{count}',
               selectedNotebookSummaries.reduce(
-                (acc: number, summary: any) => acc + summary.sources + summary.notes,
+                (acc, summary) => acc + summary.sources + summary.notes,
                 0
               ).toString()
             )}
@@ -155,10 +155,10 @@ function ContentSelectionPanel({
             <Accordion
               type="multiple"
               value={expandedNotebooks}
-              onValueChange={(value) => setExpandedNotebooks(value as string[])}
+              onValueChange={(value) => setExpandedNotebooks(value)}
               className="w-full"
             >
-              {notebooks.map((notebook: any, index: number) => {
+              {notebooks.map((notebook, index) => {
                 const sources = sourcesByNotebook[notebook.id] ?? []
                 const notes = notesByNotebook[notebook.id] ?? []
                 const selection = selections[notebook.id]
@@ -227,7 +227,7 @@ function ContentSelectionPanel({
                             </p>
                           ) : (
                             <div className="space-y-2">
-                              {sources.map((source: any) => {
+                              {sources.map((source) => {
                                 const mode = selection?.sources?.[source.id] ?? 'off'
                                 return (
                                   <div
@@ -264,7 +264,7 @@ function ContentSelectionPanel({
                                         handleSourceModeChange(
                                           notebook.id,
                                           source.id,
-                                          value as SourceMode
+                                          value
                                         )
                                       }
                                       disabled={mode === 'off'}
@@ -306,7 +306,7 @@ function ContentSelectionPanel({
                             </p>
                           ) : (
                             <div className="space-y-2">
-                              {notes.map((note: any) => {
+                              {notes.map((note) => {
                                 const mode = selection?.notes?.[note.id] ?? 'off'
                                 return (
                                   <div
@@ -405,16 +405,16 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
     })),
   })
 
-  const sourcesByNotebook = useMemo < Record < string, SourceListResponse[]>> (() => {
-    const map: Record<string, SourceListResponse[]> = {}
+  const sourcesByNotebook = useMemo(() => {
+    const map = {}
     notebooks.forEach((notebook, index) => {
       map[notebook.id] = sourcesQueries[index]?.data ?? []
     })
     return map
   }, [notebooks, sourcesQueries])
 
-  const notesByNotebook = useMemo < Record < string, NoteResponse[]>> (() => {
-    const map: Record<string, NoteResponse[]> = {}
+  const notesByNotebook = useMemo(() => {
+    const map = {}
     notebooks.forEach((notebook, index) => {
       map[notebook.id] = notesQueries[index]?.data ?? []
     })
@@ -429,7 +429,7 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
 
   // Stable set of notebook IDs that are currently fetching sources
   const fetchingNotebookIds = useMemo(() => {
-    const ids = new Set < string > ()
+    const ids = new Set()
     notebooks.forEach((notebook, index) => {
       if (sourcesQueries[index]?.isFetching) {
         ids.add(notebook.id)
@@ -543,7 +543,7 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
         for (const [notebookId, selection] of Object.entries(selections)) {
           const sourcesConfig = Object.entries(selection.sources)
             .filter(([, mode]) => mode !== 'off')
-            .reduce < Record < string, string>> ((acc, [sourceId, mode]) => {
+            .reduce((acc, [sourceId, mode]) => {
               const normalizedId = sourceId.replace(/^source:/, '')
               acc[normalizedId] = mode === 'insights' ? 'insights' : 'full content'
               return acc
@@ -551,7 +551,7 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
 
           const notesConfig = Object.entries(selection.notes)
             .filter(([, mode]) => mode !== 'off')
-            .reduce < Record < string, string>> ((acc, [noteId]) => {
+            .reduce((acc, [noteId]) => {
               const normalizedId = noteId.replace(/^note:/, '')
               acc[normalizedId] = 'full content'
               return acc
@@ -608,17 +608,17 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
   }, [notebooks, selections])
 
   const handleNotebookToggle = useCallback(
-    (notebookId: string, checked: boolean | 'indeterminate') => {
+    (notebookId, checked) => {
       const shouldCheck = checked === 'indeterminate' ? true : checked
       const sources = sourcesByNotebook[notebookId] ?? []
       const notes = notesByNotebook[notebookId] ?? []
       setSelections((prev) => {
         if (shouldCheck) {
-          const nextSources: Record<string, SourceMode> = {}
+          const nextSources = {}
           sources.forEach((source) => {
             nextSources[source.id] = getSourceDefaultMode(source)
           })
-          const nextNotes: Record<string, SourceMode> = {}
+          const nextNotes = {}
           notes.forEach((note) => {
             nextNotes[note.id] = 'full'
           })
@@ -631,11 +631,11 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
           }
         }
 
-        const clearedSources: Record<string, SourceMode> = {}
+        const clearedSources = {}
         sources.forEach((source) => {
           clearedSources[source.id] = 'off'
         })
-        const clearedNotes: Record<string, SourceMode> = {}
+        const clearedNotes = {}
         notes.forEach((note) => {
           clearedNotes[note.id] = 'off'
         })
@@ -653,7 +653,7 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
   )
 
   const handleSourceModeChange = useCallback(
-    (notebookId: string, sourceId: string, mode: SourceMode) => {
+    (notebookId, sourceId, mode) => {
       setSelections((prev) => ({
         ...prev,
         [notebookId]: {
@@ -669,7 +669,7 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
   )
 
   const handleNoteToggle = useCallback(
-    (notebookId: string, noteId: string, checked: boolean | 'indeterminate') => {
+    (notebookId, noteId, checked) => {
       setSelections((prev) => ({
         ...prev,
         [notebookId]: {
@@ -685,26 +685,26 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
   )
 
   const buildContentFromSelections = useCallback(async () => {
-    const parts: string[] = []
+    const parts = []
 
-    const tasks: Array<{ notebookId: string; payload: BuildContextRequest }> = []
+    const tasks = []
 
     Object.entries(selections).forEach(([notebookId, selection]) => {
       const sourcesConfig = Object.entries(selection.sources)
         .filter(([, mode]) => mode !== 'off')
-        .reduce < Record < string, string>> ((acc, [sourceId, mode]) => {
-          const normalizedId = sourceId.replace(/^source:/, '')
-          acc[normalizedId] = mode === 'insights' ? 'insights' : 'full content'
-          return acc
-        }, {})
+            .reduce((acc, [sourceId, mode]) => {
+              const normalizedId = sourceId.replace(/^source:/, '')
+              acc[normalizedId] = mode === 'insights' ? 'insights' : 'full content'
+              return acc
+            }, {})
 
       const notesConfig = Object.entries(selection.notes)
         .filter(([, mode]) => mode !== 'off')
-        .reduce < Record < string, string>> ((acc, [noteId]) => {
-          const normalizedId = noteId.replace(/^note:/, '')
-          acc[normalizedId] = 'full content'
-          return acc
-        }, {})
+            .reduce((acc, [noteId]) => {
+              const normalizedId = noteId.replace(/^note:/, '')
+              acc[normalizedId] = 'full content'
+              return acc
+            }, {})
 
       if (Object.keys(sourcesConfig).length === 0 && Object.keys(notesConfig).length === 0) {
         return
@@ -773,7 +773,7 @@ export function GeneratePodcastDialog({ open, onOpenChange }) {
         return
       }
 
-      const payload: PodcastGenerationRequest = {
+      const payload = {
         episode_profile: selectedEpisodeProfile.name,
         speaker_profile: selectedEpisodeProfile.speaker_config,
         episode_name: episodeName.trim(),

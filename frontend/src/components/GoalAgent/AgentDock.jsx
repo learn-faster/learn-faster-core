@@ -8,6 +8,7 @@ import AgentWelcome from './AgentWelcome';
 import { agentApi } from '../../services/agent';
 
 const ONBOARDING_KEY = 'agent_onboarding_complete';
+const WELCOME_DISMISSED_KEY = 'agent_welcome_dismissed';
 
 const AgentDock = () => {
   const [open, setOpen] = useState(false);
@@ -28,8 +29,9 @@ const AgentDock = () => {
   useEffect(() => {
     refreshStatus();
     const hasOnboarded = localStorage.getItem(ONBOARDING_KEY) === 'true';
+    const welcomeDismissed = localStorage.getItem(WELCOME_DISMISSED_KEY) === 'true';
     setShowOnboardingBar(!hasOnboarded);
-    setShowWelcome(!hasOnboarded);
+    setShowWelcome(!hasOnboarded && !welcomeDismissed);
   }, []);
 
   const badges = useMemo(() => {
@@ -59,7 +61,10 @@ const AgentDock = () => {
       {showWelcome && (
         <AgentWelcome
           onStart={startOnboarding}
-          onSkip={() => setShowWelcome(false)}
+          onSkip={() => {
+            localStorage.setItem(WELCOME_DISMISSED_KEY, 'true');
+            setShowWelcome(false);
+          }}
         />
       )}
       <AnimatePresence>

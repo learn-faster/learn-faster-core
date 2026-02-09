@@ -170,7 +170,7 @@ async def start_checkpoint_recall(checkpoint_id: str, db: Session = Depends(get_
                 response_format="json",
                 config=llm_config
             )
-            data = json.loads(response)
+            data = llm_service._extract_and_parse_json(response)
             if isinstance(data, dict):
                 data = data.get("items") or []
             generated = data

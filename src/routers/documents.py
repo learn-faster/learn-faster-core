@@ -5,7 +5,10 @@ Note: This is the 'App' API. Core engine endpoints are also available at /docume
 """
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form, Body, Request
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+from sqlalchemy.orm import Session, defer
+from sqlalchemy import func
+from sqlalchemy.orm.exc import ObjectDeletedError
 from typing import List, Optional, Callable
 import os
 import shutil
@@ -18,7 +21,7 @@ from pathlib import Path
 from datetime import datetime
 
 from src.database.orm import get_db
-from src.models.orm import Document, UserSettings, DocumentQuizItem as DocumentQuizItemORM, DocumentQuizSession, DocumentQuizAttempt, DocumentStudySettings, DocumentSection, IngestionJob
+from src.models.orm import Document, UserSettings, DocumentQuizItem as DocumentQuizItemORM, DocumentQuizSession, DocumentQuizAttempt, DocumentStudySettings, DocumentSection, IngestionJob, KnowledgeGraphDocument
 from src.models.enums import FileType
 from src.models.schemas import DocumentResponse, DocumentCreate, TimeTrackingRequest, DocumentLinkCreate, DocumentQuizGenerateRequest, DocumentQuizSessionCreate, DocumentQuizSessionResponse, DocumentQuizGradeRequest, DocumentQuizGradeResponse, DocumentStudySettingsPayload, DocumentStudySettingsResponse, DocumentQuizStatsResponse, DocumentQuizItem as DocumentQuizItemResponse, LLMConfig, DocumentSectionResponse, DocumentSectionUpdate, DocumentQualityResponse, IngestionJobResponse
 from src.services.time_tracking_service import TimeTrackingService
@@ -35,6 +38,7 @@ from src.services.prompts import CLOZE_GENERATION_PROMPT_TEMPLATE, RECALL_GRADIN
 from src.services.content_filter import filter_document_content, rebuild_filtered_from_sections
 from src.services.ocr_service import ocr_service
 from src.services.web_extractor import extract_web_content
+from src.queue.ingestion_queue import enqueue_extraction, enqueue_ingestion
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -49,10 +53,77 @@ from fastapi import BackgroundTasks
 from src.database.orm import SessionLocal
 
 
+def _attach_ingestion_errors(db: Session, documents: List[Document]) -> List[DocumentResponse]:
+    if not documents:
+        return []
+
+    doc_ids = [d.id for d in documents]
+    jobs = db.query(IngestionJob).filter(IngestionJob.document_id.in_(doc_ids)).order_by(
+        IngestionJob.document_id.asc(), IngestionJob.created_at.desc()
+    ).all()
+    graph_links = db.query(
+        KnowledgeGraphDocument.document_id,
+        func.count(KnowledgeGraphDocument.id).label("link_count")
+    ).filter(
+        KnowledgeGraphDocument.document_id.in_(doc_ids)
+    ).group_by(
+        KnowledgeGraphDocument.document_id
+    ).all()
+    graph_counts = {row.document_id: int(row.link_count) for row in graph_links}
+
+    latest_by_doc = {}
+    for job in jobs:
+        if job.document_id not in latest_by_doc:
+            latest_by_doc[job.document_id] = job
+
+    def _sanitize_message(message: Optional[str]) -> Optional[str]:
+        if not message:
+            return message
+        cleaned = " ".join(str(message).split())
+        if len(cleaned) > 180:
+            return cleaned[:177] + "..."
+        return cleaned
+
+    results = []
+    for doc in documents:
+        resp = DocumentResponse.model_validate(doc, from_attributes=True)
+        job = latest_by_doc.get(doc.id)
+        link_count = graph_counts.get(doc.id, 0)
+        resp.graph_link_count = link_count
+        resp.linked_to_graph = link_count > 0
+        if job:
+            if job.status == "failed":
+                resp.ingestion_error = _sanitize_message(job.message)
+            # Use job progress/phase if it's ahead of the document fields
+            if job.status in ("running", "pending"):
+                job_progress = float(job.progress or 0)
+                if job_progress > (resp.ingestion_progress or 0):
+                    resp.ingestion_progress = job_progress
+                if job.phase and (not resp.ingestion_step or resp.ingestion_step in ("pending", "queued", "extracting")):
+                    resp.ingestion_step = job.phase
+        results.append(resp)
+    return results
+
+
 def _get_or_create_job(db: Session, doc_id: int) -> IngestionJob:
     job = db.query(IngestionJob).filter(IngestionJob.document_id == doc_id).order_by(IngestionJob.created_at.desc()).first()
     if job:
         return job
+    job = IngestionJob(
+        id=str(uuid.uuid4()),
+        document_id=doc_id,
+        status="pending",
+        phase="queued",
+        progress=0.0,
+        message="Queued"
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+def _create_job(db: Session, doc_id: int) -> IngestionJob:
     job = IngestionJob(
         id=str(uuid.uuid4()),
         document_id=doc_id,
@@ -77,21 +148,55 @@ def _update_job(
     partial_ready: Optional[bool] = None,
     completed: bool = False
 ):
-    if status:
-        job.status = status
-    if phase:
-        job.phase = phase
-    if progress is not None:
-        job.progress = float(progress)
-    if message:
-        job.message = message
-    if partial_ready is not None:
-        job.partial_ready = partial_ready
-    if completed:
-        job.completed_at = datetime.utcnow()
-    if job.started_at is None and status == "running":
-        job.started_at = datetime.utcnow()
-    db.commit()
+    job_id = getattr(job, "id", None)
+    if not job_id:
+        return
+    try:
+        job = db.query(IngestionJob).filter(IngestionJob.id == job_id).first()
+        if not job:
+            return
+        if status:
+            job.status = status
+        if phase:
+            job.phase = phase
+        if progress is not None:
+            job.progress = float(progress)
+        if message:
+            job.message = message
+        if partial_ready is not None:
+            job.partial_ready = partial_ready
+        if completed:
+            job.completed_at = datetime.utcnow()
+        if job.started_at is None and status == "running":
+            job.started_at = datetime.utcnow()
+        db.commit()
+    except ObjectDeletedError:
+        db.rollback()
+        return
+    except Exception as e:
+        logger.warning(f"Failed to update ingestion job {job_id}: {e}")
+        db.rollback()
+
+def _basic_text_analysis(text: str, scanned_prob: float = 0.0, page_count: int = 1) -> dict:
+    words = text.split() if text else []
+    word_count = len(words)
+    wpm = 275
+    wpm_fast = wpm * 1.25
+    wpm_slow = wpm * 0.75
+    reading_time_median = int(word_count / wpm) if word_count else 0
+    reading_time_min = int(word_count / wpm_fast) if word_count else 0
+    reading_time_max = int(word_count / wpm_slow) if word_count else 0
+    return {
+        "reading_time_median": reading_time_median,
+        "reading_time_min": reading_time_min,
+        "reading_time_max": reading_time_max,
+        "word_count": word_count,
+        "difficulty_score": None,
+        "language": None,
+        "scanned_prob": scanned_prob,
+        "page_count": page_count,
+        "metrics": {}
+    }
 
 async def process_extraction_background(
     doc_id: int,
@@ -118,11 +223,26 @@ async def process_extraction_background(
         document.ingestion_progress = 10
         db.commit()
 
+        def _update_doc_progress(step: str, progress: float):
+            try:
+                db.query(Document).filter(Document.id == doc_id).update({
+                    "ingestion_step": step,
+                    "ingestion_progress": float(progress)
+                })
+                db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to update document progress: {e}")
+                db.rollback()
+
         # 1. Extract Text
         extracted_text = ""
         try:
-            if file_type == FileType.PDF or os.path.exists(file_path):
-                extracted_text, _ = document_processor.convert_to_markdown(file_path)
+            if file_type == FileType.IMAGE:
+                extracted_text = await ocr_service.ocr_image(file_path, mode=settings.ocr_mode)
+                if not extracted_text or not extracted_text.strip():
+                    extracted_text = f"[OCR failed for {os.path.basename(file_path)}. Image may be unreadable.]"
+            elif os.path.exists(file_path):
+                extracted_text, _ = await run_in_threadpool(document_processor.convert_to_markdown, file_path)
         except Exception as e:
             logger.error(f"Extraction failed: {e}")
             document = db.query(Document).filter(Document.id == doc_id).first()
@@ -133,14 +253,20 @@ async def process_extraction_background(
             _update_job(db, job, status="failed", phase="extracting", progress=0, message=str(e), completed=True)
             return
 
-        analysis = reading_time_estimator.analyze_document(file_path)
+        if file_type == FileType.PDF and os.path.exists(file_path):
+            analysis = await run_in_threadpool(reading_time_estimator.analyze_document, file_path)
+        elif file_type == FileType.IMAGE:
+            analysis = _basic_text_analysis(extracted_text, scanned_prob=1.0, page_count=1)
+        else:
+            analysis = _basic_text_analysis(extracted_text, scanned_prob=0.0, page_count=1)
 
         # 2. OCR fallback for scanned or empty extraction
         ocr_status = "not_required"
         ocr_provider = None
-        if analysis.get("scanned_prob", 0) > 0.7 or "Text extraction failed" in (extracted_text or ""):
+        if file_type == FileType.PDF and (analysis.get("scanned_prob", 0) > 0.7 or "Text extraction failed" in (extracted_text or "")):
             ocr_status = "pending"
             _update_job(db, job, phase="ocr", progress=25, message="Running OCR")
+            _update_doc_progress("ocr", 25)
             ocr_text = await ocr_service.ocr_pdf(file_path, mode=settings.ocr_mode)
             if ocr_text and ocr_text.strip():
                 extracted_text = ocr_text
@@ -157,9 +283,13 @@ async def process_extraction_background(
                         ocr_status = "failed"
                 else:
                     ocr_status = "failed"
+        elif file_type == FileType.IMAGE:
+            ocr_status = "completed" if extracted_text and extracted_text.strip() else "failed"
+            ocr_provider = settings.ocr_mode if ocr_status == "completed" else None
 
         # 3. Filter main content
         _update_job(db, job, phase="filtering", progress=55, message="Filtering main content")
+        _update_doc_progress("filtering", 55)
         filter_result = await filter_document_content(extracted_text)
 
         # 4. Update DB
@@ -204,7 +334,7 @@ async def process_extraction_background(
 
             _update_job(db, job, status="completed", phase="ready", progress=100, message="Extraction complete", partial_ready=True, completed=True)
 
-            print(f"DEBUG: Extraction complete for {doc_id}")
+            logger.debug(f"Extraction complete for {doc_id}")
 
             # Sync to Open Notebook
             try:
@@ -216,12 +346,10 @@ async def process_extraction_background(
                     str(file_type) if file_type else "text"
                 )
             except Exception as e:
-                print(f"ERROR: Sync to Open Notebook failed: {e}")
+                logger.error(f"Sync to Open Notebook failed: {e}")
 
     except Exception as e:
-        print(f"Critical Failure in Extraction: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Critical Failure in Extraction: {e}")
         try:
              document = db.query(Document).filter(Document.id == doc_id).first()
              if document:
@@ -238,6 +366,7 @@ async def process_ingestion_background(
     document_processor: DocumentProcessor,
     ingestion_engine: IngestionEngine,
     document_store: DocumentStore,
+    user_id: str = "default_user",
     db_session_factory: Callable[[], Session] = SessionLocal
 ):
     """
@@ -246,12 +375,19 @@ async def process_ingestion_background(
     """
     db = db_session_factory()
     try:
-        print(f"DEBUG: Ingestion started for {doc_id}")
+        logger.debug(f"Ingestion started for {doc_id}")
         
         # 1. Load Document State
         document = db.query(Document).filter(Document.id == doc_id).first()
         if not document or not (document.filtered_extracted_text or document.extracted_text or document.raw_extracted_text):
-            print(f"ERROR: Cannot ingest document {doc_id} - text missing.")
+            logger.error(f"Cannot ingest document {doc_id} - text missing.")
+            if document:
+                document.status = "failed"
+                document.ingestion_step = "text_missing"
+                document.ingestion_progress = 0
+                db.commit()
+            job = _create_job(db, doc_id)
+            _update_job(db, job, status="failed", phase="ingesting", progress=0, message="Text missing", completed=True)
             return
 
         document.status = "ingesting" # New status for UI
@@ -259,25 +395,44 @@ async def process_ingestion_background(
         document.ingestion_progress = 0
         db.commit()
         job = _get_or_create_job(db, doc_id)
+        job_id = job.id
         _update_job(db, job, status="running", phase="ingesting", progress=5, message="Building knowledge graph")
 
+        # Resolve LLM config for this user
+        from src.services.llm_config_resolver import resolve_llm_config
+        llm_config = resolve_llm_config(db, user_id)
+        logger.debug(f"Using LLM config for ingestion: provider={llm_config.provider}, model={llm_config.model}")
+
         # Callback for real-time updates
+        last_progress = {"value": -1, "step": None}
+
         def on_progress(step: str, progress: int):
-            # We need a fresh session or careful management if async? 
-            # SQLAlchemy sessions are not thread-safe but this is a single async task?
-            # actually usually better to create short-lived sessions or reuse `db` carefully.
-            # `db` is open for this task.
+            # Avoid holding the long-lived session during incremental updates.
+            # Use a short-lived session for progress writes to prevent stale state.
             try:
-                # We need to refresh/merge?
-                # Simple update statement might be safer to avoid stale object issues
-                db.query(Document).filter(Document.id == doc_id).update({
-                    "ingestion_step": step,
-                    "ingestion_progress": progress
-                })
-                db.commit()
+                if step != last_progress["step"] or progress - last_progress["value"] >= 5:
+                    last_progress["step"] = step
+                    last_progress["value"] = progress
+                else:
+                    return
+                progress_db = db_session_factory()
+                try:
+                    progress_db.query(Document).filter(Document.id == doc_id).update({
+                        "ingestion_step": step,
+                        "ingestion_progress": progress
+                    })
+                    if job_id:
+                        progress_db.query(IngestionJob).filter(IngestionJob.id == job_id).update({
+                            "phase": step,
+                            "progress": float(progress),
+                            "status": "running",
+                            "message": step
+                        })
+                    progress_db.commit()
+                finally:
+                    progress_db.close()
             except Exception as e:
-                print(f"Progress update failed: {e}")
-                db.rollback()
+                logger.warning(f"Progress update failed: {e}")
 
         # 2. Chunk Content
         source_text = document.filtered_extracted_text or document.extracted_text or document.raw_extracted_text or ""
@@ -289,6 +444,7 @@ async def process_ingestion_background(
             markdown=source_text,
             content_chunks=chunks,
             document_id=doc_id,
+            llm_config=llm_config,
             on_progress=on_progress
         )
 
@@ -301,12 +457,10 @@ async def process_ingestion_background(
             document_store.update_status(doc_id, "completed")
             db.commit()
             _update_job(db, job, status="completed", phase="complete", progress=100, message="Graph build complete", completed=True)
-            print(f"DEBUG: Ingestion complete for {doc_id}")
+            logger.debug(f"Ingestion complete for {doc_id}")
 
     except Exception as e:
-        print(f"ERROR: Ingestion failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Ingestion failed: {e}")
         document = db.query(Document).filter(Document.id == doc_id).first()
         if document:
             document.status = "failed" # Or back to 'extracted'?
@@ -384,13 +538,17 @@ async def upload_document(
         db.refresh(document)
         
         # 3. Queue Background Processing (Phase 1: Extraction Only)
-        background_tasks.add_task(
-            process_extraction_background,
-            doc_id,
-            file_path,
-            file_type,
-            document_processor
-        )
+        job = _get_or_create_job(db, doc_id)
+        _update_job(db, job, status="pending", phase="queued", progress=0, message="Queued for extraction")
+        job_id = enqueue_extraction(doc_id, file_path, file_type.value)
+        if not job_id:
+            background_tasks.add_task(
+                process_extraction_background,
+                doc_id,
+                file_path,
+                file_type,
+                document_processor
+            )
         
         return document
 
@@ -430,7 +588,7 @@ async def ingest_youtube(
         
     try:
         # 1. Fetch transcript
-        transcript = fetch_transcript(video_id)
+        transcript = await run_in_threadpool(fetch_transcript, video_id)
         if not transcript or not transcript.strip():
             raise HTTPException(status_code=404, detail="Transcript not available for this video")
             
@@ -450,13 +608,17 @@ async def ingest_youtube(
             db.commit()
 
         # 3. Queue background extraction
-        background_tasks.add_task(
-            process_extraction_background,
-            doc_metadata.id,
-            doc_metadata.file_path,
-            FileType.OTHER,
-            document_processor
-        )
+        job = _get_or_create_job(db, doc_metadata.id)
+        _update_job(db, job, status="pending", phase="queued", progress=0, message="Queued for extraction")
+        job_id = enqueue_extraction(doc_metadata.id, doc_metadata.file_path, FileType.OTHER.value)
+        if not job_id:
+            background_tasks.add_task(
+                process_extraction_background,
+                doc_metadata.id,
+                doc_metadata.file_path,
+                FileType.OTHER,
+                document_processor
+            )
         
         # Return the document record
         doc = db.query(Document).filter(Document.id == doc_metadata.id).first()
@@ -485,7 +647,7 @@ async def ingest_link(
     if video_id:
         # YouTube Logic
         try:
-            transcript = fetch_transcript(video_id)
+            transcript = await run_in_threadpool(fetch_transcript, video_id)
             if not transcript or not transcript.strip():
                  # Valid video but no transcript? fall through to generic link
                  pass
@@ -508,20 +670,24 @@ async def ingest_link(
                      db.commit()
                      
                  # Trigger extraction
-                 background_tasks.add_task(
-                     process_extraction_background,
-                     doc_metadata.id,
-                     doc_metadata.file_path,
-                     FileType.OTHER,
-                     document_processor
-                 )
+                 job = _get_or_create_job(db, doc_metadata.id)
+                 _update_job(db, job, status="pending", phase="queued", progress=0, message="Queued for extraction")
+                 job_id = enqueue_extraction(doc_metadata.id, doc_metadata.file_path, FileType.OTHER.value)
+                 if not job_id:
+                     background_tasks.add_task(
+                         process_extraction_background,
+                         doc_metadata.id,
+                         doc_metadata.file_path,
+                         FileType.OTHER,
+                         document_processor
+                     )
                  return doc
         except Exception as e:
             print(f"YouTube processing failed, falling back to basic link: {e}")
             
     # Generic Link Handling
     try:
-        extracted = extract_web_content(link_data.url)
+        extracted = await run_in_threadpool(extract_web_content, link_data.url)
         title = link_data.title or (extracted.get("title") if extracted else None) or "Web Source"
         body = extracted.get("content") if extracted else ""
         if not body or not body.strip():
@@ -546,13 +712,17 @@ async def ingest_link(
             db.commit()
             
         # Trigger extraction
-        background_tasks.add_task(
-            process_extraction_background,
-            doc_metadata.id,
-            doc_metadata.file_path,
-            FileType.LINK,
-            document_processor
-        )
+        job = _get_or_create_job(db, doc_metadata.id)
+        _update_job(db, job, status="pending", phase="queued", progress=0, message="Queued for extraction")
+        job_id = enqueue_extraction(doc_metadata.id, doc_metadata.file_path, FileType.LINK.value)
+        if not job_id:
+            background_tasks.add_task(
+                process_extraction_background,
+                doc_metadata.id,
+                doc_metadata.file_path,
+                FileType.LINK,
+                document_processor
+            )
         return doc
         
     except Exception as e:
@@ -570,7 +740,11 @@ def get_documents(
     """
     Retrieves a list of documents with optional filtering.
     """
-    query = db.query(Document)
+    query = db.query(Document).options(
+        defer(Document.extracted_text),
+        defer(Document.raw_extracted_text),
+        defer(Document.filtered_extracted_text)
+    )
     
     if folder_id == "unfiled":
         query = query.filter(Document.folder_id == None)
@@ -584,12 +758,7 @@ def get_documents(
         pass
         
     documents = query.order_by(Document.upload_date.desc()).all()
-    # Avoid sending large extracted fields on list endpoint
-    for doc in documents:
-        doc.extracted_text = None
-        doc.raw_extracted_text = None
-        doc.filtered_extracted_text = None
-    return documents
+    return _attach_ingestion_errors(db, documents)
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
@@ -600,7 +769,8 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    return document
+    enriched = _attach_ingestion_errors(db, [document])
+    return enriched[0] if enriched else document
 
 
 @router.get("/{document_id}/sections", response_model=List[DocumentSectionResponse])
@@ -818,7 +988,8 @@ async def end_reading_session(
 
 @router.delete("/{document_id}")
 async def delete_document(
-    document_id: int, 
+    document_id: int,
+    remove_graph_links: bool = False,
     db: Session = Depends(get_db),
     document_store: DocumentStore = Depends(get_document_store)
 ):
@@ -826,6 +997,19 @@ async def delete_document(
     Deletes a document and its associated data across all stores.
     """
     try:
+        linked_graphs = db.query(KnowledgeGraphDocument).filter(
+            KnowledgeGraphDocument.document_id == document_id
+        ).count()
+        if linked_graphs and not remove_graph_links:
+            raise HTTPException(
+                status_code=409,
+                detail="Document is linked to a knowledge graph. Choose whether to keep or remove graph links before deleting."
+            )
+        if linked_graphs and remove_graph_links:
+            db.query(KnowledgeGraphDocument).filter(
+                KnowledgeGraphDocument.document_id == document_id
+            ).delete(synchronize_session=False)
+            db.commit()
         # standardizing on document_store for coordinated cleanup
         document_store.delete_document(document_id)
         return {"message": "Document and associated metadata/vectors deleted successfully"}
@@ -855,14 +1039,18 @@ async def synthesize_document(
         raise HTTPException(status_code=400, detail="Document has no extracted text. Reprocess extraction first.")
 
     # Queue ingestion
-    background_tasks.add_task(
-        process_ingestion_background,
-        doc_id=document_id,
-        file_path=document.file_path,
-        document_processor=document_processor,
-        ingestion_engine=ingestion_engine,
-        document_store=document_store
-    )
+    job = _get_or_create_job(db, document_id)
+    _update_job(db, job, status="pending", phase="queued", progress=0, message="Queued for ingestion")
+    job_id = enqueue_ingestion(document_id, document.file_path, user_id="default_user")
+    if not job_id:
+        background_tasks.add_task(
+            process_ingestion_background,
+            doc_id=document_id,
+            file_path=document.file_path,
+            document_processor=document_processor,
+            ingestion_engine=ingestion_engine,
+            document_store=document_store
+        )
     
     document.status = "ingesting"
     document.ingestion_step = "queued"
@@ -901,13 +1089,17 @@ async def reprocess_document(
         file_type = FileType.OTHER
     
     # Queue re-extraction
-    background_tasks.add_task(
-        process_extraction_background,
-        document_id,
-        document.file_path,
-        file_type,
-        document_processor
-    )
+    job = _get_or_create_job(db, document_id)
+    _update_job(db, job, status="pending", phase="queued", progress=0, message="Queued for extraction")
+    job_id = enqueue_extraction(document_id, document.file_path, file_type.value)
+    if not job_id:
+        background_tasks.add_task(
+            process_extraction_background,
+            document_id,
+            document.file_path,
+            file_type,
+            document_processor
+        )
     
     document.status = "processing"
     document.ingestion_step = "queued_extraction"
@@ -1052,7 +1244,7 @@ async def generate_document_quiz_items(
             response_format="json",
             config=llm_config
         )
-        data = json.loads(response)
+        data = llm_service._extract_and_parse_json(response)
         if isinstance(data, dict):
             data = data.get("items") or []
         for raw in data:
@@ -1196,7 +1388,9 @@ async def grade_document_quiz_item(
             response_format="json",
             config=llm_config
         )
-        data = json.loads(response)
+        data = llm_service._extract_and_parse_json(response)
+        if not isinstance(data, dict):
+            raise ValueError("LLM grading response was not a JSON object")
         score = float(data.get("score", 0))
         feedback = data.get("feedback", "")
         llm_eval = data

@@ -75,25 +75,12 @@ class KnowledgeGraphService:
 
     @staticmethod
     def _resolve_llm_config(db: Session, user_id: str, override: Optional[LLMConfig], graph_config: Optional[Dict[str, Any]]) -> LLMConfig:
-        if override:
-            return override
-
-        if graph_config:
-            try:
-                return LLMConfig(**graph_config)
-            except Exception:
-                pass
-
-        # Fallback to user settings if present
-        user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-        if user_settings and user_settings.llm_config:
-            try:
-                clean_config = user_settings.llm_config if isinstance(user_settings.llm_config, dict) else {}
-                return LLMConfig(**clean_config)
-            except Exception:
-                pass
-
-        return LLMConfig()
+        """
+        Resolve LLM config using the shared resolver.
+        Maintains backward compatibility by delegating to the centralized resolver.
+        """
+        from src.services.llm_config_resolver import resolve_llm_config
+        return resolve_llm_config(db, user_id, override=override, entity_config=graph_config)
 
     @staticmethod
     def build_graph(

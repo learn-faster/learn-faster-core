@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, RefreshCw } from 'lucide-react';
 import { agentApi } from '../services/agent';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 const AdminEmails = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const fetchLogs = async () => {
     setLoading(true);
+    setErrorMessage('');
     try {
       const data = await agentApi.emailLogs({ limit: 100 });
       setLogs(data.logs || []);
     } catch (e) {
-      console.error('Failed to load email logs', e);
+      setErrorMessage(e?.userMessage || e?.message || 'Failed to load email logs.');
     } finally {
       setLoading(false);
     }
@@ -24,6 +27,7 @@ const AdminEmails = () => {
 
   return (
     <div className="space-y-6">
+      <InlineErrorBanner message={errorMessage} />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-primary-300 font-black">Admin</p>

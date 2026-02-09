@@ -54,7 +54,7 @@ export class ErrorBoundary extends React.Component {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {process.env.NODE_ENV === 'development' && this.state.error && (
+              {import.meta.env.DEV && this.state.error && (
                 <details className="text-xs bg-muted p-3 rounded border">
                   <summary className="cursor-pointer font-medium">{t?.common?.errorDetails || 'Error Details'}</summary>
                   <pre className="mt-2 whitespace-pre-wrap break-all">

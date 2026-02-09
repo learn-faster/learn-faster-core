@@ -5,6 +5,7 @@ import { Plus, BookOpen, Clock, ChevronRight, GraduationCap, ArrowRight, Sparkle
 
 import curriculumService from '../services/curriculum';
 import api from '../services/api';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 const CurriculumList = () => {
     const navigate = useNavigate();
@@ -19,6 +20,7 @@ const CurriculumList = () => {
     const [documents, setDocuments] = useState([]);
     const [creatingStep, setCreatingStep] = useState('idle'); // idle, generating, done, error
     const [errorMessage, setErrorMessage] = useState('');
+    const [pageError, setPageError] = useState('');
     const [hoursPerWeek, setHoursPerWeek] = useState(5);
     const [durationWeeks, setDurationWeeks] = useState(4);
     const [startDate, setStartDate] = useState('');
@@ -45,7 +47,7 @@ const CurriculumList = () => {
             setCurriculums(data);
             data.forEach((curr) => fetchMetrics(curr.id));
         } catch (error) {
-            console.error("Failed to load curriculums", error);
+            setPageError(error?.userMessage || error?.message || 'Failed to load curriculums.');
         } finally {
             setLoading(false);
         }
@@ -67,7 +69,7 @@ const CurriculumList = () => {
             const docs = Array.isArray(res) ? res : (res.items || []);
             setDocuments(docs);
         } catch (error) {
-            console.error("Failed to load docs", error);
+            setPageError(error?.userMessage || error?.message || 'Failed to load documents.');
         }
     };
 
@@ -110,7 +112,7 @@ const CurriculumList = () => {
         } catch (error) {
             console.error("Failed to create", error);
             setCreatingStep('error');
-            setErrorMessage(typeof error === 'string' ? error : "Something went wrong. Please check your backend connection.");
+            setErrorMessage(error?.userMessage || error?.message || "Something went wrong. Please check your backend connection.");
         }
     };
 
@@ -153,6 +155,7 @@ const CurriculumList = () => {
             <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-dark-950 to-transparent z-0 pointer-events-none" />
 
             <div className="max-w-7xl mx-auto px-6 py-16 relative z-10">
+                <InlineErrorBanner message={pageError} className="mb-6" />
 
                 {/* Header Section */}
                 <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-20 gap-8">

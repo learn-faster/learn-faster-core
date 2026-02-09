@@ -71,6 +71,8 @@ def initialize_orm_tables():
         migrate_agent_email_messages_table()
         # Manually migrate 'curriculums' table
         migrate_curriculums_table()
+        # Manually migrate 'knowledge_graphs' table
+        migrate_knowledge_graphs_table()
         
         return True
     except Exception as e:
@@ -141,6 +143,10 @@ def migrate_user_settings_table():
         ("weekly_digest_minute", "INTEGER DEFAULT 0"),
         ("weekly_digest_last_sent_at", "TIMESTAMP"),
         ("llm_config", "JSON"),
+        ("embedding_provider", "VARCHAR"),
+        ("embedding_model", "VARCHAR"),
+        ("embedding_api_key", "VARCHAR"),
+        ("embedding_base_url", "VARCHAR"),
         ("use_biometrics", "BOOLEAN DEFAULT FALSE"),
         ("fitbit_client_id", "VARCHAR"),
         ("fitbit_client_secret", "VARCHAR"),
@@ -263,6 +269,21 @@ def migrate_curriculums_table():
         try:
             postgres_conn.execute_write(f"ALTER TABLE curriculums ADD COLUMN {col_name} {col_type}")
             print(f"Added column {col_name} to curriculums table")
+        except Exception:
+            pass
+
+
+def migrate_knowledge_graphs_table():
+    """Add new columns to knowledge_graphs table if they are missing."""
+    cols_to_add = [
+        ("error_message", "TEXT"),
+        ("build_progress", "FLOAT DEFAULT 0.0"),
+        ("build_stage", "VARCHAR")
+    ]
+    for col_name, col_type in cols_to_add:
+        try:
+            postgres_conn.execute_write(f"ALTER TABLE knowledge_graphs ADD COLUMN {col_name} {col_type}")
+            print(f"Added column {col_name} to knowledge_graphs table")
         except Exception:
             pass
 

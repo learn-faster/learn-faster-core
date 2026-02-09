@@ -19,10 +19,21 @@ class DocumentStore:
         self.storage_dir = storage_dir or self.STORAGE_DIR
         os.makedirs(self.storage_dir, exist_ok=True)
         self.db = postgres_conn
+    
+    def _sanitize_filename(self, filename: str) -> str:
+        """
+        Prevent path traversal by collapsing to a basename and stripping null bytes.
+        """
+        if not filename:
+            return "uploaded_document"
+        # Path(...).name handles both / and \\ separators.
+        safe_name = os.path.basename(filename).replace("\x00", "")
+        return safe_name or "uploaded_document"
         
     def save_document(self, file: UploadFile) -> DocumentMetadata:
         """Save an uploaded file and create a metadata record."""
         try:
+            safe_original_name = self._sanitize_filename(file.filename)
             # unique filename to prevent overwrites could be handled here, 
             # but for now we'll trust the filename or append timestamp if needed.
             # actually, using the ID as prefix is safer but we don't have ID yet.
@@ -33,12 +44,12 @@ class DocumentStore:
                 VALUES (%s, %s, 'pending')
                 RETURNING id, upload_date
             """
-            result = self.db.execute_query(insert_query, (file.filename, file.filename))
+            result = self.db.execute_query(insert_query, (safe_original_name, safe_original_name))
             doc_id = result[0]['id']
             upload_date = result[0]['upload_date']
             
             # Save file
-            safe_filename = f"{doc_id}_{file.filename}"
+            safe_filename = f"{doc_id}_{safe_original_name}"
             file_path = os.path.join(self.storage_dir, safe_filename)
             
             with open(file_path, "wb") as buffer:
@@ -48,10 +59,10 @@ class DocumentStore:
             update_query = "UPDATE documents SET file_path = %s WHERE id = %s"
             self.db.execute_write(update_query, (file_path, doc_id))
             
-            logger.info(f"Saved document {doc_id}: {file.filename}")
+            logger.info(f"Saved document {doc_id}: {safe_original_name}")
             return DocumentMetadata(
                 id=doc_id,
-                filename=file.filename,
+                filename=safe_original_name,
                 upload_date=upload_date,
                 status='pending',
                 file_path=file_path
@@ -114,9 +125,10 @@ class DocumentStore:
     def save_text_document(self, filename: str, content: str, title: str) -> DocumentMetadata:
         """Save raw text content as a document."""
         try:
+            safe_filename_only = self._sanitize_filename(filename)
             # Check for existing record
             check_query = "SELECT id, upload_date FROM documents WHERE filename = %s"
-            existing = self.db.execute_query(check_query, (filename,))
+            existing = self.db.execute_query(check_query, (safe_filename_only,))
             
             if existing:
                 doc_id = existing[0]['id']
@@ -130,12 +142,12 @@ class DocumentStore:
                     VALUES (%s, %s, 'pending')
                     RETURNING id, upload_date
                 """
-                result = self.db.execute_query(insert_query, (filename, title))
+                result = self.db.execute_query(insert_query, (safe_filename_only, title))
                 doc_id = result[0]['id']
                 upload_date = result[0]['upload_date']
             
             # Save file
-            safe_filename = f"{doc_id}_{filename}"
+            safe_filename = f"{doc_id}_{safe_filename_only}"
             file_path = os.path.join(self.storage_dir, safe_filename)
             
             with open(file_path, "w", encoding="utf-8") as f:
@@ -149,7 +161,7 @@ class DocumentStore:
             
             return DocumentMetadata(
                 id=doc_id,
-                filename=filename,
+                filename=safe_filename_only,
                 upload_date=upload_date,
                 status='pending',
                 file_path=file_path
@@ -176,13 +188,42 @@ class DocumentStore:
     def update_status(self, doc_id: int, status: str):
         """Update document processing status."""
         query = "UPDATE documents SET status = %s WHERE id = %s"
-        self.db.execute_query(query, (status, doc_id))
+        self.db.execute_write(query, (status, doc_id))
 
     def delete_document(self, doc_id: int):
         """Delete document and its associated data in all stores."""
         doc = self.get_document(doc_id)
         if not doc:
             raise ValueError(f"Document {doc_id} not found")
+
+        # 0. Delete DB records that don't have cascading foreign keys
+        # Keep these in a best-effort cleanup to avoid FK constraint failures.
+        cleanup_steps = [
+            ("document_quiz_attempts", "DELETE FROM document_quiz_attempts WHERE session_id IN (SELECT id FROM document_quiz_sessions WHERE document_id = %s)"),
+            ("document_quiz_sessions", "DELETE FROM document_quiz_sessions WHERE document_id = %s"),
+            ("document_quiz_items", "DELETE FROM document_quiz_items WHERE document_id = %s"),
+            ("document_study_settings", "DELETE FROM document_study_settings WHERE document_id = %s"),
+            ("document_sections", "DELETE FROM document_sections WHERE document_id = %s"),
+            ("ingestion_jobs", "DELETE FROM ingestion_jobs WHERE document_id = %s"),
+        ]
+
+        for table, query in cleanup_steps:
+            try:
+                self.db.execute_write(query, (doc_id,))
+            except Exception as e:
+                logger.warning(f"Failed to cleanup {table} for document {doc_id}: {e}")
+
+        # Null out references that should not block deletion
+        nullify_steps = [
+            ("curriculum_tasks", "UPDATE curriculum_tasks SET linked_doc_id = NULL WHERE linked_doc_id = %s"),
+            ("curriculums", "UPDATE curriculums SET document_id = NULL WHERE document_id = %s"),
+        ]
+
+        for table, query in nullify_steps:
+            try:
+                self.db.execute_write(query, (doc_id,))
+            except Exception as e:
+                logger.warning(f"Failed to nullify {table} for document {doc_id}: {e}")
             
         # 1. Delete from Knowledge Graph (Neo4j)
         try:

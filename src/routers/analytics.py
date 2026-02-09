@@ -278,7 +278,12 @@ def get_time_tracking_stats(
     """
     Retrieves reading time and estimated completion stats for all documents.
     """
-    documents = db.query(Document).filter(Document.time_spent_reading > 0).all()
+    start, end = _get_date_range(date_from, date_to)
+    documents = db.query(Document).filter(Document.time_spent_reading > 0)
+    if date_from or date_to:
+        documents = documents.filter(Document.last_opened.isnot(None))
+        documents = documents.filter(Document.last_opened >= start, Document.last_opened < end)
+    documents = documents.all()
     
     stats = []
     for doc in documents:
@@ -377,7 +382,7 @@ def get_learning_velocity(
         .scalar() or 0
     
     # Total study hours from document reading + session time
-    total_reading_seconds = 0
+    total_reading_seconds = db.query(func.sum(Document.time_spent_reading)).scalar() or 0
 
     # Count session durations in range
     sessions = db.query(StudySession)\

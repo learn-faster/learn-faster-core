@@ -1,29 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import React from 'react'
 import { renderHook, act } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { useModalManager } from './use-modal-manager'
-// Removed next/navigation import
-
-// Mock next/navigation
-vi.mock('next/navigation', () => ({
-  useRouter: vi.fn(),
-  useSearchParams: vi.fn(),
-  usePathname: vi.fn(),
-}))
 
 describe('useModalManager', () => {
-  const pushMock = vi.fn()
-  const pathnameMock = '/test-path'
-
-  beforeEach(() => {
-    vi.mocked(useRouter).mockReturnValue({ push: pushMock })
-    vi.mocked(usePathname).mockReturnValue(pathnameMock)
-    pushMock.mockClear()
-  })
-
   it('should return null modal state when no params present', () => {
-    vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams())
-    const { result } = renderHook(() => useModalManager())
+    const wrapper = ({ children }) =>
+      React.createElement(MemoryRouter, { initialEntries: ['/test-path'] }, children)
+    const { result } = renderHook(() => useModalManager(), { wrapper })
 
     expect(result.current.modalType).toBeNull()
     expect(result.current.modalId).toBeNull()
@@ -31,8 +17,9 @@ describe('useModalManager', () => {
   })
 
   it('should read modal state from URL params', () => {
-    vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams('modal=note&id=123'))
-    const { result } = renderHook(() => useModalManager())
+    const wrapper = ({ children }) =>
+      React.createElement(MemoryRouter, { initialEntries: ['/test-path?modal=note&id=123'] }, children)
+    const { result } = renderHook(() => useModalManager(), { wrapper })
 
     expect(result.current.modalType).toBe('note')
     expect(result.current.modalId).toBe('123')
@@ -40,24 +27,27 @@ describe('useModalManager', () => {
   })
 
   it('should call router.push when opening a modal', () => {
-    vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams())
-    const { result } = renderHook(() => useModalManager())
+    const wrapper = ({ children }) =>
+      React.createElement(MemoryRouter, { initialEntries: ['/test-path'] }, children)
+    const { result } = renderHook(() => useModalManager(), { wrapper })
 
     act(() => {
       result.current.openModal('source', 'abc')
     })
 
-    expect(pushMock).toHaveBeenCalledWith('/test-path?modal=source&id=abc', { scroll: false })
+    expect(result.current.modalType).toBe('source')
+    expect(result.current.modalId).toBe('abc')
   })
 
   it('should call router.push when closing a modal', () => {
-    vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams('modal=note&id=123'))
-    const { result } = renderHook(() => useModalManager())
+    const wrapper = ({ children }) =>
+      React.createElement(MemoryRouter, { initialEntries: ['/test-path?modal=note&id=123'] }, children)
+    const { result } = renderHook(() => useModalManager(), { wrapper })
 
     act(() => {
       result.current.closeModal()
     })
 
-    expect(pushMock).toHaveBeenCalledWith('/test-path?', { scroll: false })
+    expect(result.current.isOpen).toBe(false)
   })
 })

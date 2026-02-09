@@ -3,6 +3,7 @@ import shutil
 import logging
 import subprocess
 import asyncio
+from datetime import datetime
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request
@@ -31,6 +32,10 @@ from src.ingestion.youtube_utils import extract_video_id, fetch_transcript
 from src.config import settings  # Added
 from src.services.weekly_digest_scheduler import run_weekly_digest_scheduler
 from src.services.negotiation_scheduler import run_negotiation_scheduler
+from src.database.connections import postgres_conn
+from src.database.orm import SessionLocal
+from src.models.orm import UserSettings
+from src.queue.ingestion_queue import get_redis
 
 # Import new routers
 from src.routers import (
@@ -104,6 +109,27 @@ async def lifespan(app: FastAPI):
     
     # Ensure upload directory exists
     os.makedirs(settings.upload_dir, exist_ok=True)
+
+    # Load user-level embedding settings (if present) into runtime config
+    try:
+        db = SessionLocal()
+        settings_row = db.query(UserSettings).filter_by(user_id="default_user").first()
+        if settings_row:
+            if settings_row.embedding_provider is not None:
+                settings.embedding_provider = settings_row.embedding_provider
+            if settings_row.embedding_model is not None:
+                settings.embedding_model = settings_row.embedding_model
+            if settings_row.embedding_api_key is not None:
+                settings.embedding_api_key = settings_row.embedding_api_key
+            if settings_row.embedding_base_url is not None:
+                settings.embedding_base_url = settings_row.embedding_base_url
+    except Exception as e:
+        logger.warning(f"Failed to load user embedding settings: {e}")
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
     
     logger.info("Components initialized successfully")
 
@@ -183,6 +209,12 @@ async def lifespan(app: FastAPI):
         
     logger.info("Shutting down LearnFast Core Engine...")
 
+    try:
+        from src.services.llm_service import llm_service
+        await llm_service.close()
+    except Exception:
+        pass
+
 
 app = FastAPI(
     title="LearnFast Core Engine",
@@ -203,7 +235,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Configure CORS - uses settings.cors_origins which auto-detects from env or defaults
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=settings.cors_origins or ["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -246,6 +278,43 @@ app.mount("/extracted_images", StaticFiles(directory=extracted_images_dir), name
 @app.get("/")
 async def root():
     return FileResponse("src/static/index.html")
+
+@app.get("/health")
+async def health():
+    return {
+        "ok": True,
+        "service": "learnfast-core",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@app.get("/api/config")
+async def api_config():
+    db_status = "unknown"
+    try:
+        postgres_conn.execute_query("SELECT 1")
+        db_status = "online"
+    except Exception:
+        db_status = "offline"
+
+    redis_status = "disabled"
+    try:
+        redis = get_redis()
+        if redis:
+            redis.ping()
+            redis_status = "connected"
+        else:
+            redis_status = "disabled"
+    except Exception:
+        redis_status = "disconnected"
+
+    return {
+        "version": app.version,
+        "buildTime": None,
+        "latestVersion": None,
+        "hasUpdate": False,
+        "dbStatus": db_status,
+        "queueStatus": redis_status
+    }
 
 # --- Endpoint Migration Status ---
 # /ingest -> Moved to /api/documents/upload

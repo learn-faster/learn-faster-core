@@ -34,6 +34,7 @@ import api from '../services/api';
 import ForgettingCurve from '../components/analytics/ForgettingCurve';
 import LearningVelocity from '../components/analytics/LearningVelocity';
 import StreakProtection from '../components/analytics/StreakProtection';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 ChartJS.register(
     CategoryScale,
@@ -71,6 +72,7 @@ const Analytics = () => {
     const [recommendations, setRecommendations] = useState([]);
     const [goals, setGoals] = useState([]);
     const [goalFilter, setGoalFilter] = useState('all');
+    const [errorMessage, setErrorMessage] = useState('');
     const [dateFrom, setDateFrom] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() - 30);
@@ -85,7 +87,7 @@ const Analytics = () => {
                 const data = await api.get('/goals/?status=active');
                 setGoals(data || []);
             } catch (err) {
-                console.error('Failed to fetch goals', err);
+                setErrorMessage(err?.userMessage || err?.message || 'Failed to load goals.');
             }
         };
         fetchGoals();
@@ -133,7 +135,7 @@ const Analytics = () => {
                 setConsistency(consistencyData || null);
                 setRecommendations(recommendationsData?.items || []);
             } catch (err) {
-                console.error('Failed to fetch analytics', err);
+                setErrorMessage(err?.userMessage || err?.message || 'Failed to load analytics.');
             } finally {
                 setIsLoading(false);
             }
@@ -323,6 +325,7 @@ const Analytics = () => {
 
     return (
         <div className="space-y-8 animate-fade-in">
+            <InlineErrorBanner message={errorMessage} />
             <header className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-dark-300 bg-clip-text text-transparent">

@@ -148,8 +148,20 @@ class GoalManifestationAgent:
                 from src.models.fitbit import FitbitToken
                 from src.services.fitbit_service import FitbitService
                 db = SessionLocal()
+                demo_mode = agent_state.user_context.preferences.get("fitbit_demo_mode", False)
                 token = db.query(FitbitToken).filter(FitbitToken.user_id == agent_state.user_context.user_id).first()
-                if token:
+                if demo_mode:
+                    metrics = FitbitService.demo_metrics(datetime.now().date())
+                    readiness = FitbitService.compute_readiness(metrics) or 88.0
+                    summary = (
+                        f"Sleep: {metrics['sleep_duration_hours']:.1f} hours "
+                        f"(Efficiency: {metrics['sleep_efficiency']}%). "
+                        f"Resting HR: {metrics['resting_heart_rate']} bpm. "
+                        f"Readiness: {readiness}."
+                    )
+                    mode = agent_state.user_context.preferences.get("biometrics_mode", "intensity")
+                    biometrics_info = f"- Biometrics: {summary} (ENABLED, demo mode, mode: {mode})"
+                elif token:
                     fb_service = FitbitService(token)
                     summary = fb_service.get_biometric_summary(datetime.now().strftime('%Y-%m-%d'))
                     mode = agent_state.user_context.preferences.get("biometrics_mode", "intensity")
@@ -234,7 +246,9 @@ class GoalManifestationAgent:
         logger.info(f"[AGENT DEBUG] Planner LLM raw response: {response[:500] if response else 'None'}...")
         
         try:
-            plan = json.loads(response)
+            plan = llm_service._extract_and_parse_json(response)
+            if not isinstance(plan, dict):
+                raise ValueError("Planner response was not a JSON object")
             next_node = plan.get("next_step", "respond")
             tool_call = plan.get("tool_call")
             logger.info(f"[AGENT DEBUG] Planner decision: next_step={next_node}, tool_call={tool_call}")
@@ -243,7 +257,7 @@ class GoalManifestationAgent:
                 "next_node": next_node,
                 "tool_call": tool_call if next_node == "execute" else None
             }
-        except:
+        except Exception:
             logger.error(f"Failed to parse planner output: {response}")
             return {"next_node": "respond"}
 
@@ -477,7 +491,11 @@ class GoalManifestationAgent:
                     email=user_settings.email if user_settings else None,
                     resend_api_key=user_settings.resend_api_key if user_settings else None,
                     use_biometrics=user_settings.use_biometrics if user_settings else False,
-                    preferences={"biometrics_mode": biometrics_mode, "goal_pacing": pacing}
+                    preferences={
+                        "biometrics_mode": biometrics_mode,
+                        "goal_pacing": pacing,
+                        "fitbit_demo_mode": user_settings.llm_config.get("agent_settings", {}).get("fitbit_demo_mode", False) if user_settings and user_settings.llm_config else False
+                    }
                 ),
                 llm_config=llm_config,
                 goals=goals

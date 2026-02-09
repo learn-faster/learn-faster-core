@@ -5,6 +5,9 @@ from uuid import uuid4
 from datetime import datetime, timezone
 from .router_main import db
 from .db_utils import normalize_id, unwrap_query_result, first_record
+from src.services.llm_service import llm_service
+from src.models.schemas import LLMConfig
+from src.config import settings
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -52,10 +55,45 @@ async def execute_chat(request: ChatRequest):
         "timestamp": now_iso()
     }
 
-    assistant_content = (
-        f"I've received your message for notebook "
-        f"{session.get('notebook_id') if isinstance(session, dict) else 'unknown'}."
+    # Build LLM prompt
+    system_prompt = (
+        "You are a helpful study assistant. "
+        "Answer clearly and concisely. If context is provided, use it."
     )
+    messages_payload = [{"role": "system", "content": system_prompt}]
+
+    if request.context:
+        messages_payload.append({
+            "role": "system",
+            "content": f"Context:\n{request.context}"
+        })
+
+    # Include prior messages from session (last 10 for brevity)
+    for msg in messages[-10:]:
+        role = "assistant" if msg.get("type") in ("ai", "assistant") else "user"
+        messages_payload.append({"role": role, "content": msg.get("content", "")})
+
+    # Current user message
+    messages_payload.append({"role": "user", "content": request.message})
+
+    llm_config = None
+    if request.model_override:
+        llm_config = LLMConfig(
+            provider=settings.llm_provider,
+            model=request.model_override,
+            base_url=settings.ollama_base_url if settings.llm_provider == "ollama" else None
+        )
+
+    try:
+        assistant_content = await llm_service.get_chat_completion(
+            messages=messages_payload,
+            config=llm_config
+        )
+    except Exception as e:
+        assistant_content = (
+            "I couldn't reach the language model. "
+            "Please check your LLM settings or try again."
+        )
     assistant_message = {
         "id": f"ai-{uuid4().hex}",
         "type": "ai",

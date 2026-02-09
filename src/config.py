@@ -113,13 +113,16 @@ class Settings(BaseSettings):
     # Embedding Settings
     embedding_provider: str = "ollama"  # openai, ollama
     embedding_model: str = "embeddinggemma:latest"
+    embedding_dimensions: int = 768
     ollama_embedding_model: Optional[str] = None  # Deprecated, alias for backward compat if needed
     embedding_api_key: str = ""
     embedding_base_url: Optional[str] = None
+    embedding_concurrency: int = 4
 
     # Granular Model Settings (Optional - overrides llm_model if set)
     extraction_model: Optional[str] = None
     extraction_context_window: int = 100000
+    extraction_max_chars: int = 50000
     rewrite_model: Optional[str] = None
     rewrite_context_window: int = 10000
 
@@ -135,6 +138,11 @@ class Settings(BaseSettings):
     surreal_password: str = "root"
     surreal_namespace: str = "open_notebook"
     surreal_database: str = "open_notebook"
+
+    # Redis (Optional) - for background queue processing
+    redis_url: Optional[str] = None
+    redis_queue_name: str = "learnfast"
+    redis_job_timeout: int = 3600
 
     # Fitbit OAuth
     fitbit_redirect_uri: Optional[str] = None

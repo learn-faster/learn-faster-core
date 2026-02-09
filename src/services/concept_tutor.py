@@ -66,18 +66,10 @@ class ConceptTutorService:
             
             # Parse the JSON response
             try:
-                import re
-                # Extract JSON from response
-                text = response
-                if "```json" in text:
-                    text = text.split("```json")[1].split("```")[0]
-                elif "```" in text:
-                    text = text.split("```")[1].split("```")[0]
-                start_brace = text.find('{')
-                if start_brace != -1:
-                    text = text[start_brace:text.rfind('}')+1]
-                response_data = json.loads(text)
-            except (json.JSONDecodeError, ValueError) as e:
+                response_data = llm_service._extract_and_parse_json(response)
+                if not isinstance(response_data, dict):
+                    response_data = {}
+            except Exception as e:
                 logger.warning(f"Failed to parse LLM response as JSON: {e}")
                 response_data = {}
             
@@ -85,9 +77,9 @@ class ConceptTutorService:
                 return ConceptTutorService._get_fallback_intel(concept_name)
                 
             return {
-                "analogy": response.get("analogy", "Think of it like a puzzle piece."),
-                "insight": response.get("insight", "It connects foundational ideas."),
-                "question": response.get("question", "How does this relate to what you already know?")
+                "analogy": response_data.get("analogy", "Think of it like a puzzle piece."),
+                "insight": response_data.get("insight", "It connects foundational ideas."),
+                "question": response_data.get("question", "How does this relate to what you already know?")
             }
             
         except Exception as e:

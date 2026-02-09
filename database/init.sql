@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS user_settings (
     weekly_digest_hour INTEGER DEFAULT 18,
     weekly_digest_minute INTEGER DEFAULT 0,
     weekly_digest_last_sent_at TIMESTAMP,
+    embedding_provider VARCHAR,
+    embedding_model VARCHAR,
+    embedding_api_key VARCHAR,
+    embedding_base_url VARCHAR,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -260,7 +264,7 @@ GRANT USAGE, SELECT ON SEQUENCE knowledge_graph_documents_id_seq TO learnfast;
 -- Document Quiz / Recall tables
 CREATE TABLE IF NOT EXISTS document_quiz_items (
     id TEXT PRIMARY KEY,
-    document_id INTEGER NOT NULL REFERENCES documents(id),
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     mode TEXT DEFAULT 'cloze',
     passage_markdown TEXT NOT NULL,
     masked_markdown TEXT,
@@ -273,7 +277,7 @@ CREATE TABLE IF NOT EXISTS document_quiz_items (
 
 CREATE TABLE IF NOT EXISTS document_quiz_sessions (
     id TEXT PRIMARY KEY,
-    document_id INTEGER NOT NULL REFERENCES documents(id),
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     mode TEXT DEFAULT 'cloze',
     settings JSONB DEFAULT '{}',
     status TEXT DEFAULT 'active',
@@ -296,7 +300,7 @@ CREATE TABLE IF NOT EXISTS document_quiz_attempts (
 CREATE TABLE IF NOT EXISTS document_study_settings (
     id TEXT PRIMARY KEY,
     user_id TEXT DEFAULT 'default_user',
-    document_id INTEGER REFERENCES documents(id),
+    document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
     reveal_config JSONB DEFAULT '{}',
     llm_config JSONB DEFAULT '{}',
     voice_mode_enabled BOOLEAN DEFAULT FALSE,
@@ -313,3 +317,22 @@ GRANT ALL PRIVILEGES ON TABLE document_quiz_items TO postgres;
 GRANT ALL PRIVILEGES ON TABLE document_quiz_sessions TO postgres;
 GRANT ALL PRIVILEGES ON TABLE document_quiz_attempts TO postgres;
 GRANT ALL PRIVILEGES ON TABLE document_study_settings TO postgres;
+
+-- Ingestion jobs table (for tracking background ingestion status)
+CREATE TABLE IF NOT EXISTS ingestion_jobs (
+    id TEXT PRIMARY KEY,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    status TEXT DEFAULT 'pending',
+    phase TEXT DEFAULT 'queued',
+    progress FLOAT DEFAULT 0.0,
+    message TEXT,
+    partial_ready BOOLEAN DEFAULT FALSE,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ingestion_jobs_doc_idx ON ingestion_jobs(document_id);
+
+GRANT ALL PRIVILEGES ON TABLE ingestion_jobs TO learnfast;

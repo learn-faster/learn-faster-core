@@ -5,6 +5,7 @@ import { ArrowLeft, Calendar, Clock, CheckCircle2, RefreshCw, FileText, Layers, 
 
 import curriculumService from '../services/curriculum';
 import api from '../services/api';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 const CurriculumView = () => {
     const { id } = useParams();
@@ -16,6 +17,7 @@ const CurriculumView = () => {
     const [loading, setLoading] = useState(true);
     const [replanning, setReplanning] = useState(false);
     const [exportingWeek, setExportingWeek] = useState(null);
+    const [errorMessage, setErrorMessage] = useState('');
 
     useEffect(() => {
         fetchAll();
@@ -23,6 +25,7 @@ const CurriculumView = () => {
 
     const fetchAll = async () => {
         setLoading(true);
+        setErrorMessage('');
         try {
             const [curr, timelineRes, metricsRes, docsRes] = await Promise.all([
                 curriculumService.getCurriculum(id),
@@ -36,7 +39,7 @@ const CurriculumView = () => {
             const docs = Array.isArray(docsRes) ? docsRes : (docsRes.items || []);
             setDocuments(docs);
         } catch (error) {
-            console.error("Failed to load curriculum data", error);
+            setErrorMessage(error?.userMessage || error?.message || 'Failed to load curriculum data.');
         } finally {
             setLoading(false);
         }
@@ -53,7 +56,7 @@ const CurriculumView = () => {
             await curriculumService.completeCheckpoint(checkpointId);
             fetchAll();
         } catch (error) {
-            console.error("Failed to complete checkpoint", error);
+            setErrorMessage(error?.userMessage || error?.message || 'Failed to complete checkpoint.');
         }
     };
 
@@ -63,7 +66,7 @@ const CurriculumView = () => {
             await curriculumService.replanCurriculum(id);
             fetchAll();
         } catch (error) {
-            console.error("Failed to replan curriculum", error);
+            setErrorMessage(error?.userMessage || error?.message || 'Failed to replan curriculum.');
         } finally {
             setReplanning(false);
         }
@@ -74,7 +77,7 @@ const CurriculumView = () => {
             await curriculumService.toggleTask(taskId);
             fetchAll();
         } catch (error) {
-            console.error("Failed to toggle task", error);
+            setErrorMessage(error?.userMessage || error?.message || 'Failed to update task.');
         }
     };
 
@@ -90,7 +93,7 @@ const CurriculumView = () => {
             a.click();
             URL.revokeObjectURL(url);
         } catch (error) {
-            console.error("Failed to download report", error);
+            setErrorMessage(error?.userMessage || error?.message || 'Failed to download report.');
         } finally {
             setExportingWeek(null);
         }
@@ -102,7 +105,7 @@ const CurriculumView = () => {
             const docId = session.document_id;
             navigate(`/documents/${docId}?tab=recall&sessionId=${session.id}`);
         } catch (error) {
-            console.error("Failed to start recall", error);
+            setErrorMessage(error?.userMessage || error?.message || 'Failed to start recall.');
         }
     };
 
@@ -137,6 +140,7 @@ const CurriculumView = () => {
             <div className="absolute -top-32 -right-32 w-96 h-96 bg-primary-500/10 rounded-full blur-[120px] pointer-events-none" />
 
             <div className="max-w-6xl mx-auto px-6 py-12 relative z-10">
+                <InlineErrorBanner message={errorMessage} className="mb-6" />
                 <header className="flex flex-col gap-8 mb-10">
                     <div className="flex items-center justify-between">
                         <button

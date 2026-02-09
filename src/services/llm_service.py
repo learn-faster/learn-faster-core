@@ -8,11 +8,20 @@ import httpx
 import traceback
 import re
 import os
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIConnectionError, APIStatusError
 from src.config import settings
+from openai import (
+    APIConnectionError,
+    BadRequestError,
+    AuthenticationError,
+    PermissionDeniedError,
+    NotFoundError,
+    RateLimitError
+)
 from src.services.prompts import FLASHCARD_PROMPT_TEMPLATE, QUESTION_PROMPT_TEMPLATE, LEARNING_PATH_PROMPT_TEMPLATE, CONCEPT_EXTRACTION_PROMPT_TEMPLATE
 from opik import configure, track
 from src.utils.logger import logger
+from starlette.concurrency import run_in_threadpool
 
 class LLMService:
     """
@@ -26,6 +35,10 @@ class LLMService:
         self.provider = settings.llm_provider.lower()
         self.base_url = settings.ollama_base_url if self.provider == "ollama" else None
         self.model = settings.llm_model
+        self._embedding_client = None
+        self._embedding_provider = None
+        self._embedding_base_url = None
+        self._embedding_api_key = None
         
         # Initialize API key based on provider
         if self.provider == "openai":
@@ -189,7 +202,8 @@ class LLMService:
                     logger.error(f"DEBUG: Error Response Body: {e.response.text}")
                 except:
                     pass
-            raise e
+            user_msg = self._format_llm_error(e)
+            raise ValueError(user_msg) from e
 
     @track
     async def get_vision_completion(self, prompt: str, image_path: str, config=None) -> str:
@@ -200,8 +214,11 @@ class LLMService:
         
         client, model = self._get_client_for_config(config)
         
-        with open(image_path, "rb") as image_file:
-            base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+        def _read_image():
+            with open(image_path, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode("utf-8")
+        
+        base64_image = await run_in_threadpool(_read_image)
         
         try:
             response = await client.chat.completions.create(
@@ -224,7 +241,41 @@ class LLMService:
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"LLM Vision Error: {e}")
-            raise e
+            user_msg = self._format_llm_error(e)
+            raise ValueError(user_msg) from e
+
+    def _format_llm_error(self, error: Exception) -> str:
+        """
+        Return a short, user-facing LLM error message.
+        """
+        if isinstance(error, APIStatusError):
+            status = getattr(error, "status_code", None)
+            body = getattr(error, "response", None)
+            detail = ""
+            if body is not None:
+                try:
+                    detail = str(body.json())
+                except Exception:
+                    detail = str(body)
+            if status == 413 or "Request too large" in detail or "tokens per minute" in detail:
+                return (
+                    "LLM request too large for this model. Reduce chunk size or extraction window, "
+                    "or switch to a larger-capacity model."
+                )
+        if isinstance(error, AuthenticationError):
+            return "LLM authentication failed. Check your API key."
+        if isinstance(error, PermissionDeniedError):
+            return "LLM permission denied. Check your API key permissions."
+        if isinstance(error, RateLimitError):
+            return "LLM rate limit exceeded. Try again in a moment."
+        if isinstance(error, NotFoundError):
+            return "LLM endpoint not found (404). Check provider, base URL, and model."
+        if isinstance(error, BadRequestError):
+            return "LLM request rejected. Check the model name and settings."
+        if isinstance(error, APIConnectionError):
+            return "Cannot reach the LLM server. Check base URL and network."
+        # Fallback
+        return "LLM request failed. Check provider, model, and API credentials."
 
 
     async def _get_completion(self, prompt: str, system_prompt: str = "You are a helpful study assistant.", config=None):
@@ -354,16 +405,11 @@ class LLMService:
             effective_key = api_key or settings.openai_api_key
             if not effective_key:
                 raise ValueError("OpenAI embedding provider selected but OPENAI_API_KEY is missing.")
-            return AsyncOpenAI(
-                api_key=effective_key,
-                http_client=httpx.AsyncClient(trust_env=True)
-            )
+            effective_base = None
+            effective_api_key = effective_key
         elif provider == "ollama":
-            return AsyncOpenAI(
-                base_url=f"{(base_url or settings.ollama_base_url).rstrip('/')}/v1",
-                api_key="ollama",
-                http_client=httpx.AsyncClient(trust_env=True)
-            )
+            effective_base = f"{(base_url or settings.ollama_base_url).rstrip('/')}/v1"
+            effective_api_key = "ollama"
         elif provider in {"openrouter", "together", "fireworks", "mistral", "deepseek", "perplexity", "huggingface", "custom"}:
             default_base = {
                 "openrouter": "https://openrouter.ai/api/v1",
@@ -381,16 +427,34 @@ class LLMService:
                 raise ValueError(f"{provider} embedding provider requires a base_url.")
             if not api_key:
                 raise ValueError(f"{provider} embedding provider requires an API key.")
-            return AsyncOpenAI(
-                base_url=effective_base.rstrip('/'),
-                api_key=api_key,
-                http_client=httpx.AsyncClient(trust_env=True)
-            )
+            effective_api_key = api_key
         else:
             # Fallback to default client if same provider, or raise
             if provider == self.provider:
                 return self.client
             raise ValueError(f"Unsupported Embedding provider: {provider}")
+
+        if effective_base:
+            effective_base = effective_base.rstrip('/')
+
+        # Reuse cached embedding client when settings are unchanged.
+        if (
+            self._embedding_client
+            and self._embedding_provider == provider
+            and self._embedding_base_url == effective_base
+            and self._embedding_api_key == effective_api_key
+        ):
+            return self._embedding_client
+
+        self._embedding_provider = provider
+        self._embedding_base_url = effective_base
+        self._embedding_api_key = effective_api_key
+        self._embedding_client = AsyncOpenAI(
+            base_url=effective_base,
+            api_key=effective_api_key or "sk-no-key",
+            http_client=self.http_client
+        )
+        return self._embedding_client
 
     async def get_embedding(self, text: str) -> list[float]:
         """
@@ -414,6 +478,17 @@ class LLMService:
                 model=model
             )
             return response.data[0].embedding
+        except APIConnectionError as e:
+            provider = settings.embedding_provider
+            base_url = settings.embedding_base_url or settings.ollama_base_url
+            msg = (
+                "Embedding connection error. "
+                f"Provider='{provider}', model='{model}', base_url='{base_url}'. "
+                "Check the embedding server is running and reachable, or update EMBEDDING_BASE_URL."
+            )
+            logger.error(msg)
+            logger.error(traceback.format_exc())
+            raise ValueError(msg) from e
         except Exception as e:
             logger.error(f"Embedding Error: {e}")
             logger.error(traceback.format_exc())
@@ -476,8 +551,9 @@ class LLMService:
         Extracts structured concept data (nodes and edges) from text.
         """
         # Limit context to avoid overflow and extremely slow/empty responses
-        # Most documents will have their core concepts in the first 20k characters
-        prompt_text = text[:20000] if text else ""
+        # Use shared config so ingestion + AI extraction behave consistently
+        max_chars = settings.extraction_max_chars
+        prompt_text = text[:max_chars] if text else ""
         
         prompt = CONCEPT_EXTRACTION_PROMPT_TEMPLATE.format(text=prompt_text)
         response_text = await self._get_completion(prompt, system_prompt="You are a JSON-speaking knowledge engineer.", config=config)

@@ -3,6 +3,7 @@ import { Settings as SettingsIcon, Save, X, Bot, Key, Bell, Mail, BrainCircuit, 
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import cognitiveService from '../services/cognitive';
+import { getHealth } from '../lib/config';
 
 /**
  * Global Settings Drawer
@@ -45,6 +46,12 @@ const Settings = ({ isOpen, onClose }) => {
 
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [loadError, setLoadError] = useState('');
+    const [saveError, setSaveError] = useState('');
+    const [backendHealth, setBackendHealth] = useState(null);
+    const [backendHealthLoading, setBackendHealthLoading] = useState(false);
+    const [llmHealth, setLlmHealth] = useState(null);
+    const [llmHealthLoading, setLlmHealthLoading] = useState(false);
 
     const LLM_PROVIDERS = [
         { value: 'openai', label: 'OpenAI' },
@@ -80,9 +87,40 @@ const Settings = ({ isOpen, onClose }) => {
         { key: 'biometrics', label: 'Biometrics', icon: BrainCircuit }
     ]), []);
 
+    const checkBackendHealth = async () => {
+        setBackendHealthLoading(true);
+        try {
+            await getHealth();
+            setBackendHealth({ ok: true, detail: 'Connected' });
+        } catch (err) {
+            setBackendHealth({
+                ok: false,
+                detail: err?.message || 'Backend not reachable'
+            });
+        } finally {
+            setBackendHealthLoading(false);
+        }
+    };
+
+    const checkLlmHealth = async () => {
+        setLlmHealthLoading(true);
+        try {
+            const result = await cognitiveService.checkLlmHealth();
+            setLlmHealth(result);
+        } catch (err) {
+            setLlmHealth({
+                ok: false,
+                detail: err?.userMessage || err?.message || 'Failed to check LLM connection.'
+            });
+        } finally {
+            setLlmHealthLoading(false);
+        }
+    };
+
     useEffect(() => {
         if (!isOpen) return;
         setIsLoading(true);
+        setLoadError('');
 
         const savedProvider = localStorage.getItem('llm_provider') || 'openai';
         const savedKey = localStorage.getItem('llm_api_key') || '';
@@ -103,6 +141,25 @@ const Settings = ({ isOpen, onClose }) => {
                     api.get('/fitbit/status'),
                     cognitiveService.getSettings()
                 ]);
+
+                const llmConfig = cognitiveData?.llm_config || {};
+                const globalConfig = llmConfig.global || llmConfig;
+                if (globalConfig?.provider) {
+                    setProvider(globalConfig.provider);
+                    localStorage.setItem('llm_provider', globalConfig.provider);
+                }
+                if (globalConfig?.model) {
+                    setModel(globalConfig.model);
+                    localStorage.setItem('llm_model', globalConfig.model);
+                }
+                if (globalConfig?.api_key !== undefined) {
+                    setApiKey(globalConfig.api_key || '');
+                    localStorage.setItem('llm_api_key', globalConfig.api_key || '');
+                }
+                if (globalConfig?.base_url) {
+                    setOllamaUrl(globalConfig.base_url);
+                    localStorage.setItem('ollama_base_url', globalConfig.base_url);
+                }
 
                 if (settingsData.email) setEmail(settingsData.email);
                 if (settingsData.resend_api_key) setResendApiKey(settingsData.resend_api_key);
@@ -125,8 +182,10 @@ const Settings = ({ isOpen, onClose }) => {
                 if (cognitiveData?.embedding_model) setEmbeddingModel(cognitiveData.embedding_model);
                 if (cognitiveData?.embedding_api_key !== undefined) setEmbeddingApiKey(cognitiveData.embedding_api_key || '');
                 if (cognitiveData?.embedding_base_url) setEmbeddingBaseUrl(cognitiveData.embedding_base_url);
+                await checkBackendHealth();
+                await checkLlmHealth();
             } catch (err) {
-                console.error("Failed to load settings:", err);
+                setLoadError(err?.userMessage || err?.message || 'Failed to load settings.');
             } finally {
                 setIsLoading(false);
             }
@@ -159,6 +218,7 @@ const Settings = ({ isOpen, onClose }) => {
 
     const handleSave = async () => {
         setIsSaving(true);
+        setSaveError('');
 
         const llmConfig = {
             provider,
@@ -197,17 +257,22 @@ const Settings = ({ isOpen, onClose }) => {
                 fitbit_redirect_uri: fitbitRedirectUri,
                 ...(applyGlobalSettings ? { llm_config: llmConfig } : {})
             });
-            if (applyGlobalSettings) {
-                await cognitiveService.updateSettings({
-                    embedding_provider: embeddingProvider,
-                    embedding_model: embeddingModel,
-                    embedding_api_key: embeddingApiKey,
-                    embedding_base_url: embeddingBaseUrl
-                });
-            }
+            await cognitiveService.updateSettings({
+                llm_config: {
+                    provider: llmConfig.provider,
+                    model: llmConfig.model,
+                    api_key: llmConfig.api_key,
+                    base_url: llmConfig.base_url
+                },
+                embedding_provider: embeddingProvider,
+                embedding_model: embeddingModel,
+                embedding_api_key: embeddingApiKey,
+                embedding_base_url: embeddingBaseUrl
+            });
+            await checkLlmHealth();
             onClose?.();
         } catch (err) {
-            console.error("Failed to save settings:", err);
+            setSaveError(err?.userMessage || err?.message || 'Failed to save settings.');
         } finally {
             setIsSaving(false);
         }
@@ -274,8 +339,56 @@ const Settings = ({ isOpen, onClose }) => {
                                     </div>
                                 ) : (
                                     <>
+                                        {loadError && (
+                                            <div className="mb-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">
+                                                {loadError}
+                                            </div>
+                                        )}
+                                        {saveError && (
+                                            <div className="mb-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">
+                                                {saveError}
+                                            </div>
+                                        )}
+                                        {backendHealth && backendHealth.ok === false && (
+                                            <div className="mb-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+                                                Backend not reachable. Check your API URL or server status.
+                                            </div>
+                                        )}
                                         {activeTab === 'ai' && (
                                             <div className="space-y-5">
+                                                <SectionCard title="Connection Status" description="Check if the backend and LLM are reachable.">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        <div className={`rounded-xl border px-3 py-3 text-xs ${backendHealth?.ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-200'}`}>
+                                                            <div className="flex items-center justify-between">
+                                                                <span>Backend</span>
+                                                                <button
+                                                                    onClick={checkBackendHealth}
+                                                                    disabled={backendHealthLoading}
+                                                                    className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-white disabled:opacity-60"
+                                                                >
+                                                                    {backendHealthLoading ? 'Checking...' : 'Check'}
+                                                                </button>
+                                                            </div>
+                                                            <div className="mt-2 text-[10px] opacity-80">{backendHealthLoading ? 'Checking...' : (backendHealth?.detail || 'Unknown')}</div>
+                                                        </div>
+                                                        <div className={`rounded-xl border px-3 py-3 text-xs ${llmHealth?.ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-200'}`}>
+                                                            <div className="flex items-center justify-between">
+                                                                <span>LLM</span>
+                                                                <button
+                                                                    onClick={checkLlmHealth}
+                                                                    disabled={llmHealthLoading}
+                                                                    className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-white disabled:opacity-60"
+                                                                >
+                                                                    {llmHealthLoading ? 'Checking...' : 'Check'}
+                                                                </button>
+                                                            </div>
+                                                            <div className="mt-2 text-[10px] opacity-80">{llmHealthLoading ? 'Checking...' : (llmHealth?.detail || 'Unknown')}</div>
+                                                            {!llmHealth?.ok && (
+                                                                <div className="mt-2 text-[10px] opacity-70">Save settings first if you recently changed provider or model.</div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </SectionCard>
                                                 <SectionCard title="Scope" description="Apply these settings across all modules.">
                                                     <ToggleRow
                                                         title="Use global settings everywhere"

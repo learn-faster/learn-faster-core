@@ -24,6 +24,7 @@ const AgentSettings = ({ onClose, onSaved }) => {
     use_biometrics: false,
     biometrics_mode: 'intensity',
     auto_refresh_fitbit: true,
+    fitbit_demo_mode: false,
     bedtime: '22:00',
     email_negotiation_enabled: true,
     email: '',
@@ -94,7 +95,7 @@ const AgentSettings = ({ onClose, onSaved }) => {
       if (onClose) onClose();
     } catch (error) {
       console.error('Error saving settings:', error);
-      setError(typeof error === 'string' ? error : 'Failed to save settings. Please try again.');
+      setError(error?.userMessage || error?.message || 'Failed to save settings. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -194,6 +195,20 @@ const AgentSettings = ({ onClose, onSaved }) => {
                   className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
                 />
               </div>
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-sm text-dark-300">Use demo Fitbit data</span>
+                <input
+                  type="checkbox"
+                  checked={!!settings.fitbit_demo_mode}
+                  onChange={(e) => handleChange(null, 'fitbit_demo_mode', e.target.checked)}
+                  className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
+                />
+              </div>
+              {settings.fitbit_demo_mode && (
+                <div className="mt-2 text-[11px] text-amber-200/80">
+                  Demo mode uses sample biometrics without OAuth.
+                </div>
+              )}
               {!connected && (
                 <div className="mt-3 text-xs text-dark-500">Fitbit not connected. Use onboarding or Settings to connect.</div>
               )}

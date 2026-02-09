@@ -19,6 +19,7 @@ import SmartTimer from '../components/SmartTimer';
 import GoalProgress from '../components/GoalProgress';
 import StreakProtection from '../components/analytics/StreakProtection';
 import AbstractBackground from '../components/ui/AbstractBackground';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 /**
  * Dashboard Page Component - Redesigned
@@ -38,6 +39,7 @@ const Dashboard = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [activities, setActivities] = useState([]);
     const [streakStatus, setStreakStatus] = useState(null);
+    const [errorMessage, setErrorMessage] = useState('');
 
 
     useEffect(() => {
@@ -51,7 +53,7 @@ const Dashboard = () => {
                 setActivities(activityData);
                 setStreakStatus(dashboardData?.streak_status || null);
             } catch (err) {
-                console.error('Failed to fetch dashboard data', err);
+                setErrorMessage(err?.userMessage || err?.message || 'Failed to load dashboard data.');
             } finally {
                 setIsLoading(false);
             }
@@ -145,6 +147,7 @@ const Dashboard = () => {
             <AbstractBackground />
 
             <div className="relative z-10 space-y-8 pb-16">
+                <InlineErrorBanner message={errorMessage} />
                 {/* Dashboard Grid with Agent */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
 

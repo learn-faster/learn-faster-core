@@ -17,9 +17,12 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import FileUpload from '../components/documents/FileUpload';
 import useDocumentStore from '../stores/useDocumentStore';
 import cognitiveService from '../services/cognitive';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
+import { getConfig } from '../lib/config';
 
 const STATUS_STYLES = {
   uploading: 'bg-amber-500/15 text-amber-200 border border-amber-500/30',
@@ -28,6 +31,7 @@ const STATUS_STYLES = {
   ingesting: 'bg-cyan-500/15 text-cyan-200 border border-cyan-500/30',
   extracted: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
   complete: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
+  completed: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
   failed: 'bg-rose-500/15 text-rose-200 border border-rose-500/30'
 };
 
@@ -50,11 +54,12 @@ const EMBEDDING_PROVIDERS = [
 ];
 
 const Documents = () => {
-    const {
+  const {
         documents,
         folders,
         selectedFolderId,
         isLoading,
+        error,
         fetchDocuments,
     fetchFolders,
     updateDocument,
@@ -79,6 +84,12 @@ const Documents = () => {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState(null);
+  const [deleteModal, setDeleteModal] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [embeddingHealth, setEmbeddingHealth] = useState(null);
+  const [embeddingHealthLoading, setEmbeddingHealthLoading] = useState(false);
+  const [queueStatus, setQueueStatus] = useState(null);
   const [embeddingSettings, setEmbeddingSettings] = useState({
     embedding_provider: 'ollama',
     embedding_model: 'embeddinggemma:latest',
@@ -87,12 +98,28 @@ const Documents = () => {
   });
 
   useEffect(() => {
-    fetchDocuments();
+    fetchDocuments(false, { force: true });
     fetchFolders();
   }, [fetchDocuments, fetchFolders]);
 
   useEffect(() => {
-    if (isUploadOpen || showFolderModal || showSettingsModal) {
+    checkEmbeddingHealth();
+  }, []);
+
+  useEffect(() => {
+    const loadQueueStatus = async () => {
+      try {
+        const cfg = await getConfig();
+        setQueueStatus(cfg?.queueStatus || null);
+      } catch {
+        setQueueStatus('disconnected');
+      }
+    };
+    loadQueueStatus();
+  }, []);
+
+  useEffect(() => {
+    if (isUploadOpen || showFolderModal || showSettingsModal || deleteModal) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -100,18 +127,33 @@ const Documents = () => {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isUploadOpen, showFolderModal, showSettingsModal]);
+  }, [isUploadOpen, showFolderModal, showSettingsModal, deleteModal]);
 
   useEffect(() => {
     const hasProcessingDocs = documents.some(d => ['processing', 'pending', 'ingesting', 'uploading'].includes(d.status));
     let interval;
+    let isActive = true;
+
+    const tick = () => {
+      if (!isActive || document.visibilityState !== 'visible') return;
+      fetchDocuments(true, { minIntervalMs: 6000 });
+    };
+
     if (hasProcessingDocs) {
-      interval = setInterval(() => {
-        fetchDocuments(true);
-      }, 3000);
+      interval = setInterval(tick, 3000);
     }
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        tick();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
+      isActive = false;
       if (interval) clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [documents, fetchDocuments]);
 
@@ -127,10 +169,26 @@ const Documents = () => {
         embedding_api_key: data?.embedding_api_key || prev.embedding_api_key,
         embedding_base_url: data?.embedding_base_url || prev.embedding_base_url
       }));
+      await checkEmbeddingHealth();
     } catch (err) {
-      setSettingsError('Failed to load embedding settings.');
+      setSettingsError(err?.userMessage || err?.message || 'Failed to load embedding settings.');
     } finally {
       setSettingsLoading(false);
+    }
+  };
+
+  const checkEmbeddingHealth = async () => {
+    setEmbeddingHealthLoading(true);
+    try {
+      const status = await cognitiveService.checkEmbeddingHealth();
+      setEmbeddingHealth(status);
+    } catch (err) {
+      setEmbeddingHealth({
+        ok: false,
+        detail: err?.userMessage || err?.message || 'Failed to check connection.'
+      });
+    } finally {
+      setEmbeddingHealthLoading(false);
     }
   };
 
@@ -144,9 +202,10 @@ const Documents = () => {
         embedding_api_key: embeddingSettings.embedding_api_key,
         embedding_base_url: embeddingSettings.embedding_base_url
       });
+      await checkEmbeddingHealth();
       setShowSettingsModal(false);
     } catch (err) {
-      setSettingsError('Unable to save settings. Please try again.');
+      setSettingsError(err?.userMessage || err?.message || 'Unable to save settings. Please try again.');
     } finally {
       setSettingsSaving(false);
     }
@@ -160,7 +219,7 @@ const Documents = () => {
       setNewFolderColor(FOLDER_COLORS[0]);
       setShowFolderModal(false);
     } catch (err) {
-      setSettingsError('Failed to create folder.');
+      setSettingsError(err?.userMessage || err?.message || 'Failed to create folder.');
     }
   };
 
@@ -193,16 +252,44 @@ const Documents = () => {
       : folders.find(f => f.id === selectedFolderId)?.name || 'Folder';
 
   const handleSynthesize = async (docId) => {
-    await synthesizeDocument(docId);
+    try {
+      await synthesizeDocument(docId);
+      toast.success('Processing queued');
+    } catch (err) {
+      toast.error(err?.userMessage || err?.message || 'Failed to start processing');
+    }
   };
 
   const handleReprocess = async (docId) => {
-    await reprocessDocument(docId);
+    try {
+      await reprocessDocument(docId);
+      toast.success('Reprocessing queued');
+    } catch (err) {
+      toast.error(err?.userMessage || err?.message || 'Failed to start reprocessing');
+    }
   };
 
   const handleDelete = async (docId) => {
-    if (!window.confirm('Delete this document? This cannot be undone.')) return;
-    await deleteDocument(docId);
+    const doc = documents.find((item) => item.id === docId);
+    setDeleteError(null);
+    setDeleteModal({
+      id: docId,
+      title: doc?.title || doc?.filename || `Document ${docId}`
+    });
+  };
+
+  const handleConfirmDelete = async (removeGraphLinks) => {
+    if (!deleteModal?.id) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await deleteDocument(deleteModal.id, { removeGraphLinks });
+      setDeleteModal(null);
+    } catch (err) {
+      setDeleteError(err?.userMessage || err?.message || 'Failed to delete document.');
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   const handleRename = async (doc) => {
@@ -272,6 +359,7 @@ const Documents = () => {
       </aside>
 
       <main className="space-y-6">
+        <InlineErrorBanner message={error?.userMessage || error?.message || (error ? 'Failed to load documents.' : '')} />
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-semibold text-white">{activeFolderName}</h1>
@@ -284,6 +372,18 @@ const Documents = () => {
             >
               Processing settings
             </button>
+            <div className={`px-3 py-2 rounded-xl text-xs border ${embeddingHealth?.ok ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border-rose-500/20'}`}>
+              {embeddingHealthLoading ? 'Embedding: checking' : `Embedding: ${embeddingHealth?.ok ? 'connected' : 'not connected'}`}
+            </div>
+            <div className={`px-3 py-2 rounded-xl text-xs border ${
+              queueStatus === 'connected'
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                : queueStatus === 'disabled'
+                  ? 'bg-white/5 text-dark-300 border-white/10'
+                  : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+            }`}>
+              {queueStatus ? `Queue: ${queueStatus}` : 'Queue: checking'}
+            </div>
             <button
               onClick={() => setIsUploadOpen(true)}
               className="px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-white text-sm font-semibold"
@@ -364,6 +464,16 @@ const Documents = () => {
               const statusClass = STATUS_STYLES[statusKey] || STATUS_STYLES.complete;
               const iconType = doc.file_type?.toLowerCase();
               const title = doc.title || doc.filename || `Document ${doc.id}`;
+              const isProcessing = ['processing', 'pending', 'ingesting', 'uploading', 'extracted'].includes(statusKey);
+              const canIngest = ['extracted', 'completed', 'failed'].includes(statusKey);
+              const ingestionProgress = Math.max(0, Math.min(100, Number(doc.ingestion_progress ?? 0)));
+              const readingProgress = Math.max(0, Math.min(100, Math.round((doc.reading_progress || 0) * 100)));
+              const displayProgress = isProcessing ? ingestionProgress : readingProgress;
+              const phase = (doc.ingestion_step || '').toLowerCase();
+              const queueState = isProcessing
+                ? (phase.includes('queued') || statusKey === 'pending' ? 'queued' : (phase === 'initializing' ? 'starting' : 'running'))
+                : null;
+              const showQueueHint = isProcessing && displayProgress === 0 && queueState === 'queued';
               return (
                 <div
                   key={doc.id}
@@ -383,22 +493,63 @@ const Documents = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="text-sm font-semibold text-white truncate">{title}</h3>
-                      <span className={`text-[10px] px-2 py-1 rounded-full ${statusClass}`}>{doc.status || 'ready'}</span>
+                      <div className="flex items-center gap-2">
+                        {queueState && (
+                          <span className="text-[10px] px-2 py-1 rounded-full bg-white/5 border border-white/10 text-white/80 uppercase tracking-wider">
+                            {queueState}
+                          </span>
+                        )}
+                        <span className={`text-[10px] px-2 py-1 rounded-full ${statusClass}`}>{doc.status || 'ready'}</span>
+                      </div>
                     </div>
-                    <div className="mt-2 flex items-center gap-3 text-[11px] text-dark-400">
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-dark-400">
                       <span>{doc.file_type || 'file'}</span>
-                      {doc.reading_progress !== null && (
-                        <span>{Math.round((doc.reading_progress || 0) * 100)}% read</span>
+                      {isProcessing ? (
+                        <span>{doc.ingestion_step || 'processing'} · {displayProgress}%</span>
+                      ) : (
+                        <span>{readingProgress}% read</span>
+                      )}
+                      {doc.linked_to_graph && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 text-cyan-200 border border-cyan-500/20 px-2 py-0.5">
+                          <Network className="w-3 h-3" />
+                          Graph linked{doc.graph_link_count > 1 ? ` · ${doc.graph_link_count}` : ''}
+                        </span>
                       )}
                     </div>
+                    {doc.ingestion_error && (
+                      <div className="mt-2 text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg px-2 py-1">
+                        {doc.ingestion_error}
+                      </div>
+                    )}
+                    {showQueueHint && (
+                      <div className="mt-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1">
+                        Queued. If this stays for a while, start the RQ worker to process jobs.
+                      </div>
+                    )}
                     <div className="mt-2 h-1.5 bg-dark-950 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary-500"
-                        style={{ width: `${Math.max(5, (doc.reading_progress || 0) * 100)}%` }}
+                        style={{ width: `${Math.max(5, displayProgress)}%` }}
                       />
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRename(doc); }}
+                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-dark-200"
+                      title="Rename"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    {canIngest && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id); }}
+                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300"
+                        title="Ingest"
+                      >
+                        <Network className="w-4 h-4" />
+                      </button>
+                    )}
                     {doc.status === 'failed' && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id); }}
@@ -406,15 +557,6 @@ const Documents = () => {
                         title="Retry extraction"
                       >
                         <RotateCcw className="w-4 h-4" />
-                      </button>
-                    )}
-                    {doc.status === 'extracted' && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id); }}
-                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300"
-                        title="Synthesize graph"
-                      >
-                        <Network className="w-4 h-4" />
                       </button>
                     )}
                     <button
@@ -526,6 +668,59 @@ const Documents = () => {
         </div>
       )}
 
+      {deleteModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-dark-950/80 backdrop-blur-sm" onClick={() => setDeleteModal(null)}>
+          <div className="bg-dark-900 border border-white/10 rounded-2xl p-6 w-full max-w-xl shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Delete document</h2>
+                <p className="text-xs text-dark-400">Decide how to handle knowledge graph links.</p>
+              </div>
+              <button onClick={() => setDeleteModal(null)} className="p-2 rounded-lg hover:bg-white/5 text-dark-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div className="rounded-xl border border-white/10 bg-dark-950/60 px-4 py-3 text-sm text-white">
+                {deleteModal.title}
+              </div>
+              <p className="text-sm text-dark-300">
+                If this document is linked to a knowledge graph, you can either keep those links
+                or remove them before deleting.
+              </p>
+              {deleteError && (
+                <div className="text-[12px] text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+                  {deleteError}
+                </div>
+              )}
+              <div className="flex flex-col sm:flex-row gap-2 sm:justify-end pt-2">
+                <button
+                  onClick={() => setDeleteModal(null)}
+                  className="px-4 py-2 rounded-xl border border-white/10 text-dark-300 hover:bg-white/5"
+                  disabled={deleteLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleConfirmDelete(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10"
+                  disabled={deleteLoading}
+                >
+                  Delete (keep graph links)
+                </button>
+                <button
+                  onClick={() => handleConfirmDelete(true)}
+                  className="px-4 py-2 rounded-xl bg-rose-500/90 hover:bg-rose-500 text-white"
+                  disabled={deleteLoading}
+                >
+                  Delete + remove links
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showSettingsModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-dark-950/80 backdrop-blur" onClick={() => setShowSettingsModal(false)}>
           <div className="bg-dark-900 border border-white/10 rounded-2xl p-6 w-full max-w-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -543,6 +738,24 @@ const Documents = () => {
               <div className="text-sm text-dark-400">Loading settings...</div>
             ) : (
               <div className="space-y-4">
+                <div className="rounded-xl border border-white/10 bg-dark-950/60 p-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest text-dark-400">Embedding Connection</p>
+                    <p className={`text-xs font-semibold ${embeddingHealth?.ok ? 'text-emerald-300' : 'text-rose-300'}`}>
+                      {embeddingHealthLoading ? 'Checking...' : (embeddingHealth?.ok ? 'Connected' : 'Not connected')}
+                    </p>
+                    {embeddingHealth?.detail && (
+                      <p className="text-[11px] text-dark-400 mt-1">{embeddingHealth.detail}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={checkEmbeddingHealth}
+                    disabled={embeddingHealthLoading}
+                    className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-dark-200 border border-white/10 disabled:opacity-60"
+                  >
+                    {embeddingHealthLoading ? 'Checking...' : 'Check'}
+                  </button>
+                </div>
                 <div>
                   <label className="text-xs text-dark-400">Embedding provider</label>
                   <select
@@ -604,10 +817,3 @@ const Documents = () => {
 };
 
 export default Documents;
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleRename(doc); }}
-                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-dark-200"
-                      title="Rename"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>

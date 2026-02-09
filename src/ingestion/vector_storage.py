@@ -2,10 +2,12 @@
 
 import logging
 import os
+import asyncio
 from typing import List, Optional, Tuple
 from dotenv import load_dotenv
 from src.database.connections import postgres_conn
 from src.models.schemas import LearningChunk
+from src.config import settings
 
 # Load environment variables
 load_dotenv()
@@ -105,8 +107,11 @@ class VectorStorage:
             return chunk_id
             
         except Exception as e:
-            logger.error(f"Failed to store chunk: {str(e)}")
-            raise ValueError(f"Chunk storage failed: {str(e)}") from e
+            msg = f"Chunk storage failed: {str(e)}"
+            logger.error(msg)
+            if isinstance(e, ValueError) and "Embedding connection error" in str(e):
+                raise ValueError(str(e)) from e
+            raise ValueError(msg) from e
             
     async def store_chunks_batch(self, chunks: List[Tuple[str, str, str, Optional[int]]]) -> List[int]:
         """
@@ -123,21 +128,25 @@ class VectorStorage:
         
         try:
             chunk_ids = []
-            
-            # Generate embeddings for all chunks first
-            embeddings = []
+            semaphore = asyncio.Semaphore(max(1, int(getattr(settings, "embedding_concurrency", 4))))
+
+            async def embed_content(content: str) -> List[float]:
+                async with semaphore:
+                    return await self.generate_embedding(content)
+
+            # Generate embeddings for all chunks first (limited concurrency)
+            contents: List[str] = []
             for item in chunks:
-                # Handle 3 or 4 elements
                 if len(item) == 3:
-                     doc_source, content, concept_tag = item
+                    doc_source, content, concept_tag = item
                 else:
-                     doc_source, content, concept_tag, _ = item
-                     
+                    doc_source, content, concept_tag, _ = item
+
                 if not doc_source or not content or not concept_tag:
                     raise ValueError("All chunk fields must be non-empty")
-                
-                embedding = await self.generate_embedding(content)
-                embeddings.append(embedding)
+                contents.append(content)
+
+            embeddings = await asyncio.gather(*(embed_content(c) for c in contents))
             
             # Prepare batch insert data logic...
             # This is complex to robustly refactor with just string replace if logic changes significantly.
@@ -149,33 +158,48 @@ class VectorStorage:
                 VALUES (%s, %s, %s::vector, %s, %s)
                 RETURNING id
             """
-            
-            for i, item in enumerate(chunks):
-                document_id = None
-                if len(item) == 4:
-                    doc_source, content, concept_tag, document_id = item
-                else:
-                    doc_source, content, concept_tag = item
-                
-                embedding_str = str(embeddings[i])
-                
-                result = self.db_conn.execute_query(insert_query, (
-                    self._sanitize_text(doc_source.strip()),
-                    self._sanitize_text(content.strip()),
-                    embedding_str,
-                    self._sanitize_text(concept_tag.strip().lower()),
-                    document_id
-                ))
-                
-                if result:
-                    chunk_ids.append(result[0]['id'])
+
+            # Use a single connection for batch insert to reduce overhead.
+            conn = self.db_conn.connect()
+            try:
+                with conn.cursor() as cursor:
+                    for i, item in enumerate(chunks):
+                        document_id = None
+                        if len(item) == 4:
+                            doc_source, content, concept_tag, document_id = item
+                        else:
+                            doc_source, content, concept_tag = item
+
+                        embedding_str = str(embeddings[i])
+                        cursor.execute(
+                            insert_query,
+                            (
+                                self._sanitize_text(doc_source.strip()),
+                                self._sanitize_text(content.strip()),
+                                embedding_str,
+                                self._sanitize_text(concept_tag.strip().lower()),
+                                document_id,
+                            ),
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            chunk_ids.append(row[0])
+                    conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                self.db_conn.close(conn)
             
             logger.info(f"Stored {len(chunk_ids)} chunks in batch")
             return chunk_ids
             
         except Exception as e:
-            logger.error(f"Failed to store chunks in batch: {str(e)}")
-            raise ValueError(f"Batch chunk storage failed: {str(e)}") from e
+            msg = f"Batch chunk storage failed: {str(e)}"
+            logger.error(msg)
+            if isinstance(e, ValueError) and "Embedding connection error" in str(e):
+                raise ValueError(str(e)) from e
+            raise ValueError(msg) from e
     
     def retrieve_chunks_by_concept(self, concept_tag: str, limit: Optional[int] = None) -> List[LearningChunk]:
         """
@@ -327,8 +351,9 @@ class VectorStorage:
             raise ValueError("concept_tag cannot be empty")
         
         try:
-            query = "DELETE FROM learning_chunks WHERE concept_tag = %s"
-            deleted_count = self.db_conn.execute_query(query, (concept_tag.strip().lower(),))
+            query = "DELETE FROM learning_chunks WHERE concept_tag = %s RETURNING id"
+            deleted_rows = self.db_conn.execute_query(query, (concept_tag.strip().lower(),))
+            deleted_count = len(deleted_rows) if deleted_rows else 0
             
             logger.info(f"Deleted {deleted_count} chunks for concept '{concept_tag}'")
             return deleted_count
@@ -347,12 +372,12 @@ class VectorStorage:
             Number of chunks deleted
         """
         try:
-            query = "DELETE FROM learning_chunks WHERE document_id = %s"
-            # Use execute_write for DELETE operations to ensure transaction commits
-            self.db_conn.execute_write(query, (document_id,))
+            query = "DELETE FROM learning_chunks WHERE document_id = %s RETURNING id"
+            deleted_rows = self.db_conn.execute_query(query, (document_id,))
+            deleted_count = len(deleted_rows) if deleted_rows else 0
             
-            logger.info(f"Deleted chunks for document {document_id}")
-            return 1  # execute_write doesn't return row count, but operation succeeded
+            logger.info(f"Deleted {deleted_count} chunks for document {document_id}")
+            return deleted_count
             
         except Exception as e:
             logger.error(f"Failed to delete chunks for document {document_id}: {str(e)}")

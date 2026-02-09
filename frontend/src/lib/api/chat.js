@@ -1,5 +1,24 @@
 import apiClient from './client'
 
+const normalizeId = (value) => {
+  if (!value) return value
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'object') {
+    if (value.tb && value.id) return `${value.tb}:${value.id}`
+    if (value.table && value.id) return `${value.table}:${value.id}`
+    if (value.id && typeof value.id === 'string') return value.id
+    if (value.id && typeof value.id === 'number') return String(value.id)
+    if (value.id && value.id.tb && value.id.id) return `${value.id.tb}:${value.id.id}`
+  }
+  return String(value)
+}
+
+const normalizeSession = (session) => {
+  if (!session) return session
+  return { ...session, id: normalizeId(session.id) }
+}
+
 export const chatApi = {
   // Session management
   listSessions: async (notebookId) => {
@@ -7,7 +26,8 @@ export const chatApi = {
       `/chat/sessions`,
       { params: { notebook_id: notebookId } }
     )
-    return response.data
+    const sessions = response.data || []
+    return sessions.map(normalizeSession)
   },
 
   createSession: async (data) => {
@@ -15,14 +35,14 @@ export const chatApi = {
       `/chat/sessions`,
       data
     )
-    return response.data
+    return normalizeSession(response.data)
   },
 
   getSession: async (sessionId) => {
     const response = await apiClient.get(
       `/chat/sessions/${sessionId}`
     )
-    return response.data
+    return normalizeSession(response.data)
   },
 
   updateSession: async (sessionId, data) => {
@@ -30,7 +50,7 @@ export const chatApi = {
       `/chat/sessions/${sessionId}`,
       data
     )
-    return response.data
+    return normalizeSession(response.data)
   },
 
   deleteSession: async (sessionId) => {

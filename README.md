@@ -1,36 +1,54 @@
 # LearnFast Core Engine
 
-**An end-to-end learning system that turns goals into daily actions, backed by cognitive science.**
+**An AI-powered learning system that turns goals into daily actions, backed by cognitive science and real-time analytics.**
 
 LearnFast Core combines ingestion, knowledge graphs, practice scheduling, and a goal-driven agent into one workflow. It’s designed for learners who want a clear daily plan, measurable progress, and adaptive pacing.
 
 ---
 
 ## What It Solves
-- Fragmented learning across PDFs, videos, and notes with no clear “next step.”
-- Study plans that ignore real constraints like time, sleep, and consistency.
-- Analytics that show vanity metrics instead of actionable feedback.
+Learning is usually fragmented across notes, videos, and flashcards, with little guidance on **what to do next**. LearnFast Core solves this by turning scattered knowledge into a **goal-aligned learning system** that:
+- Builds durable memory using evidence-based methods (active recall, spaced repetition, interleaving).
+- Connects goals to daily actions and realistic pacing.
+- Turns source material into structured study assets (flashcards, curricula, knowledge graphs).
+- Tracks progress with actionable analytics instead of vanity metrics.
 
 ---
 
 ## What Makes It Different
-- **Goal-first planning**: short, near-term, and long-term goals drive the curriculum and daily plans.
-- **Evidence-based practice**: active recall, spaced repetition, interleaving, and micro-break guidance.
-- **Adaptive pacing**: learns from performance and (optional) biometrics like sleep.
-- **Multi-source intelligence**: documents, links, YouTube, and notes become structured study assets.
+- **Goal-first planning**: Goals drive curricula, daily plans, and pacing.
 - **Actionable dashboard**: “What should I do today?” is always clear.
+- **Multi-source intelligence**: PDFs, links, YouTube, and notes become structured learning assets.
+- **Knowledge graphs**: Concepts are mapped so users learn in the right order.
+- **Adaptive scheduling**: Uses real performance + (optional) biometrics for better pacing.
+
+---
+
+## How It Works (High-Level)
+1. **Ingest**: Upload or link content (PDFs, links, YouTube).
+2. **Structure**: Extract key sections, filter noise, build graphs and flashcards.
+3. **Plan**: Generate goal-aligned curricula and daily focus plans.
+4. **Practice**: Run mixed sessions with spacing + retrieval.
+5. **Analyze**: Show retention, velocity, pacing risk, and consistency.
 
 ---
 
 ## Core Capabilities
-- **Documents**: upload PDFs and links, extract key sections, filter noise.
-- **Practice Engine**: interleaved recall sessions across sources with measurable results.
-- **Flashcards & SRS**: SM-2 scheduling with retention tracking.
-- **Curriculum**: goal-aligned study plans and pacing forecasts.
-- **Knowledge Graphs**: concept mapping with prerequisites and dependencies.
-- **Goal Agent (GMA)**: proactive guidance, negotiation, and reminders via chat/email.
-- **Daily Plans**: day-level focus lists with completion and pacing impact.
-- **Analytics**: retention, consistency, velocity, time allocation, and recommendations.
+- Document ingestion + smart filtering
+- Flashcards + SRS engine
+- Knowledge graph generation
+- Goal-aligned curricula
+- Practice engine (interleaving across sources)
+- Daily plans and negotiation email workflow
+- Analytics & insights (retention, velocity, pacing)
+- Optional biometrics personalization (Fitbit)
+
+---
+
+## Ideal Users
+- Learners preparing for exams, interviews, certifications.
+- Professionals upskilling with limited time.
+- Anyone who wants learning to feel structured and measurable.
 
 ---
 
@@ -67,14 +85,14 @@ Data Layer
   └─ SurrealDB (Open Notebook)
 ```
 
-See `SYSTEM_ARCHITECTURE.md` and `docs/PROJECT_UPDATE_SUMMARY.md` for deeper detail.
+See `docs/PROJECT_OVERVIEW.md`, `docs/PROJECT_UPDATE_SUMMARY.md`, and `SYSTEM_ARCHITECTURE.md` for deeper detail.
 
 ---
 
 ## Technology Stack
 | Layer | Technologies |
 | :--- | :--- |
-| **Backend** | FastAPI, SQLAlchemy, Pydantic, LangGraph |
+| **Backend** | FastAPI, SQLAlchemy, Pydantic |
 | **Frontend** | React, Vite, Tailwind CSS, Framer Motion |
 | **Datastores** | PostgreSQL (pgvector), Neo4j, SurrealDB |
 | **LLM/Embeddings** | Ollama, OpenAI, Groq, OpenRouter |
@@ -85,7 +103,7 @@ See `SYSTEM_ARCHITECTURE.md` and `docs/PROJECT_UPDATE_SUMMARY.md` for deeper det
 ## Getting Started
 
 ### Prerequisites
-- **Python 3.12+** (Recommended via `uv`)
+- **Python 3.12+** (recommended via `uv`)
 - **Docker & Docker Compose**
 - **Ollama** (optional for local LLM/Embeddings)
 
@@ -117,15 +135,29 @@ npm run dev
 
 ---
 
+## RQ Worker (Durable Ingestion)
+For durable ingestion jobs (survive backend restarts), run the RQ worker:
+```bash
+uv run python scripts/rq_worker.py
+```
+
+Required env:
+```
+REDIS_URL=redis://localhost:6379/0
+REDIS_QUEUE_NAME=ingestion
+REDIS_JOB_TIMEOUT=1800
+```
+
+---
+
 ## Key Endpoints
-These are the most-used API groups:
 - `/api/documents/*` — ingest, parse, recall prompts
 - `/api/practice/*` — practice sessions, items, history
 - `/api/dashboard/overview` — unified dashboard data
 - `/api/analytics/*` — insights and trends
 - `/api/goals/*` — goals, daily plans, agent actions
 - `/api/fitbit/*` — optional biometric inputs
-- `/api/multidoc-graph/*` — knowledge graph workflows
+- `/api/graphs/*` — knowledge graph workflows
 
 ---
 
@@ -141,7 +173,6 @@ RESEND_FROM_EMAIL=...
 RESEND_REPLY_DOMAIN=reply.yourdomain.com
 FRONTEND_URL=https://<your-frontend-domain>
 ```
-
 Localhost will not work for inbound webhooks.
 
 ---

@@ -40,6 +40,22 @@ const updateSettings = async (settings, userId = 'default_user') => {
     return api.patch(`/cognitive/settings?user_id=${userId}`, settings);
 };
 
+const checkEmbeddingHealth = async (userId = 'default_user') => {
+    return api.get(`/cognitive/embedding-health?user_id=${userId}`, {
+        headers: {
+            'X-Silent-Error': '1'
+        }
+    });
+};
+
+const checkLlmHealth = async (userId = 'default_user') => {
+    return api.get(`/cognitive/llm-health?user_id=${userId}`, {
+        headers: {
+            'X-Silent-Error': '1'
+        }
+    });
+};
+
 export default {
     getOverview,
     getRecommendation,
@@ -47,5 +63,7 @@ export default {
     getFrontier,
     getGaps,
     getSettings,
-    updateSettings
+    updateSettings,
+    checkEmbeddingHealth,
+    checkLlmHealth
 };

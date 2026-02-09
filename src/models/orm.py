@@ -106,7 +106,7 @@ class IngestionJob(Base):
     __tablename__ = "ingestion_jobs"
 
     id = Column(String, primary_key=True, index=True)
-    document_id = Column(Integer, ForeignKey("documents.id"), index=True, nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), index=True, nullable=False)
     status = Column(String, default="pending")  # pending, running, completed, failed
     phase = Column(String, default="queued")  # queued, extracting, filtering, ocr, ingesting
     progress = Column(Float, default=0.0)
@@ -313,6 +313,12 @@ class UserSettings(Base):
     # LLM Configuration (JSON)
     # Stores provider settings and component-specific overrides
     llm_config = Column(JSON, default=dict)
+
+    # Embedding configuration overrides
+    embedding_provider = Column(String, nullable=True)
+    embedding_model = Column(String, nullable=True)
+    embedding_api_key = Column(String, nullable=True)
+    embedding_base_url = Column(String, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -601,6 +607,9 @@ class KnowledgeGraph(Base):
     status = Column(String, default="draft")  # draft, building, ready, error
 
     llm_config = Column(JSON, default=dict)
+    error_message = Column(Text, nullable=True)
+    build_progress = Column(Float, default=0.0)
+    build_stage = Column(String, nullable=True)
 
     node_count = Column(Integer, default=0)
     relationship_count = Column(Integer, default=0)

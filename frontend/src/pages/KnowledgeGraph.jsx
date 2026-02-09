@@ -31,6 +31,8 @@ import useTimerStore from '../stores/useTimerStore';
 import useDocumentStore from '../stores/useDocumentStore';
 import { Card } from '../components/ui/card';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 /**
  * Premium Starfield Background with multiple parallax layers
@@ -112,11 +114,13 @@ const KnowledgeGraph = () => {
         name: '',
         description: '',
         document_ids: [],
-        llm_config: { provider: 'openai', model: '', base_url: '' }
+        llm_config: { provider: 'openai', model: '', base_url: '', api_key: '' }
     });
     const [buildMode, setBuildMode] = useState('existing');
     const [buildSourceMode, setBuildSourceMode] = useState('filtered');
     const [buildError, setBuildError] = useState('');
+    const [buildExtractionMaxChars, setBuildExtractionMaxChars] = useState('');
+    const [buildChunkSize, setBuildChunkSize] = useState('');
     const [showConnections, setShowConnections] = useState(false);
     const [showCrossLinks, setShowCrossLinks] = useState(true);
     const [targetGraphId, setTargetGraphId] = useState('');
@@ -128,7 +132,12 @@ const KnowledgeGraph = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchSuggestions, setSearchSuggestions] = useState([]);
     const [showGuide, setShowGuide] = useState(false);
+    const [guideDismissed, setGuideDismissed] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return localStorage.getItem('kgGuideDismissed') === '1';
+    });
     const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+    const [graphError, setGraphError] = useState('');
 
     const [activeNeighbors, setActiveNeighbors] = useState(new Set());
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -137,6 +146,7 @@ const KnowledgeGraph = () => {
     const [activeIntel, setActiveIntel] = useState(null);
     const [isLoadingIntel, setIsLoadingIntel] = useState(false);
     const [activeTab, setActiveTab] = useState('overview');
+    const [showGraphApiKey, setShowGraphApiKey] = useState(false);
 
     const fgRef = useRef();
     const containerRef = useRef();
@@ -179,7 +189,9 @@ const KnowledgeGraph = () => {
                 setSelectedGraphId(data[0].id);
             }
         } catch (error) {
-            console.error("Failed to load graphs", error);
+            const msg = error?.userMessage || error?.message || 'Failed to load graphs.';
+            setGraphError(msg);
+            toast.error(msg);
         }
     };
 
@@ -189,7 +201,7 @@ const KnowledgeGraph = () => {
             name: '',
             description: '',
             document_ids: [],
-            llm_config: { provider: 'openai', model: '', base_url: '' }
+            llm_config: { provider: 'openai', model: '', base_url: '', api_key: '' }
         });
         setShowGraphModal(true);
     };
@@ -200,7 +212,7 @@ const KnowledgeGraph = () => {
             name: graph.name || '',
             description: graph.description || '',
             document_ids: graph.document_ids || [],
-            llm_config: graph.llm_config || { provider: 'openai', model: '', base_url: '' }
+            llm_config: graph.llm_config || { provider: 'openai', model: '', base_url: '', api_key: '' }
         });
         setShowGraphModal(true);
     };
@@ -223,7 +235,9 @@ const KnowledgeGraph = () => {
             setSelectedGraphId(saved.id);
             setShowGraphModal(false);
         } catch (error) {
-            console.error("Failed to save graph", error);
+            const msg = error?.userMessage || error?.message || 'Failed to save graph.';
+            setGraphError(msg);
+            toast.error(msg);
         }
     };
 
@@ -244,16 +258,33 @@ const KnowledgeGraph = () => {
         setBuildError('');
         setIsGraphLoading(true);
         try {
-            await GraphService.buildGraph(selectedGraphId, { build_mode: buildMode, source_mode: buildSourceMode });
+            const payload = { build_mode: buildMode, source_mode: buildSourceMode };
+            const maxChars = Number(buildExtractionMaxChars);
+            const chunkSize = Number(buildChunkSize);
+            if (Number.isFinite(maxChars) && maxChars > 0) payload.extraction_max_chars = maxChars;
+            if (Number.isFinite(chunkSize) && chunkSize > 0) payload.chunk_size = chunkSize;
+            await GraphService.buildGraph(selectedGraphId, payload);
             await fetchGraph(true);
             await loadGraphs();
             setShowBuildModal(false);
         } catch (error) {
-            setBuildError(error || 'Failed to build graph');
+            const msg = error?.userMessage || error?.message || 'Failed to build graph.';
+            setBuildError(msg);
+            setGraphError(msg);
+            await loadGraphs();
+            toast.error(msg);
         } finally {
             setIsGraphLoading(false);
         }
     };
+
+    useEffect(() => {
+        if (!showBuildModal || !isGraphLoading) return;
+        const interval = setInterval(() => {
+            loadGraphs();
+        }, 2000);
+        return () => clearInterval(interval);
+    }, [showBuildModal, isGraphLoading, loadGraphs]);
 
     const fetchGraph = async (showSyncEffect = false) => {
         if (!selectedGraphId) return;
@@ -299,9 +330,13 @@ const KnowledgeGraph = () => {
                 }, 600);
             }
 
-            if (data.nodes.length === 0 && !showSyncEffect) setShowGuide(true);
+            if (data.nodes.length === 0 && !showSyncEffect && !guideDismissed) setShowGuide(true);
         } catch (error) {
-            console.error("Failed to fetch graph", error);
+            const msg = error?.userMessage || error?.message || 'Failed to fetch graph.';
+            setGraphError(msg);
+            if (showSyncEffect) {
+                toast.error(msg);
+            }
             if (graphData.nodes.length === 0) setGraphData({ nodes: [], links: [] });
         } finally {
             setIsLoading(false);
@@ -322,7 +357,9 @@ const KnowledgeGraph = () => {
             setConnectionSuggestions(list);
             setSelectedConnections(new Set(list.map((_, idx) => idx)));
         } catch (error) {
-            console.error("Failed to suggest connections", error);
+            const msg = error?.userMessage || error?.message || 'Failed to suggest connections.';
+            setGraphError(msg);
+            toast.error(msg);
         } finally {
             setIsSuggesting(false);
         }
@@ -345,7 +382,9 @@ const KnowledgeGraph = () => {
             });
             setShowConnections(false);
         } catch (error) {
-            console.error("Failed to save connections", error);
+            const msg = error?.userMessage || error?.message || 'Failed to save connections.';
+            setGraphError(msg);
+            toast.error(msg);
         }
     };
 
@@ -361,27 +400,36 @@ const KnowledgeGraph = () => {
     // Polling for Construction Updates
     useEffect(() => {
         let interval;
+        let isActive = true;
         const checkStatus = async () => {
-            await fetchDocuments();
-            // Check if any doc is ingesting
+            if (!isActive || document.visibilityState !== 'visible') return;
+            await fetchDocuments(true, { minIntervalMs: 8000 });
             const isIngesting = documents.some(d => d.status === 'ingesting' || d.status === 'processing');
             if (isIngesting) {
-                // If ingesting, fetch graph incrementally to show partial updates!
                 fetchGraph(false);
             }
         };
 
-        // Poll more frequently if something is happening
         const hasActiveJobs = documents.some(d => d.status === 'ingesting');
         if (hasActiveJobs) {
-            interval = setInterval(checkStatus, 2000);
+            interval = setInterval(checkStatus, 4000);
         } else {
-            // Just periodic check or rely on initial load
-            checkStatus(); // Load once
-            interval = setInterval(checkStatus, 10000);
+            checkStatus();
+            interval = setInterval(checkStatus, 15000);
         }
 
-        return () => clearInterval(interval);
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                checkStatus();
+            }
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+
+        return () => {
+            isActive = false;
+            if (interval) clearInterval(interval);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
     }, [documents.length, selectedGraphId]);
 
     useEffect(() => {
@@ -396,6 +444,12 @@ const KnowledgeGraph = () => {
             setGraphData({ nodes: [], links: [] });
         }
     }, [selectedGraphId, showCrossLinks]);
+
+    useEffect(() => {
+        if (graphData.nodes.length > 0 && showGuide) {
+            setShowGuide(false);
+        }
+    }, [graphData.nodes.length, showGuide]);
 
     // Smart Search Logic
     useEffect(() => {
@@ -452,7 +506,9 @@ const KnowledgeGraph = () => {
             const data = await ResourceService.scoutResources(conceptName);
             setActiveIntel(data); // Expects { analogy, insight, question }
         } catch (error) {
-            console.error("Failed to load intel", error);
+            const msg = error?.userMessage || error?.message || 'Failed to load concept intel.';
+            setGraphError(msg);
+            toast.error(msg);
         } finally {
             setIsLoadingIntel(false);
         }
@@ -590,7 +646,28 @@ const KnowledgeGraph = () => {
     };
 
     return (
-        <div className="min-h-[calc(100vh-2rem)] flex flex-col gap-5 animate-fade-in relative z-10 font-sans pb-3">
+        <div className="relative min-h-[calc(100vh-2rem)] overflow-hidden">
+            <div
+                className="absolute inset-0"
+                style={{
+                    background:
+                        'radial-gradient(circle at 15% 10%, rgba(56,189,248,0.25), transparent 45%), radial-gradient(circle at 85% 20%, rgba(59,130,246,0.18), transparent 40%), radial-gradient(circle at 50% 80%, rgba(168,85,247,0.2), transparent 45%), linear-gradient(180deg, #05060c 0%, #070b14 45%, #04070f 100%)'
+                }}
+            />
+            <div
+                className="absolute -top-24 -right-24 w-[520px] h-[520px] rounded-full blur-3xl opacity-60"
+                style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.45), transparent 70%)' }}
+            />
+            <div
+                className="absolute -bottom-32 -left-20 w-[620px] h-[620px] rounded-full blur-3xl opacity-50"
+                style={{ background: 'radial-gradient(circle, rgba(14,116,144,0.45), transparent 70%)' }}
+            />
+            <div
+                className="absolute inset-0 opacity-30"
+                style={{ background: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06), transparent 45%)' }}
+            />
+
+            <div className="min-h-[calc(100vh-2rem)] flex flex-col gap-5 animate-fade-in relative z-10 font-sans pb-3">
             {/* Header with Integrated Graph Controls */}
             <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-5 pointer-events-auto">
                 <div className="relative group">
@@ -715,6 +792,14 @@ const KnowledgeGraph = () => {
                     </button>
                 </div>
             </header>
+            <InlineErrorBanner
+                message={
+                    (selectedGraph && selectedGraph.status === 'error' && selectedGraph.error_message)
+                        ? selectedGraph.error_message
+                        : graphError
+                }
+                className="pointer-events-auto"
+            />
 
             <div className="flex-1 flex gap-6 overflow-hidden relative">
                 {/* Construction HUD */}
@@ -1098,6 +1183,22 @@ const KnowledgeGraph = () => {
                                                 onChange={(e) => setGraphForm({ ...graphForm, llm_config: { ...graphForm.llm_config, base_url: e.target.value } })}
                                                 placeholder="base_url (optional)"
                                             />
+                                            <div className="relative">
+                                                <input
+                                                    type={showGraphApiKey ? "text" : "password"}
+                                                    className="w-full px-4 py-2 pr-20 rounded-2xl bg-dark-900/60 border border-white/5 text-white focus:outline-none focus:border-primary-500/50"
+                                                    value={graphForm.llm_config.api_key || ''}
+                                                    onChange={(e) => setGraphForm({ ...graphForm, llm_config: { ...graphForm.llm_config, api_key: e.target.value } })}
+                                                    placeholder="api_key (optional)"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowGraphApiKey((prev) => !prev)}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-xl bg-white/10 text-white/80 hover:bg-white/20"
+                                                >
+                                                    {showGraphApiKey ? 'Hide' : 'Show'}
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1200,8 +1301,59 @@ const KnowledgeGraph = () => {
                                     Filtered mode removes boilerplate and repeats to focus on key concepts.
                                 </p>
                             </div>
-                            {buildError && (
-                                <div className="text-xs text-amber-400 mt-4">{buildError}</div>
+                            {buildMode === 'rebuild' && (
+                                <div className="mt-6">
+                                    <p className="text-xs font-bold uppercase tracking-widest text-dark-500 mb-3">Extraction Limits</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <label className="flex flex-col gap-2 text-[10px] uppercase tracking-widest text-dark-500 font-bold">
+                                            Max chars / window
+                                            <input
+                                                type="number"
+                                                min="1000"
+                                                placeholder="50000"
+                                                value={buildExtractionMaxChars}
+                                                onChange={(e) => setBuildExtractionMaxChars(e.target.value)}
+                                                className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white text-sm focus:outline-none"
+                                            />
+                                        </label>
+                                        <label className="flex flex-col gap-2 text-[10px] uppercase tracking-widest text-dark-500 font-bold">
+                                            Chunk size
+                                            <input
+                                                type="number"
+                                                min="250"
+                                                placeholder="1000"
+                                                value={buildChunkSize}
+                                                onChange={(e) => setBuildChunkSize(e.target.value)}
+                                                className="w-full px-4 py-3 rounded-2xl bg-dark-900/60 border border-white/5 text-white text-sm focus:outline-none"
+                                            />
+                                        </label>
+                                    </div>
+                                    <p className="text-[10px] text-dark-500 mt-3">
+                                        Smaller windows reduce token usage and avoid rate limits. Larger windows capture more context.
+                                    </p>
+                                </div>
+                            )}
+                            <InlineErrorBanner message={buildError} className="mt-4" />
+                            {isGraphLoading && (
+                                <div className="mt-5">
+                                    <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-dark-500 font-bold mb-2">
+                                        <span>Building Graph</span>
+                                        <span className="text-cyan-300">
+                                            {selectedGraph?.build_progress ? `${Math.round(selectedGraph.build_progress)}%` : 'in progress'}
+                                        </span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-dark-900/60 border border-white/5 overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-cyan-400/60 via-amber-400/70 to-cyan-400/60 animate-pulse"
+                                            style={{ width: `${Math.max(5, Math.min(100, selectedGraph?.build_progress || 10))}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-dark-500 mt-2">
+                                        {selectedGraph?.build_stage
+                                            ? `Stage: ${selectedGraph.build_stage.replaceAll('_', ' ')}`
+                                            : 'LLM extraction is running. This can take a few minutes for large documents.'}
+                                    </p>
+                                </div>
                             )}
                             <div className="flex justify-end gap-3 mt-8">
                                 <button onClick={() => setShowBuildModal(false)} className="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest text-dark-400 hover:text-white">
@@ -1323,7 +1475,16 @@ const KnowledgeGraph = () => {
                             className="max-w-xl w-full glass-morphism p-10 rounded-[3rem] relative border border-white/10 shadow-2xl overflow-hidden"
                         >
                             <div className="absolute top-0 right-0 p-8">
-                                <button onClick={() => setShowGuide(false)} className="text-dark-400 hover:text-white transition-colors">
+                                <button
+                                    onClick={() => {
+                                        setShowGuide(false);
+                                        setGuideDismissed(true);
+                                        if (typeof window !== 'undefined') {
+                                            localStorage.setItem('kgGuideDismissed', '1');
+                                        }
+                                    }}
+                                    className="text-dark-400 hover:text-white transition-colors"
+                                >
                                     <X className="w-6 h-6" />
                                 </button>
                             </div>
@@ -1360,13 +1521,23 @@ const KnowledgeGraph = () => {
                                 </div>
                             </div>
 
-                            <button onClick={() => setShowGuide(false)} className="btn-primary w-full mt-12 py-4 font-black text-xs uppercase tracking-[0.3em] rounded-3xl">
+                            <button
+                                onClick={() => {
+                                    setShowGuide(false);
+                                    setGuideDismissed(true);
+                                    if (typeof window !== 'undefined') {
+                                        localStorage.setItem('kgGuideDismissed', '1');
+                                    }
+                                }}
+                                className="btn-primary w-full mt-12 py-4 font-black text-xs uppercase tracking-[0.3em] rounded-3xl"
+                            >
                                 Proceed to Nexus
                             </button>
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
+            </div>
         </div>
     );
 };

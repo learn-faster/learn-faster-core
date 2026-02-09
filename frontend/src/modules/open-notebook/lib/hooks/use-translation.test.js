@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 // Ensure we are testing the real implementation
-vi.unmock('@/modules/open-notebook/lib/hooks/use-translation') 
+vi.unmock('@/modules/open-notebook/lib/hooks/use-translation')
 import { useTranslation } from './use-translation'
 import { useTranslation as useI18nTranslation } from 'react-i18next'
 
-// Mock react-i18next is already done in setup.ts, 
+// Mock react-i18next is already done in setup.js,
 // but we might need to control it per test
 vi.mock('react-i18next', () => ({
   useTranslation: vi.fn()
@@ -16,8 +16,9 @@ describe('useTranslation Hook', () => {
   
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(useI18nTranslation as unknown as { mockReturnValue: (v: unknown) => void }).mockReturnValue({
-      t: (key: string) => {
+    const mocked = vi.mocked(useI18nTranslation)
+    mocked.mockReturnValue({
+      t: (key) => {
         if (key === 'common') return { appName: 'Open Notebook' }
         if (key === 'common.appName') return 'Open Notebook'
         return key

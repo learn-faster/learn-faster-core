@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Filter, Calendar, Clock } from 'lucide-react';
 import api from '../services/api';
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 const DailyGoals = () => {
   const [history, setHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
   const [filters, setFilters] = useState({
     dateFrom: '',
     dateTo: '',
@@ -13,6 +15,7 @@ const DailyGoals = () => {
 
   const fetchHistory = async () => {
     setIsLoading(true);
+    setErrorMessage('');
     try {
       const params = {};
       if (filters.dateFrom) params.date_from = filters.dateFrom;
@@ -21,7 +24,7 @@ const DailyGoals = () => {
       const data = await api.get('/goals/daily-plan/history', { params });
       setHistory(data.items || []);
     } catch (e) {
-      console.error('Failed to load daily goals history', e);
+      setErrorMessage(e?.userMessage || e?.message || 'Failed to load daily goals history.');
     } finally {
       setIsLoading(false);
     }
@@ -41,6 +44,7 @@ const DailyGoals = () => {
 
   return (
     <div className="space-y-6">
+      <InlineErrorBanner message={errorMessage} />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-primary-300 font-black">Daily Goals</p>

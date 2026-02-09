@@ -13,23 +13,20 @@ vi.mock('@/components/source/ChatPanel', () => ({
   ChatPanel: () => <div data-testid="chat-panel" />
 }))
 
-// Type-safe mock factory for useSources hook
-function createSourcesMock(overrides: { isLoading?: boolean } = {}) {
+function createSourcesMock(overrides = {}) {
   return {
     data: [],
     isLoading: overrides.isLoading ?? false,
-  } as unknown<typeof useSources>
+  }
 }
 
-// Type-safe mock factory for useNotes hook
-function createNotesMock(overrides: { isLoading?: boolean } = {}) {
+function createNotesMock(overrides = {}) {
   return {
     data: [],
     isLoading: overrides.isLoading ?? false,
-  } as unknown<typeof useNotes>
+  }
 }
 
-// Type-safe mock factory for useNotebookChat hook
 function createChatMock() {
   return {
     messages: [],
@@ -38,7 +35,7 @@ function createChatMock() {
     charCount: 0,
     sessions: [],
     currentSessionId: null,
-  } as unknown<typeof useNotebookChat>
+  }
 }
 
 describe('ChatColumn', () => {

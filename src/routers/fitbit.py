@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 import requests
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from src.services.fitbit_service import FitbitService
 from src.models.fitbit import FitbitToken, FitbitDailyMetrics
 from src.database.orm import get_db
@@ -147,8 +147,11 @@ def get_fitbit_status(
     user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     if not user_settings:
         return {"connected": False}
+    demo_mode = bool(user_settings.llm_config.get("agent_settings", {}).get("fitbit_demo_mode")) if user_settings.llm_config else False
     
     token = db.query(FitbitToken).filter(FitbitToken.user_id == user_settings.id).first()
+    if demo_mode:
+        return {"connected": True, "demo_mode": True}
     return {"connected": token is not None}
 
 
@@ -162,8 +165,26 @@ def get_fitbit_summary(
     user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     if not user_settings:
         return {"connected": False}
+    demo_mode = bool(user_settings.llm_config.get("agent_settings", {}).get("fitbit_demo_mode")) if user_settings.llm_config else False
 
     token = db.query(FitbitToken).filter(FitbitToken.user_id == user_settings.id).first()
+    if demo_mode:
+        target_date = date.today()
+        if date_str:
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        metrics = FitbitService.demo_metrics(target_date)
+        readiness_score = FitbitService.compute_readiness(metrics) or 88.0
+        return {
+            "connected": True,
+            "demo_mode": True,
+            "date": metrics["date"],
+            "sleep_duration_hours": metrics["sleep_duration_hours"],
+            "sleep_efficiency": metrics["sleep_efficiency"],
+            "resting_heart_rate": metrics["resting_heart_rate"],
+            "readiness_score": readiness_score,
+            "summary": metrics,
+            "last_synced_at": datetime.now(timezone.utc).isoformat()
+        }
     if not token:
         return {"connected": False}
 
@@ -197,8 +218,23 @@ def refresh_fitbit_summary(
     user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     if not user_settings:
         raise HTTPException(status_code=404, detail="User not found")
+    demo_mode = bool(user_settings.llm_config.get("agent_settings", {}).get("fitbit_demo_mode")) if user_settings.llm_config else False
 
     token = db.query(FitbitToken).filter(FitbitToken.user_id == user_settings.id).first()
+    if demo_mode:
+        metrics = FitbitService.demo_metrics(date.today())
+        readiness_score = FitbitService.compute_readiness(metrics) or 88.0
+        return {
+            "connected": True,
+            "demo_mode": True,
+            "date": metrics["date"],
+            "sleep_duration_hours": metrics["sleep_duration_hours"],
+            "sleep_efficiency": metrics["sleep_efficiency"],
+            "resting_heart_rate": metrics["resting_heart_rate"],
+            "readiness_score": readiness_score,
+            "summary": metrics,
+            "last_synced_at": datetime.now(timezone.utc).isoformat()
+        }
     if not token:
         raise HTTPException(status_code=404, detail="Fitbit token not found")
 

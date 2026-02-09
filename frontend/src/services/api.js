@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { getApiUrl } from '../lib/config';
+import { formatApiErrorMessage, parseApiError } from '../lib/utils/api-error';
+import { toast } from 'sonner';
 
 /**
  * Global Axios instance for API communication.
@@ -45,10 +47,21 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
     (response) => response.data,
     (error) => {
-        // Extract Detail from FastAPI Exception or fallback to message
-        const message = error.response?.data?.detail || error.message || 'An unexpected error occurred';
-        console.error('API Error:', message);
-        return Promise.reject(message);
+        const { message, hint, status } = parseApiError(error);
+        const formatted = formatApiErrorMessage(error);
+        console.error('API Error:', formatted);
+
+        const shouldToast = !error?.config?.headers?.['X-Silent-Error'];
+        if (shouldToast) {
+            toast.error('Request failed', { description: formatted });
+        }
+
+        const err = new Error(message);
+        err.userMessage = formatted;
+        err.status = status;
+        err.hint = hint;
+        err.raw = error;
+        return Promise.reject(err);
     }
 );
 

@@ -4,6 +4,7 @@ import { Sparkles, Rocket, Timer, Flame, CheckCircle2, ClipboardCheck, Lightbulb
 
 import usePracticeStore from "../stores/usePracticeStore";
 import { Card } from "../components/ui/card";
+import InlineErrorBanner from '../components/common/InlineErrorBanner';
 
 const modes = [
   { key: "quick", title: "Quick Orbit", minutes: 12, description: "Fast interleaved recall to keep momentum.", icon: Rocket },
@@ -21,6 +22,7 @@ const Practice = () => {
     summary,
     history,
     isLoading,
+    error,
     startSession,
     submitItem,
     advanceItem,
@@ -217,6 +219,7 @@ const Practice = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-10 pb-20">
+      <InlineErrorBanner message={error?.userMessage || error?.message || (error ? 'Practice request failed.' : '')} />
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <p className="text-[10px] uppercase tracking-[0.3em] text-dark-500 font-black">Practice Engine</p>

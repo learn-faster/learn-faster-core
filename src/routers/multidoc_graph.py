@@ -35,6 +35,28 @@ from src.services.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
 
+
+def _to_response(graph: KnowledgeGraph) -> KnowledgeGraphResponse:
+    """Helper to convert a KnowledgeGraph ORM object to API response."""
+    return KnowledgeGraphResponse(
+        id=graph.id,
+        user_id=graph.user_id,
+        name=graph.name,
+        description=graph.description,
+        status=graph.status,
+        node_count=graph.node_count,
+        relationship_count=graph.relationship_count,
+        created_at=graph.created_at,
+        updated_at=graph.updated_at,
+        last_built_at=graph.last_built_at,
+        document_ids=[gd.document_id for gd in graph.documents],
+        llm_config=LLMConfig(**graph.llm_config) if graph.llm_config else None,
+        error_message=getattr(graph, "error_message", None),
+        build_progress=getattr(graph, "build_progress", None),
+        build_stage=getattr(graph, "build_stage", None)
+    )
+
+
 router = APIRouter(prefix="/api/graphs", tags=["multi-document graphs"])
 
 
@@ -253,24 +275,7 @@ async def get_graph_statistics():
 @router.get("", response_model=List[KnowledgeGraphResponse])
 async def list_graphs(user_id: str = "default_user", db: Session = Depends(get_db)):
     graphs = KnowledgeGraphService.list_graphs(db, user_id)
-    responses = []
-    for graph in graphs:
-        doc_ids = [gd.document_id for gd in graph.documents]
-        responses.append(KnowledgeGraphResponse(
-            id=graph.id,
-            user_id=graph.user_id,
-            name=graph.name,
-            description=graph.description,
-            status=graph.status,
-            node_count=graph.node_count,
-            relationship_count=graph.relationship_count,
-            created_at=graph.created_at,
-            updated_at=graph.updated_at,
-            last_built_at=graph.last_built_at,
-            document_ids=doc_ids,
-            llm_config=(LLMConfig(**graph.llm_config) if graph.llm_config else None)
-        ))
-    return responses
+    return [_to_response(g) for g in graphs]
 
 
 @router.post("", response_model=KnowledgeGraphResponse)
@@ -283,21 +288,7 @@ async def create_graph(payload: KnowledgeGraphCreate, db: Session = Depends(get_
         document_ids=payload.document_ids,
         llm_config=payload.llm_config
     )
-    doc_ids = [gd.document_id for gd in graph.documents]
-    return KnowledgeGraphResponse(
-        id=graph.id,
-        user_id=graph.user_id,
-        name=graph.name,
-        description=graph.description,
-        status=graph.status,
-        node_count=graph.node_count,
-        relationship_count=graph.relationship_count,
-        created_at=graph.created_at,
-        updated_at=graph.updated_at,
-        last_built_at=graph.last_built_at,
-        document_ids=doc_ids,
-        llm_config=(LLMConfig(**graph.llm_config) if graph.llm_config else None)
-    )
+    return _to_response(graph)
 
 
 @router.get("/{graph_id}", response_model=KnowledgeGraphResponse)
@@ -305,21 +296,7 @@ async def get_graph(graph_id: str, db: Session = Depends(get_db)):
     graph = db.query(KnowledgeGraph).filter(KnowledgeGraph.id == graph_id).first()
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
-    doc_ids = [gd.document_id for gd in graph.documents]
-    return KnowledgeGraphResponse(
-        id=graph.id,
-        user_id=graph.user_id,
-        name=graph.name,
-        description=graph.description,
-        status=graph.status,
-        node_count=graph.node_count,
-        relationship_count=graph.relationship_count,
-        created_at=graph.created_at,
-        updated_at=graph.updated_at,
-        last_built_at=graph.last_built_at,
-        document_ids=doc_ids,
-        llm_config=(LLMConfig(**graph.llm_config) if graph.llm_config else None)
-    )
+    return _to_response(graph)
 
 
 @router.put("/{graph_id}", response_model=KnowledgeGraphResponse)
@@ -337,21 +314,7 @@ async def update_graph(graph_id: str, payload: KnowledgeGraphUpdate, db: Session
         llm_config=payload.llm_config
     )
 
-    doc_ids = [gd.document_id for gd in graph.documents]
-    return KnowledgeGraphResponse(
-        id=graph.id,
-        user_id=graph.user_id,
-        name=graph.name,
-        description=graph.description,
-        status=graph.status,
-        node_count=graph.node_count,
-        relationship_count=graph.relationship_count,
-        created_at=graph.created_at,
-        updated_at=graph.updated_at,
-        last_built_at=graph.last_built_at,
-        document_ids=doc_ids,
-        llm_config=(LLMConfig(**graph.llm_config) if graph.llm_config else None)
-    )
+    return _to_response(graph)
 
 
 @router.delete("/{graph_id}")
@@ -379,17 +342,26 @@ async def build_graph(
         raise HTTPException(status_code=400, detail="Graph has no documents")
 
     graph.status = "building"
+    graph.error_message = None
+    graph.build_progress = 0.0
+    graph.build_stage = "starting"
     db.commit()
 
     try:
         if payload.build_mode == "existing":
+            graph.build_stage = "validating"
+            graph.build_progress = 5.0
+            db.commit()
             for doc_id in doc_ids:
                 doc_graph = multi_doc_graph_storage.get_document_graph(doc_id)
                 if not doc_graph or doc_graph.get("node_count", 0) == 0:
                     raise ValueError(f"No scoped graph data found for document {doc_id}")
         elif payload.build_mode == "rebuild":
             llm_config = KnowledgeGraphService._resolve_llm_config(db, graph.user_id, payload.llm_config, graph.llm_config)
-            for doc_id in doc_ids:
+            for idx, doc_id in enumerate(doc_ids):
+                graph.build_stage = f"processing_document_{idx + 1}"
+                graph.build_progress = 10.0 + (70.0 * (idx / max(1, len(doc_ids))))
+                db.commit()
                 doc = db.query(Document).filter(Document.id == doc_id).first()
                 if not doc:
                     raise ValueError(f"Document {doc_id} not found")
@@ -399,37 +371,36 @@ async def build_graph(
                     source_text = doc.filtered_extracted_text or doc.extracted_text or doc.raw_extracted_text or ""
                 if not source_text or not source_text.strip():
                     raise ValueError(f"Document {doc_id} has no extracted text")
-                await ingestion_engine.process_document_scoped_from_text(source_text, doc_id, llm_config=llm_config)
+                await ingestion_engine.process_document_scoped_from_text(
+                    source_text,
+                    doc_id,
+                    llm_config=llm_config,
+                    extraction_max_chars=payload.extraction_max_chars,
+                    chunk_size=payload.chunk_size
+                )
         else:
             raise ValueError("Invalid build_mode. Use 'existing' or 'rebuild'.")
 
+        graph.build_stage = "finalizing"
+        graph.build_progress = 90.0
+        db.commit()
         graph_data = KnowledgeGraphService.get_graph_data(graph, include_connections=False)
         graph.node_count = graph_data["node_count"]
         graph.relationship_count = graph_data["relationship_count"]
         graph.status = "ready"
         graph.last_built_at = datetime.utcnow()
+        graph.build_progress = 100.0
+        graph.build_stage = "complete"
         db.commit()
         db.refresh(graph)
     except Exception as e:
         graph.status = "error"
+        graph.error_message = str(e)
+        graph.build_stage = "error"
         db.commit()
         raise HTTPException(status_code=400, detail=str(e))
 
-    doc_ids = [gd.document_id for gd in graph.documents]
-    return KnowledgeGraphResponse(
-        id=graph.id,
-        user_id=graph.user_id,
-        name=graph.name,
-        description=graph.description,
-        status=graph.status,
-        node_count=graph.node_count,
-        relationship_count=graph.relationship_count,
-        created_at=graph.created_at,
-        updated_at=graph.updated_at,
-        last_built_at=graph.last_built_at,
-        document_ids=doc_ids,
-        llm_config=(LLMConfig(**graph.llm_config) if graph.llm_config else None)
-    )
+    return _to_response(graph)
 
 
 @router.get("/{graph_id}/data", response_model=KnowledgeGraphDataResponse)
@@ -496,7 +467,9 @@ Limit to at most {payload.max_links} connections.
             response_format="json",
             config=llm_config
         )
-        data = json.loads(response_text)
+        data = llm_service._extract_and_parse_json(response_text)
+        if not isinstance(data, dict):
+            data = {}
         connections = data.get("connections", [])
         return {"connections": connections}
     except Exception as e:

@@ -3,7 +3,7 @@ Pydantic models for the Goal Manifestation Agent (GMA).
 Defines the state, input/output structures, and configuration for the agent.
 """
 from typing import List, Optional, Dict, Any, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 # --- Configuration ---
@@ -16,12 +16,21 @@ class AgentLLMConfig(BaseModel):
     temperature: float = 0.7
     api_key: Optional[str] = None
 
+class AgentEmbeddingConfig(BaseModel):
+    """Configuration for Embeddings."""
+    provider: Literal["openai", "ollama", "local"] = "ollama"
+    model: str = "embeddinggemma:latest"
+    dimensions: int = 768
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+
 class AgentSettings(BaseModel):
     """Global settings for the Agent."""
     model_config = {"extra": "ignore"}  # Ignore extra fields from UI
 
     llm_config: AgentLLMConfig = Field(default_factory=AgentLLMConfig)
     vision_llm_config: AgentLLMConfig = Field(default_factory=AgentLLMConfig)
+    embedding_config: AgentEmbeddingConfig = Field(default_factory=AgentEmbeddingConfig)
     guardrail_mode: Literal["soft", "hard"] = "soft"
 
     enable_screenshots: bool = True
@@ -33,6 +42,7 @@ class AgentSettings(BaseModel):
     use_biometrics: bool = False
     biometrics_mode: Literal["insights", "intensity", "scheduling"] = "intensity"
     auto_refresh_fitbit: bool = True
+    fitbit_demo_mode: bool = False
     fitbit_client_id: Optional[str] = None
     fitbit_client_secret: Optional[str] = None
     fitbit_redirect_uri: Optional[str] = None
@@ -111,7 +121,7 @@ class AgentState(BaseModel):
     scratchpad: str = ""  # Persistent scratchpad content
 
     # Internal
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     messages: List[Dict[str, str]] = Field(default_factory=list)  # Chat history for current turn
 
 # --- Input/Output ---

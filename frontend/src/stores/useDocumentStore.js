@@ -19,6 +19,7 @@ const useDocumentStore = create((set, get) => ({
     selectedFolderId: null,  // null = "All Documents"
     isLoading: false,
     error: null,
+    lastFetchedAt: 0,
 
     /**
      * Fetches all folders from the backend.
@@ -123,14 +124,20 @@ const useDocumentStore = create((set, get) => ({
      * Fetches all documents from the backend.
      * @async
      */
-    fetchDocuments: async (silent = false) => {
+    fetchDocuments: async (silent = false, options = {}) => {
+        const { minIntervalMs = 3000, force = false } = options || {};
+        const now = Date.now();
+        const lastFetchedAt = get().lastFetchedAt || 0;
+        if (!force && now - lastFetchedAt < minIntervalMs) {
+            return;
+        }
         if (!silent) set({ isLoading: true, error: null });
         try {
             const data = await api.get('/documents');
             if (!silent) {
-                set({ documents: data, isLoading: false });
+                set({ documents: data, isLoading: false, lastFetchedAt: now });
             } else {
-                set({ documents: data });
+                set({ documents: data, lastFetchedAt: now });
             }
         } catch (err) {
             set({ error: err, isLoading: false });
@@ -217,9 +224,10 @@ const useDocumentStore = create((set, get) => ({
      * @async
      * @param {string} id - The document ID.
      */
-    deleteDocument: async (id) => {
+    deleteDocument: async (id, options = {}) => {
         try {
-            await api.delete(`/documents/${id}`);
+            const params = options?.removeGraphLinks ? { remove_graph_links: true } : undefined;
+            await api.delete(`/documents/${id}`, { params });
             set((state) => ({
                 documents: state.documents.filter((doc) => doc.id !== id),
             }));
@@ -227,6 +235,7 @@ const useDocumentStore = create((set, get) => ({
             get().fetchFolders();
         } catch (err) {
             set({ error: err });
+            throw err;
         }
     },
 
@@ -274,6 +283,7 @@ const useDocumentStore = create((set, get) => ({
                 ),
                 error: err
             }));
+            throw err;
         }
     },
 
@@ -302,6 +312,7 @@ const useDocumentStore = create((set, get) => ({
                 ),
                 error: err
             }));
+            throw err;
         }
     },
 }));

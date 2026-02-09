@@ -30,6 +30,15 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useModels } from '@/lib/hooks/use-models'
 
+const formatRelativeTime = (value, locale) => {
+  if (!value) return 'Unknown'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown'
+  }
+  return formatDistanceToNow(date, { addSuffix: true, locale })
+}
+
 
 
 export function SessionManager({
@@ -214,10 +223,7 @@ export function SessionManager({
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Clock className="h-3 w-3" />
-                          {formatDistanceToNow(new Date(session.created), {
-                            addSuffix: true,
-                            locale: getDateLocale(language)
-                          })}
+                          {formatRelativeTime(session.created, getDateLocale(language))}
                         </div>
                         {session.message_count != null && session.message_count > 0 && (
                           <Badge variant="secondary" className="mt-2 text-xs">

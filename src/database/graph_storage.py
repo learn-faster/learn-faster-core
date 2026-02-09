@@ -70,7 +70,26 @@ class GraphStorage:
                 MERGE (u:User {uid: '__nudge__'})
                 MERGE (u)-[:IN_PROGRESS]->(n)
                 MERGE (u)-[:COMPLETED]->(n)
-                DETACH DELETE n, u
+
+                MERGE (d:Document {id: -1})
+                SET d.name = '__nudge__'
+                MERGE (dc:DocumentConcept {id: '__nudge_dc__'})
+                SET dc.global_name = '__nudge__',
+                    dc.normalized_name = '__nudge__',
+                    dc.description = '',
+                    dc.depth_level = 0,
+                    dc.chunk_ids = [],
+                    dc.is_merged = false
+                MERGE (gc:GlobalConcept {id: '__nudge_gc__'})
+                SET gc.global_name = '__nudge__',
+                    gc.occurrence_count = 0
+
+                MERGE (d)-[:CONTAINS]->(dc)
+                MERGE (dc)-[:MERGED_INTO]->(gc)
+                MERGE (dc)-[:PREREQUISITE {document_id: -1, weight: 0.0, reasoning: '', context: '', method: '', graph_a: '', graph_b: ''}]->(dc)
+                MERGE (dc)-[:CROSS_GRAPH {graph_a: '__nudge__', graph_b: '__nudge__', context: '', method: '', confidence: 0.0}]->(dc)
+
+                DETACH DELETE n, u, d, dc, gc
                 """
             )
             

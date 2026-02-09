@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        "next/navigation": path.resolve(__dirname, "./src/test/next-navigation-mock.js"),
       },
     },
     server: {
@@ -41,6 +42,11 @@ export default defineConfig(({ mode }) => {
     define: {
       // Make build-time env available to the app
       __BACKEND_URL__: JSON.stringify(targetUrl),
+    },
+    test: {
+      environment: 'jsdom',
+      setupFiles: './src/test/setup.js',
+      globals: true,
     }
   }
 })

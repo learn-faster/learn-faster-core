@@ -34,7 +34,8 @@ def extract_web_content(url: str) -> Optional[Dict[str, str]]:
         if not text or not text.strip():
             text = trafilatura.extract(downloaded, output_format="txt")
 
-        title = trafilatura.extract_metadata(downloaded).title if downloaded else None
+        metadata = trafilatura.extract_metadata(downloaded) if downloaded else None
+        title = metadata.title if metadata else None
         if not title:
             parsed = urlparse(url)
             title = parsed.netloc or "Web Source"

@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Date, DateTime, Float, JSON
 from sqlalchemy.sql import func
-from .orm import Base
+from src.database.orm import Base
 
 class FitbitToken(Base):
     __tablename__ = 'fitbit_tokens'

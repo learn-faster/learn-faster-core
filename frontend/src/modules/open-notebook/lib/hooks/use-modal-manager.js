@@ -10,7 +10,7 @@ export function useModalManager() {
   const pathname = location.pathname
 
   // Read current modal state from URL params
-  const modalType = searchParams?.get('modal') | null
+  const modalType = searchParams?.get('modal') || null
   const modalId = searchParams?.get('id')
 
   /**

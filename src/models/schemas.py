@@ -199,6 +199,9 @@ class DocumentResponse(DocumentBase):
     difficulty_score: Optional[float] = None
     language: Optional[str] = None
     scanned_prob: float = 0.0
+    ingestion_error: Optional[str] = None
+    linked_to_graph: bool = False
+    graph_link_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -230,8 +233,7 @@ class FolderResponse(FolderBase):
     created_at: datetime
     document_count: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== Tracking Schemas ==========
@@ -640,6 +642,9 @@ class KnowledgeGraphResponse(KnowledgeGraphBase):
     last_built_at: Optional[datetime] = None
     document_ids: List[int] = []
     llm_config: Optional[LLMConfig] = None
+    error_message: Optional[str] = None
+    build_progress: Optional[float] = None
+    build_stage: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -648,6 +653,8 @@ class KnowledgeGraphBuildRequest(BaseModel):
     build_mode: str = Field(..., description="existing or rebuild")
     llm_config: Optional[LLMConfig] = None
     source_mode: str = Field("filtered", description="filtered or raw")
+    extraction_max_chars: Optional[int] = Field(None, description="Max chars per LLM extraction window")
+    chunk_size: Optional[int] = Field(None, description="Chunk size for document splitting")
 
 
 class KnowledgeGraphConnectionSuggestion(BaseModel):

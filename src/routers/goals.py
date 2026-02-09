@@ -445,15 +445,25 @@ async def get_agent_settings(
     }
     vision_llm_config = agent_settings_data.get("vision_llm_config") or llm_config
     
+    embedding_config = agent_settings_data.get("embedding_config") or {
+        "provider": settings.embedding_provider,
+        "model": settings.embedding_model,
+        "dimensions": getattr(settings, "embedding_dimensions", 768),
+        "base_url": settings.embedding_base_url,
+        "api_key": settings.embedding_api_key
+    }
+    
     return {
         "llm_config": llm_config,
         "vision_llm_config": vision_llm_config,
+        "embedding_config": embedding_config,
         "guardrail_mode": agent_settings_data.get("guardrail_mode", "soft"),
         "enable_screenshots": agent_settings_data.get("enable_screenshots", True),
         "screenshot_interval_min": agent_settings_data.get("screenshot_interval_min", 15),
         "check_in_frequency_hours": agent_settings_data.get("check_in_frequency_hours", 4 if user_settings.email_daily_reminder else 0),
         "biometrics_mode": agent_settings_data.get("biometrics_mode", "intensity"),
         "auto_refresh_fitbit": agent_settings_data.get("auto_refresh_fitbit", True),
+        "fitbit_demo_mode": agent_settings_data.get("fitbit_demo_mode", False),
         "resend_api_key": user_settings.resend_api_key,
         "resend_reply_domain": user_settings.resend_reply_domain,
         "email": user_settings.email,
@@ -491,13 +501,18 @@ async def get_agent_status(
     biometrics_mode = None
     pending_daily_items = None
     if user_settings:
+        demo_mode = user_settings.llm_config.get("agent_settings", {}).get("fitbit_demo_mode", False) if user_settings.llm_config else False
         token = db.query(FitbitToken).filter(FitbitToken.user_id == user_settings.id).first()
-        fitbit_connected = token is not None
+        fitbit_connected = token is not None or demo_mode
         if token:
             latest = db.query(FitbitDailyMetrics).filter(FitbitDailyMetrics.user_id == user_settings.id).order_by(FitbitDailyMetrics.date.desc()).first()
             if latest:
                 readiness_score = latest.readiness_score
                 fitbit_last_sync = latest.updated_at or latest.created_at
+        elif demo_mode:
+            from src.services.fitbit_service import FitbitService
+            metrics = FitbitService.demo_metrics(date.today())
+            readiness_score = FitbitService.compute_readiness(metrics) or 88.0
         if user_settings.llm_config:
             biometrics_mode = user_settings.llm_config.get("agent_settings", {}).get("biometrics_mode", "intensity")
         today = date.today()
@@ -760,6 +775,4 @@ async def agent_scratchpad_tool(
     from src.services.memory_service import memory_service
     memory_service.update_scratchpad(payload.content, user_id=user_id)
     return {"status": "ok"}
-
-
 

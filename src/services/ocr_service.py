@@ -71,5 +71,29 @@ class OCRService:
 
         return "\n".join([t for t in text_parts if t and t.strip()])
 
+    async def ocr_image(
+        self,
+        image_path: str,
+        mode: Optional[str] = None,
+        llm_config: Optional[LLMConfig] = None
+    ) -> str:
+        """
+        OCR for a single image file.
+        """
+        mode = (mode or settings.ocr_mode).lower()
+        if mode == "disabled":
+            return ""
+
+        try:
+            from PIL import Image
+            image = Image.open(image_path)
+        except Exception as e:
+            logger.error(f"Failed to open image for OCR: {e}")
+            return ""
+
+        if mode == "cloud":
+            return await self._ocr_image_cloud(image_path, llm_config)
+        return self._ocr_image_local(image)
+
 
 ocr_service = OCRService()

@@ -1,6 +1,6 @@
 import requests
 import os
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional, Dict, Any
 from src.models.fitbit import FitbitToken, FitbitDailyMetrics
 from src.database.orm import SessionLocal
@@ -17,7 +17,7 @@ class FitbitService:
 
     def _is_token_expired(self) -> bool:
         """Check if the current access token has expired."""
-        return datetime.utcnow().timestamp() > self.expires_at
+        return datetime.now(timezone.utc).timestamp() > self.expires_at
 
     def _refresh_token(self) -> None:
         """Refresh the access token using the refresh token."""
@@ -54,7 +54,7 @@ class FitbitService:
             if token:
                 token.access_token = new_tokens['access_token']
                 token.refresh_token = new_tokens['refresh_token']
-                token.expires_at = int(datetime.utcnow().timestamp() + new_tokens['expires_in'])
+                token.expires_at = int(datetime.now(timezone.utc).timestamp() + new_tokens['expires_in'])
                 db.commit()
                 
                 # Update instance variables
@@ -120,7 +120,20 @@ class FitbitService:
             "sleep_end": sleep_end
         }
 
-    def compute_readiness(self, metrics: Dict[str, Any]) -> Optional[float]:
+    @staticmethod
+    def demo_metrics(target_date: date) -> Dict[str, Any]:
+        """Generate stable demo metrics for UI/testing without Fitbit OAuth."""
+        return {
+            "date": target_date.strftime("%Y-%m-%d"),
+            "sleep_duration_hours": 7.6,
+            "sleep_efficiency": 88,
+            "resting_heart_rate": 57,
+            "sleep_start": f"{target_date.isoformat()}T00:10:00.000",
+            "sleep_end": f"{target_date.isoformat()}T07:45:00.000"
+        }
+
+    @staticmethod
+    def compute_readiness(metrics: Dict[str, Any]) -> Optional[float]:
         """
         Compute readiness score (0-100) using sleep duration, efficiency, and resting HR.
         """
@@ -157,7 +170,7 @@ class FitbitService:
             FitbitDailyMetrics.date == target_date
         ).first()
 
-        readiness = self.compute_readiness(metrics)
+        readiness = FitbitService.compute_readiness(metrics)
         if not record:
             record = FitbitDailyMetrics(
                 user_id=self.user_id,

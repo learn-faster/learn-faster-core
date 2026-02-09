@@ -32,6 +32,7 @@ import RecallStudio from '../components/documents/RecallStudio';
 import { Document, Page, pdfjs } from 'react-pdf';
 import ReactMarkdown from 'react-markdown';
 import { Panel, Group, Separator, usePanelRef } from 'react-resizable-panels';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 // Open Notebook Components
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/modules/open-notebook/ui/tabs';
@@ -54,6 +55,11 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 const getFileName = (path) => {
     if (!path) return '';
     return path.split(/[/\\]/).pop();
+};
+
+const ensureTrailingSlash = (value) => {
+    if (!value) return value;
+    return value.endsWith('/') ? value : `${value}/`;
 };
 
 const LazyPage = ({ pageNumber, pageWidth, handleTextSelection }) => {
@@ -122,6 +128,18 @@ const LazyPage = ({ pageNumber, pageWidth, handleTextSelection }) => {
     );
 };
 
+const PdfErrorFallback = ({ error, resetError }) => (
+    <div className="w-full max-w-2xl bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-4 rounded-xl text-sm space-y-2">
+        <div className="font-semibold">Failed to render PDF.</div>
+        {error?.message && (
+            <div className="text-red-100/80 break-words">{error.message}</div>
+        )}
+        <button onClick={resetError} className="btn-secondary text-xs">
+            Try again
+        </button>
+    </div>
+);
+
 const DocumentViewer = () => {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -137,6 +155,7 @@ const DocumentViewer = () => {
     const [lastSavedTime, setLastSavedTime] = useState(0);
     const [apiBaseUrl, setApiBaseUrl] = useState('');
     const [pdfError, setPdfError] = useState(null);
+    const [ingestionError, setIngestionError] = useState(null);
 
     // Open Notebook State
     const [contextSelections, setContextSelections] = useState({ sources: {}, notes: {} });
@@ -193,12 +212,14 @@ const DocumentViewer = () => {
         () => (encodedFileName ? `${uploadsPrefix}/${encodedFileName}` : null),
         [uploadsPrefix, encodedFileName]
     );
-    const pdfOptions = useMemo(() => ({
-        cMapUrl: new URL('pdfjs-dist/cmaps/', import.meta.url).toString(),
-        cMapPacked: true,
-        standardFontDataUrl: new URL('pdfjs-dist/standard_fonts/', import.meta.url).toString(),
-        wasmUrl: new URL('pdfjs-dist/build/', import.meta.url).toString()
-    }), []);
+    const pdfOptions = useMemo(() => {
+        const assetBase = ensureTrailingSlash('/pdfjs/');
+        return {
+            cMapUrl: ensureTrailingSlash(`${assetBase}cmaps`),
+            cMapPacked: true,
+            standardFontDataUrl: ensureTrailingSlash(`${assetBase}standard_fonts`)
+        };
+    }, []);
 
     useEffect(() => {
         const startSession = async () => {
@@ -258,6 +279,7 @@ const DocumentViewer = () => {
             try {
                 const data = await api.get(`/documents/${id}`);
                 setStudyDoc(data);
+                setIngestionError(data?.ingestion_error || null);
                 const savedProgress = data.reading_progress || 0;
                 setProgress(Math.round(savedProgress * 100));
 
@@ -270,7 +292,7 @@ const DocumentViewer = () => {
                 }, 1000);
             } catch (err) {
                 console.error('Failed to fetch document', err);
-                setError(err.message || 'Failed to load document');
+                setError(err?.userMessage || err?.message || 'Failed to load document');
             } finally {
                 setIsLoading(false);
             }
@@ -299,6 +321,21 @@ const DocumentViewer = () => {
         };
         fetchCore();
     }, [id]);
+
+    useEffect(() => {
+        if (!ingestionJob || !['running', 'pending'].includes(ingestionJob.status)) {
+            return;
+        }
+        const interval = setInterval(async () => {
+            try {
+                const jobRes = await api.get(`/documents/${id}/ingestion`);
+                setIngestionJob(jobRes);
+            } catch {
+                // ignore polling errors
+            }
+        }, 3000);
+        return () => clearInterval(interval);
+    }, [ingestionJob, id]);
 
     useEffect(() => {
         if (initialTab) {
@@ -381,17 +418,23 @@ const DocumentViewer = () => {
     };
 
     const handleExtractConcepts = async () => {
+        if (!studyDoc?.extracted_text) {
+            showToast('Document is still processing. Wait for extraction to finish, then try again.', 'error');
+            return;
+        }
         setIsExtracting(true);
         try {
-            const response = await ConceptService.extractConcepts(id);
-            if (response.status === 'success') {
-                showToast('Knowledge graph updated!', 'success');
-            } else {
-                showToast(response.message || 'Synthesis complete with warnings', 'info');
+            await api.post(`/documents/${id}/synthesize`);
+            showToast('Graph synthesis queued.', 'success');
+            try {
+                const jobRes = await api.get(`/documents/${id}/ingestion`);
+                setIngestionJob(jobRes);
+            } catch {
+                // ignore polling failure
             }
         } catch (err) {
             console.error(err);
-            const errorMessage = err.response?.data?.detail || err.message || 'Extraction failed';
+            const errorMessage = err?.userMessage || err?.message || 'Graph synthesis failed';
             showToast(errorMessage, 'error');
         } finally {
             setIsExtracting(false);
@@ -545,9 +588,9 @@ const DocumentViewer = () => {
                         <div className="flex items-center gap-1.5">
                             <button
                                 onClick={handleExtractConcepts}
-                                disabled={isExtracting}
-                                className={`p-2.5 rounded-xl transition-all border border-transparent ${isExtracting ? 'text-primary-400 animate-pulse' : 'text-dark-400 hover:bg-white/5 hover:border-white/10'}`}
-                                title="Map Concepts (AI)"
+                                disabled={isExtracting || !studyDoc?.extracted_text}
+                                className={`p-2.5 rounded-xl transition-all border border-transparent ${isExtracting ? 'text-primary-400 animate-pulse' : (!studyDoc?.extracted_text ? 'text-dark-600 cursor-not-allowed' : 'text-dark-400 hover:bg-white/5 hover:border-white/10')}`}
+                                title={studyDoc?.extracted_text ? "Map Concepts (AI)" : "Processing not complete"}
                             >
                                 {isExtracting ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <Network className="w-4.5 h-4.5" />}
                             </button>
@@ -584,42 +627,49 @@ const DocumentViewer = () => {
                             className="flex-1 overflow-auto custom-scrollbar"
                             onScroll={handleScroll}
                         >
+                            {ingestionError && (
+                                <div className="mx-6 mt-6 mb-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-200 px-4 py-3 text-sm">
+                                    {ingestionError}
+                                </div>
+                            )}
                             <div className={`min-w-full min-h-full flex flex-col ${['pdf', 'image'].includes(studyDoc?.file_type) ? 'items-center py-10' : ''}`}>
                                 {(studyDoc?.file_type === 'pdf' || studyDoc?.filename?.toLowerCase().endsWith('.pdf') || studyDoc?.file_path?.toLowerCase().endsWith('.pdf')) ? (
                                     <div className="w-full flex flex-col items-center py-8 px-4">
                                         {pdfFile ? (
-                                            <Document
-                                                file={pdfFile}
-                                                onLoadSuccess={onDocumentLoadSuccess}
-                                                className="flex flex-col items-center gap-4"
-                                                loading={<div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 my-20"></div>}
-                                                onLoadError={(err) => {
-                                                    console.error('PDF load error', err);
-                                                    setPdfError(err?.message || 'Failed to load PDF');
-                                                }}
-                                                onSourceError={(err) => {
-                                                    console.error('PDF source error', err);
-                                                    setPdfError(err?.message || 'Failed to load PDF source');
-                                                }}
-                                                options={pdfOptions}
-                                            >
-                                                {pdfError && (
-                                                    <div className="w-full max-w-2xl bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-xl text-sm">
-                                                        {pdfError}
-                                                    </div>
-                                                )}
-                                                {numPages && !pdfError && Array.from({ length: numPages }, (el, index) => (
-                                                    <LazyPage
-                                                        key={`page_${index + 1}`}
-                                                        pageNumber={index + 1}
-                                                        pageWidth={Math.max(320, Math.floor((panelWidth || 900) * 0.92 * zoom))}
-                                                        handleTextSelection={handleTextSelection}
-                                                    />
-                                                ))}
-                                                {!numPages && !pdfError && (
-                                                    <div className="text-dark-400 text-sm py-10">Preparing pages...</div>
-                                                )}
-                                            </Document>
+                                            <ErrorBoundary fallback={PdfErrorFallback}>
+                                                <Document
+                                                    file={pdfFile}
+                                                    onLoadSuccess={onDocumentLoadSuccess}
+                                                    className="flex flex-col items-center gap-4"
+                                                    loading={<div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 my-20"></div>}
+                                                    onLoadError={(err) => {
+                                                        console.error('PDF load error', err);
+                                                        setPdfError(err?.message || 'Failed to load PDF');
+                                                    }}
+                                                    onSourceError={(err) => {
+                                                        console.error('PDF source error', err);
+                                                        setPdfError(err?.message || 'Failed to load PDF source');
+                                                    }}
+                                                    options={pdfOptions}
+                                                >
+                                                    {pdfError && (
+                                                        <div className="w-full max-w-2xl bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-xl text-sm">
+                                                            {pdfError}
+                                                        </div>
+                                                    )}
+                                                    {numPages && !pdfError && Array.from({ length: numPages }, (el, index) => (
+                                                        <LazyPage
+                                                            key={`page_${index + 1}`}
+                                                            pageNumber={index + 1}
+                                                            pageWidth={Math.max(320, Math.floor((panelWidth || 900) * 0.92 * zoom))}
+                                                            handleTextSelection={handleTextSelection}
+                                                        />
+                                                    ))}
+                                                    {!numPages && !pdfError && (
+                                                        <div className="text-dark-400 text-sm py-10">Preparing pages...</div>
+                                                    )}
+                                                </Document>
+                                            </ErrorBoundary>
                                         ) : (
                                             <div className="text-dark-400 text-sm py-10">
                                                 PDF file not available.
