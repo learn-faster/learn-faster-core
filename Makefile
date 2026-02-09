@@ -13,7 +13,7 @@ else
 	DOCKER_CMD = $(DOCKER_COMPOSE)
 endif
 
-.PHONY: help setup db-init backend frontend both docker-up docker-down
+.PHONY: help setup db-init backend frontend both docker-up docker-down dev
 
 help:
 	@echo "Available targets:"
@@ -24,6 +24,7 @@ help:
 	@echo "  make both         - Start both frontend and backend"
 	@echo "  make docker-up    - Start Docker services (default ENV=windows, use ENV=wsl for WSL)"
 	@echo "  make docker-down  - Stop Docker services"
+	@echo "  make dev          - Start Docker (WSL), backend, and frontend"
 
 setup:
 	if [ ! -f .env ]; then cp .env.example .env; fi
@@ -41,6 +42,10 @@ frontend:
 
 both:
 	@echo "Starting both frontend and backend..."
+	@$(MAKE) -j 2 backend frontend
+
+dev:
+	@$(MAKE) docker-up ENV=wsl
 	@$(MAKE) -j 2 backend frontend
 
 docker-up:
