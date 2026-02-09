@@ -71,7 +71,7 @@ Learning is usually fragmented across notes, videos, and flashcards, with little
   <img src="frontend/src/assets/curri.png" width="800" alt="Learning Path">
   <br/><br/>
 
-  <h3>Knowledge Graph & Concept Map</h3>
+  <h3>Personalised learning</h3>
   <img src="frontend/src/assets/screen.png" width="800" alt="Knowledge Graph Visualization">
 </div>
 
@@ -93,10 +93,6 @@ Data Layer
   ├─ PostgreSQL + pgvector
   ├─ Neo4j (concept graph)
   └─ SurrealDB (Open Notebook)
-```
-
-See `docs/PROJECT_OVERVIEW.md`, `docs/PROJECT_UPDATE_SUMMARY.md`, and `SYSTEM_ARCHITECTURE.md` for deeper detail.
-
 ---
 
 ## Technology Stack
@@ -170,23 +166,6 @@ REDIS_JOB_TIMEOUT=1800
 - `/api/graphs/*` — knowledge graph workflows
 
 ---
-
-## Email Negotiation (Resend)
-Inbound replies require a **public HTTPS** endpoint. Configure Resend to send inbound emails to:
-```
-https://<your-backend-domain>/api/goals/agent/email/inbound
-```
-Environment variables:
-```
-RESEND_API_KEY=...
-RESEND_FROM_EMAIL=...
-RESEND_REPLY_DOMAIN=reply.yourdomain.com
-FRONTEND_URL=https://<your-frontend-domain>
-```
-Localhost will not work for inbound webhooks.
-
----
-
 ## Project Map
 ```
 src/
@@ -201,15 +180,4 @@ docs/
   PROJECT_OVERVIEW.md
   PROJECT_UPDATE_SUMMARY.md
 ```
-
----
-
-## Roadmap
-- Biometric personalization (Fitbit/Apple Health) fully integrated into pacing.
-- Multi-modal RAG across diagrams and handwritten notes.
-- Collaborative knowledge graphs.
-- Mobile companion for quick review.
-
----
-
-**LearnFast Core** — turn goals into daily learning and measurable progress.
+**LearnFast** — turn goals into daily learning and measurable progress.
