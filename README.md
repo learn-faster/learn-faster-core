@@ -68,7 +68,7 @@ Learning is usually fragmented across notes, videos, and flashcards, with little
   <br/><br/>
 
   <h3>Customizable Curriculum</h3>
-  <img src="frontend/src/assets/curri.png" width="800" alt="Learning Path">
+  <img src="frontend/src/assets/curri.png" width="800">
   <br/><br/>
 
   <h3>Personalised learning</h3>
@@ -115,8 +115,8 @@ Data Layer
 
 ### 1) Setup
 ```bash
-git clone https://github.com/your-repo/learn-faster-core.git
-cd learn-faster-core
+git clone https://github.com/learn-faster/Learn_Better.git
+cd Learn_Better
 cp .env.example .env
 ```
 Edit `.env` with your API keys and DB settings.
