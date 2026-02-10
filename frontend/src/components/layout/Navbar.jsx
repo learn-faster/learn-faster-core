@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
     LayoutDashboard,
@@ -6,7 +6,7 @@ import {
     Library,
     GraduationCap,
     BarChart3,
-    BrainCircuit,
+    Star,
     Network,
     Map,
     Scan,
@@ -54,7 +54,7 @@ const FocusStatus = () => {
                         <span className="text-[10px] font-black uppercase tracking-widest text-primary-400 font-mono">
                             {formatTime(timeLeft)}
                         </span>
-                        <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                        <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-primary-500' : 'bg-primary-300'}`} />
                     </div>
                     <p className="text-[10px] font-bold text-white/50 uppercase tracking-tighter truncate mt-0.5">
                         {goal || (mode === 'WORK' ? 'Deep Work' : 'Break')}
@@ -78,7 +78,20 @@ const FocusStatus = () => {
  * 
  * @returns {JSX.Element} The rendered navigation menu.
  */
+const TOUR_KEY = 'feature_tour_v1_dismissed';
+
 const Navbar = ({ onOpenSettings }) => {
+    const [showTour, setShowTour] = useState(false);
+
+    useEffect(() => {
+        const dismissed = localStorage.getItem(TOUR_KEY) === 'true';
+        setShowTour(!dismissed);
+    }, []);
+
+    const dismissTour = () => {
+        localStorage.setItem(TOUR_KEY, 'true');
+        setShowTour(false);
+    };
     /**
      * Configuration for primary navigation links.
      */
@@ -86,9 +99,9 @@ const Navbar = ({ onOpenSettings }) => {
         { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
         { to: '/documents', icon: Files, label: 'Documents' },
         { to: '/practice', icon: GraduationCap, label: 'Practice' },
-        { to: '/knowledge-graph', icon: Network, label: 'Knowledge Map' },
-        { to: '/curriculum', icon: Map, label: 'Curriculum' },
-        { to: '/daily-goals', icon: CheckSquare, label: 'Daily Goals' },
+        { to: '/knowledge-graph', icon: Network, label: 'Knowledge Map', tour: { title: 'Knowledge Map', body: 'See how concepts connect across your documents.' } },
+        { to: '/curriculum', icon: Map, label: 'Curriculum', tour: { title: 'Curriculum', body: 'Your adaptive learning plan with checkpoints and mastery gating.' } },
+        { to: '/daily-goals', icon: CheckSquare, label: 'Daily Goals', tour: { title: 'Daily Goals', body: 'Auto-generated tasks to keep momentum each day.' } },
         { to: '/analytics', icon: BarChart3, label: 'Analytics' },
         { to: '/admin/emails', icon: Mail, label: 'Email Logs' }
     ];
@@ -96,12 +109,12 @@ const Navbar = ({ onOpenSettings }) => {
     return (
         <nav className="fixed left-0 top-0 h-full w-20 md:w-72 bg-dark-950/80 border-r border-white/5 z-50 flex flex-col items-center md:items-stretch py-6 shadow-2xl backdrop-blur-xl">
             <div className="flex items-center gap-4 px-4 md:px-6 mb-8 group cursor-pointer">
-                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary-500 to-indigo-500 flex items-center justify-center shadow-lg shadow-primary-500/30 group-hover:scale-105 transition-transform duration-500">
-                    <BrainCircuit className="text-white w-6 h-6" />
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-700 flex items-center justify-center shadow-lg shadow-primary-500/30 group-hover:scale-105 transition-transform duration-500">
+                    <Star className="text-white w-6 h-6" />
                 </div>
                 <div className="hidden md:block">
-                    <h1 className="text-lg font-black tracking-tight text-white">LEARNFAST</h1>
-                    <p className="text-[10px] uppercase tracking-[0.3em] text-primary-300 font-bold opacity-70">Core</p>
+                    <h1 className="text-lg font-black tracking-tight text-white">ORBIT</h1>
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-primary-300 font-bold opacity-70">Doodle</p>
                 </div>
             </div>
 
@@ -122,7 +135,7 @@ const Navbar = ({ onOpenSettings }) => {
                                 {isActive && (
                                     <motion.div
                                         layoutId="nav-glow"
-                                        className="absolute left-0 w-1 h-7 bg-primary-500 rounded-r-full shadow-[0_0_18px_rgba(139,92,246,0.85)]"
+                                        className="absolute left-0 w-1 h-7 bg-primary-500 rounded-r-full shadow-[0_0_18px_rgba(194,239,179,0.85)]"
                                     />
                                 )}
                                 <div className={cn(
@@ -137,6 +150,20 @@ const Navbar = ({ onOpenSettings }) => {
                                 )}>
                                     {item.label}
                                 </span>
+                                {showTour && item.tour && (
+                                    <div className="hidden md:block absolute left-[calc(100%+12px)] top-1/2 -translate-y-1/2 z-50">
+                                        <div className="w-64 rounded-2xl border border-primary-500/30 bg-dark-950/95 p-3 shadow-2xl">
+                                            <p className="text-[10px] uppercase tracking-[0.3em] text-primary-300 font-black">{item.tour.title}</p>
+                                            <p className="text-xs text-dark-300 mt-2">{item.tour.body}</p>
+                                            <button
+                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); dismissTour(); }}
+                                                className="mt-3 text-[10px] uppercase tracking-widest text-primary-300 font-bold"
+                                            >
+                                                Got it
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </>
                         )}
                     </NavLink>

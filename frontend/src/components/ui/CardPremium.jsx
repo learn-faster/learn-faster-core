@@ -28,18 +28,18 @@ function cn(...inputs) {
  */
 const Card = ({ children, className, title, subtitle, icon: Icon, action }) => {
     return (
-        <div className={cn("card-premium", className)}>
+        <div className={cn("card-premium sketchy-surface", className)}>
             {(title || Icon || action) && (
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                         {Icon && (
-                            <div className="w-10 h-10 rounded-xl bg-primary-500/10 flex items-center justify-center border border-primary-500/20">
-                                <Icon className="w-5 h-5 text-primary-400" />
+                            <div className="w-10 h-10 rounded-xl bg-primary-500/10 flex items-center justify-center border border-primary-500/30">
+                                <Icon className="w-5 h-5 text-primary-300" />
                             </div>
                         )}
                         <div>
-                            {title && <h3 className="text-lg font-bold text-white tracking-tight">{title}</h3>}
-                            {subtitle && <p className="text-sm text-dark-400">{subtitle}</p>}
+                            {title && <h3 className="text-lg font-bold text-white tracking-tight font-display">{title}</h3>}
+                            {subtitle && <p className="text-sm text-dark-300">{subtitle}</p>}
                         </div>
                     </div>
                     {action && <div>{action}</div>}
