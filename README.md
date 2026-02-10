@@ -46,24 +46,46 @@ LearnBetter is built on a "Triple-Store" architecture to handle the complexity o
 
 ## 📦 Core Capabilities
 
-- **🌪️ Instant Ingestion**: Drop PDFs, YouTube links, or web articles. We extract high-fidelity text and diagrams.
-- **🃏 Multi-Modality Practice**: Beyond simple flashcards. Supports **Active Recall drills**, **Self-Explanation** prompts, and **Scientific Quizzes** tailored to your growth frontier.
-- **📊 Metacognitive Analytics**: Track your **Cognitive Velocity**, **Synaptic Stability**, and **Retention Risk** (FSRS-based) in real-time.
-- **📅 Neural Daily Dashboard**: Schedules your day based on your **Readiness Score** and circadian phases.
+<div align="center">
+  <h3>Interactive Dashboard</h3>
+  <img src="frontend/src/assets/dash.png" width="800" alt="Dashboard Overview">
+  <br/><br/>
+  
+  <h3>Document Management & Processing</h3>
+  <img src="frontend/src/assets/documents.png" width="800" alt="Document Ingestion">
+  <br/><br/>
+
+  <h3>Adaptive Practice Engine</h3>
+  <img src="frontend/src/assets/prac.png" width="800" alt="Practice Sessions">
+  <br/><br/>
+
+  <h3>Customizable Curriculum</h3>
+  <img src="frontend/src/assets/curri.png" width="800">
+  <br/><br/>
+
+  <h3>Personalised learning</h3>
+  <img src="frontend/src/assets/welcome.png" width="800" alt="Knowledge Graph Visualization">
+</div>
 
 ---
 
-## 🖼️ Visual Tour
+## Architecture (High-Level)
+```
+Frontend (React + Vite)
+  ├─ Dashboard / Analytics / Practice / Docs / Knowledge Graph
+  └─ Agent UI (chat + tools + settings)
 
-<div align="center">
-  <br/>
-  <kbd><img src="frontend/src/assets/dash.png" width="800" alt="Dashboard Overview"></kbd>
-  <p><i>The Command Center: Goal-aligned daily actions and real-time cognitive analytics.</i></p>
-  <br/>
+Backend (FastAPI)
+  ├─ Documents, Flashcards, Practice, Curriculum
+  ├─ Goals, Daily Plans, Agent + Negotiation
+  ├─ Analytics, Dashboard, Fitbit integration
+  └─ Knowledge Graph + Navigation
 
-  <kbd><img src="frontend/src/assets/welcome.png" width="800" alt="Onboarding"></kbd>
-  <p><i>Onboarding: Defining your North Star goals before we build your curriculum.</i></p>
-  <br/>
+Data Layer
+  ├─ PostgreSQL + pgvector
+  ├─ Neo4j (concept graph)
+  └─ SurrealDB (Open Notebook)
+---
 
   <kbd><img src="frontend/src/assets/curri.png" width="800" alt="Curriculum"></kbd>
   <p><i>AI-Generated Curriculum: Concepts mapped from your sources into a logical learning path.</i></p>
@@ -98,4 +120,29 @@ npm install && npm run dev
 ```
 
 ---
-**LearnBetter** — *Don't just study faster. Learn better.*
+
+## Key Endpoints
+- `/api/documents/*` — ingest, parse, recall prompts
+- `/api/practice/*` — practice sessions, items, history
+- `/api/dashboard/overview` — unified dashboard data
+- `/api/analytics/*` — insights and trends
+- `/api/goals/*` — goals, daily plans, agent actions
+- `/api/fitbit/*` — optional biometric inputs
+- `/api/graphs/*` — knowledge graph workflows
+
+---
+## Project Map
+```
+src/
+  routers/           # API endpoints
+  services/          # domain logic (practice, goals, analytics, agent)
+  models/            # ORM + Pydantic schemas
+  ingestion/         # document processing
+frontend/
+  pages/             # Dashboard, Analytics, Practice, Documents
+  components/        # Agent UI and shared UI pieces
+docs/
+  PROJECT_OVERVIEW.md
+  PROJECT_UPDATE_SUMMARY.md
+```
+**LearnFast** — turn goals into daily learning and measurable progress.
