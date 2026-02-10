@@ -1,8 +1,8 @@
-# 🧠 LearnBetter: The Goal-Adaptive Learning Operating System
+# 🧠 LearnBetter: The AI-Native "Goal-Adaptive" Learning Operating System
 
-> **"Most LMS tools are just digital filing cabinets. LearnBetter is your personal cognitive architect."**
+> **"Most LMS tools are just digital filing cabinets. LearnBetter is your personal cognitive architect, powered by Hybrid Graph-RAG and Neuro-Biometric feedback."**
 
-LearnBetter is an AI-native learning system that doesn't just store your notes it **re-engineers your brain**. By combining **Hybrid Graph-RAG**, **Autonomous Goal Agents**, and **Biometric Feedback**, it turns fragmented source material into a personalized, goal-aligned learning journey backed by cognitive science.
+LearnBetter is an AI-native learning system that doesn't just store notes; it **re-engineers your cognitive workflow**. By combining **Hybrid Graph-RAG**, **Multi-node Autonomous Agents**, and **Biometric Synthesis**, it turns fragmented source material into a personalized, goal-aligned learning journey backed by rigorous cognitive science.
 
 ---
 
@@ -10,20 +10,24 @@ LearnBetter is an AI-native learning system that doesn't just store your notes i
 
 While other projects do simple Vector RAG, LearnBetter builds a **living knowledge ecosystem**.
 
-### 1. 🕸️ Hybrid Graph-RAG (The Vertical Advantage)
+### 1. 🕸️ Prerequisite-Aware Graph-RAG (The Vertical Advantage)
 Most RAG systems only find "related facts." LearnBetter uses **Neo4j + pgvector** to map the *structural hierarchy* of knowledge.
-- **Fact Discovery**: Finds the specific answer in your PDFs.
-- **Structural Mapping**: Understands that you can't learn *Quantum Field Theory* without mastering *Linear Algebra* first. It builds a Knowledge Graph of concepts and prerequisites.
+- **Hierarchical Retrieval**: Navigates conceptual dependencies so you don't study *Quantum Field Theory* without mastering *Linear Algebra* first.
+- **Cross-Document Nexus**: Automatically identifies concept merges and prerequisites across disparate PDFs and sources.
 
-### 2. 🤖 The Autonomous Goal Agent (Your AI Accountability Partner)
-It doesn't just track progress; it **negotiates** it.
-- **Email Negotiation**: If you miss a milestone, the agent sends an email to "negotiate" a new daily plan based on your remaining time and goal priority.
-- **Tool-Integrated**: The agent can take screenshots, search your notebook, and update your calendar.
+### 2. 🤖 Autonomous Goal Manifestation Agent (GMA)
+Our agent doesn't just track progress; it **monitors and negotiates** it.
+- **Agentic Proof-of-Work**: The agent uses **Playwright** to autonomously take screenshots of your workspace/URLs to verify goal manifestation and "deep work" evidence.
+- **Accountability Negotiation**:missing a milestone triggers an automated email negotiation (via **Resend**) to recalibrate your daily load based on remaining time and goal priority.
 
-### 3. ⌚ Biometric-Adaptive Pacing (Fitbit Integration)
-Learning isn't just cognitive; it's physical.
-- **Energy-Aware Scheduling**: LearnBetter syncs with your **Fitbit** to monitor sleep and readiness.
-- **Dynamic Load Balancing**: High-readiness days get "Deep Work" sessions; low-readiness days get "Light Review" sessions automatically.
+### 3. ⌚ Neuro-Biometric Feedback Loop (Fitbit Integration)
+Learning is a physical process. LearnBetter synchronizes your load with your biological state.
+- **Readiness-Based Pacing**: Syncs with **Fitbit** to calculate a real-time **Readiness Score** based on sleep duration, efficiency, and resting heart rate.
+- **Circadian Optimization**: Automatically schedules "Deep Abstraction" sessions during your diurnal cortisol peaks and "Light Review" during metabolic nadirs.
+
+### 4. 🧪 Scientific Mastery Engine (SM-2 & FSRS)
+- **Retention Targeting**: A custom Spaced Repetition System (SRS) based on **SM-2 with log-linear scaling**, allowing you to target specific retention rates (e.g., 90%).
+- **Memory Stability Index**: Real-time calculation of synaptic decay and retention risk across your entire knowledge graph.
 
 ---
 
@@ -36,7 +40,7 @@ LearnBetter is built on a "Triple-Store" architecture to handle the complexity o
 | **Cognition** | **Graph Engine** | Neo4j | Concept hierarchies & prerequisites |
 | **Memory** | **Vector Memory** | pgvector (PostgreSQL) | Semantic context & factual recall |
 | **Workflow** | **Open Notebook** | SurrealDB | Decentralized, local-first synced notes |
-| **Logic** | **Agentic Layer** | FastAPI + Groq/Ollama | Autonomous planning & negotiation |
+| **Logic** | **Agentic Layer** | **LangGraph** + Playwright | Autonomous planning, monitoring & negotiation |
 
 ---
 
