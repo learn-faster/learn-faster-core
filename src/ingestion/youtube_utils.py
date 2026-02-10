@@ -112,3 +112,67 @@ def fetch_transcript(video_id: str, languages: List[str] = ['en', 'en-US']) -> O
     except Exception as e:
         logger.error(f"Failed to fetch YouTube transcript for {video_id} with yt-dlp: {str(e)}")
         return None
+
+
+def fetch_transcript_segments(video_id: str, languages: List[str] = ['en', 'en-US']) -> Optional[List[dict]]:
+    """
+    Fetch transcript segments with timestamps.
+    Returns list of {start_ms, duration_ms, text}.
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    ydl_opts = {
+        'writesubtitles': True,
+        'writeautomaticsub': True,
+        'skip_download': True,
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            subtitles = info.get('subtitles', {})
+            automatic_captions = info.get('automatic_captions', {})
+
+            target_lang = None
+            for lang in languages:
+                if lang in subtitles:
+                    target_lang = lang
+                    break
+            if not target_lang:
+                for lang in languages:
+                    if lang in automatic_captions:
+                        target_lang = lang
+                        break
+            if not target_lang:
+                combined = {**subtitles, **automatic_captions}
+                target_lang = next((l for l in combined if l.startswith('en')), None)
+            if not target_lang:
+                return None
+
+            formats = subtitles.get(target_lang) or automatic_captions.get(target_lang)
+            json3_url = next((f['url'] for f in formats if f.get('ext') == 'json3'), None)
+            if not json3_url:
+                return None
+
+            resp = requests.get(json3_url)
+            resp.raise_for_status()
+            data = resp.json()
+            events = data.get('events', [])
+            segments = []
+            for event in events:
+                start_ms = int(event.get('tStartMs') or 0)
+                duration_ms = int(event.get('dDurationMs') or 0)
+                segs = event.get('segs', [])
+                text = "".join(seg.get('utf8', '') for seg in segs).strip()
+                if text:
+                    segments.append({
+                        "start_ms": start_ms,
+                        "duration_ms": duration_ms,
+                        "text": re.sub(r'\s+', ' ', text)
+                    })
+            return segments
+    except Exception as e:
+        logger.error(f"Failed to fetch YouTube transcript segments for {video_id}: {str(e)}")
+        return None

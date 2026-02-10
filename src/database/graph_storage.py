@@ -730,6 +730,23 @@ class MultiDocGraphStorage:
         except Exception as e:
             logger.error(f"Error getting document graph: {e}")
             return None
+
+    def get_document_concepts(self, document_id: int, limit: int = 8) -> List[str]:
+        """
+        Retrieve a list of concept names for a document.
+        """
+        try:
+            query = """
+                MATCH (d:Document {id: $doc_id})-[:CONTAINS]->(dc:DocumentConcept)
+                RETURN dc.global_name as name, dc.depth_level as depth
+                ORDER BY depth ASC, name ASC
+                LIMIT $limit
+            """
+            result = self.connection.execute_query(query, {"doc_id": document_id, "limit": limit})
+            return [row["name"] for row in result if row.get("name")]
+        except Exception as e:
+            logger.error(f"Error getting document concepts: {e}")
+            return []
     
     def find_cross_document_concepts(self, normalized_name: str) -> List[Dict[str, Any]]:
         """

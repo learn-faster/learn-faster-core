@@ -55,7 +55,13 @@ def build_cors_origins() -> List[str]:
         return origins
 
     # Default fallbacks for development
-    return ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:3000"
+    ]
 
 
 class Settings(BaseSettings):
@@ -152,6 +158,8 @@ class Settings(BaseSettings):
 
     # Background queue
     rq_enabled: bool = False
+    local_extraction_concurrency: int = 2
+    local_ingestion_concurrency: int = 1
 
     # Fitbit OAuth
     fitbit_redirect_uri: Optional[str] = None

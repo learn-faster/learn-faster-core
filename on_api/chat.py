@@ -3,12 +3,15 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 from datetime import datetime, timezone
-from .router_main import db
-from .db_utils import normalize_id, unwrap_query_result, first_record
+from surrealdb import AsyncSurreal
+from .router_main import get_surreal_db
+from .db_utils import normalize_id, first_record, validate_record_id
 from src.services.llm_service import llm_service
 from src.services.llm_config_resolver import resolve_llm_config
 from src.database.orm import get_db
 from sqlalchemy.orm import Session
+from src.dependencies import get_request_user_id
+from src.utils.logger import logger
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -26,11 +29,20 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 @router.post("/execute")
-async def execute_chat(request: ChatRequest, db_session: Session = Depends(get_db)):
+async def execute_chat(
+    request: ChatRequest,
+    db_session: Session = Depends(get_db),
+    db: AsyncSurreal = Depends(get_surreal_db),
+    user_id: str = Depends(get_request_user_id)
+):
     """Main chat execution point (matching frontend expectations)."""
     session_id = normalize_id("chat_session", request.session_id) if request.session_id else None
     session = None
     if session_id:
+        try:
+            session_id = validate_record_id("chat_session", session_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid session_id")
         session = first_record(await db.select(session_id))
 
     # If no session, create one when notebook_id is provided.
@@ -78,10 +90,12 @@ async def execute_chat(request: ChatRequest, db_session: Session = Depends(get_d
     # Current user message
     messages_payload.append({"role": "user", "content": request.message})
 
-    user_id = request.user_id or "default_user"
+    effective_user_id = request.user_id or user_id
+    if not request.user_id and user_id == "default_user":
+        logger.warning("Open Notebook chat falling back to default_user")
     llm_config = resolve_llm_config(
         db_session,
-        user_id,
+        effective_user_id,
         config_type="chat"
     )
     if request.model_override:
@@ -93,6 +107,7 @@ async def execute_chat(request: ChatRequest, db_session: Session = Depends(get_d
             config=llm_config
         )
     except Exception as e:
+        logger.exception("Open Notebook chat LLM call failed")
         assistant_content = (
             "I couldn't reach the language model. "
             "Please check your LLM settings or try again."
@@ -107,6 +122,10 @@ async def execute_chat(request: ChatRequest, db_session: Session = Depends(get_d
     messages = [*messages, user_message, assistant_message]
 
     if session_id:
+        try:
+            session_id = validate_record_id("chat_session", session_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid session_id")
         await db.query(
             f"UPDATE {session_id} MERGE $data",
             {"data": {"messages": messages, "updated": "type::datetime(now())"}},
@@ -119,7 +138,7 @@ async def execute_chat(request: ChatRequest, db_session: Session = Depends(get_d
     }
 
 @router.get("/sessions")
-async def list_sessions(notebook_id: str):
+async def list_sessions(notebook_id: str, db: AsyncSurreal = Depends(get_surreal_db)):
     """List chat sessions for a notebook."""
     result = await db.query(
         "SELECT * FROM chat_session WHERE notebook_id = $notebook_id ORDER BY updated DESC",
@@ -128,7 +147,7 @@ async def list_sessions(notebook_id: str):
     return unwrap_query_result(result)
 
 @router.post("/sessions")
-async def create_session(request: Dict[str, Any]):
+async def create_session(request: Dict[str, Any], db: AsyncSurreal = Depends(get_surreal_db)):
     """Create a new chat session."""
     if not request.get("notebook_id"):
         raise HTTPException(status_code=400, detail="notebook_id is required")
@@ -143,9 +162,13 @@ async def create_session(request: Dict[str, Any]):
     return first_record(session) or session
 
 @router.get("/sessions/{sessionId}")
-async def get_session(sessionId: str):
+async def get_session(sessionId: str, db: AsyncSurreal = Depends(get_surreal_db)):
     """Retrieve details for a specific session."""
     session_id = normalize_id("chat_session", sessionId)
+    try:
+        session_id = validate_record_id("chat_session", session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id")
     session = await db.select(session_id)
     record = first_record(session)
     if not record:
@@ -154,8 +177,12 @@ async def get_session(sessionId: str):
 
 
 @router.put("/sessions/{sessionId}")
-async def update_session(sessionId: str, request: Dict[str, Any]):
+async def update_session(sessionId: str, request: Dict[str, Any], db: AsyncSurreal = Depends(get_surreal_db)):
     session_id = normalize_id("chat_session", sessionId)
+    try:
+        session_id = validate_record_id("chat_session", session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id")
     payload = {k: v for k, v in request.items() if v is not None}
     payload["updated"] = "type::datetime(now())"
     result = await db.query(
@@ -169,8 +196,12 @@ async def update_session(sessionId: str, request: Dict[str, Any]):
 
 
 @router.delete("/sessions/{sessionId}")
-async def delete_session(sessionId: str):
+async def delete_session(sessionId: str, db: AsyncSurreal = Depends(get_surreal_db)):
     session_id = normalize_id("chat_session", sessionId)
+    try:
+        session_id = validate_record_id("chat_session", session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id")
     result = await db.query(f"DELETE {session_id} RETURN BEFORE")
     deleted = first_record(result)
     if not deleted:
@@ -178,7 +209,7 @@ async def delete_session(sessionId: str):
     return {"status": "deleted", "id": session_id}
 
 @router.post("/context")
-async def build_context(request: Dict[str, Any]):
+async def build_context(request: Dict[str, Any], db: AsyncSurreal = Depends(get_surreal_db)):
     """Build conversation context for RAG."""
     context_config = request.get("context_config", {})
     sources_cfg = context_config.get("sources", {})

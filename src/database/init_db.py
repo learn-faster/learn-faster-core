@@ -71,8 +71,12 @@ def initialize_orm_tables():
         migrate_agent_email_messages_table()
         # Manually migrate 'curriculums' table
         migrate_curriculums_table()
+        # Manually migrate 'curriculum_tasks' table
+        migrate_curriculum_tasks_table()
         # Manually migrate 'knowledge_graphs' table
         migrate_knowledge_graphs_table()
+        # Manually migrate 'document_sections' table
+        migrate_document_sections_table()
         
         return True
     except Exception as e:
@@ -118,6 +122,21 @@ def migrate_documents_table():
             print(f"Added column {col_name} to documents table")
         except Exception as e:
             # Ignore error if column likely exists
+            pass
+
+
+def migrate_document_sections_table():
+    """Add new columns to document_sections table if they are missing."""
+    cols_to_add = [
+        ("page_start", "INTEGER"),
+        ("page_end", "INTEGER")
+    ]
+    for col_name, col_type in cols_to_add:
+        try:
+            postgres_conn.execute_write(f"ALTER TABLE document_sections ADD COLUMN {col_name} {col_type}")
+            print(f"Added column {col_name} to document_sections table")
+        except Exception:
+            # Ignore error if column already exists
             pass
 
 
@@ -259,6 +278,7 @@ def migrate_curriculums_table():
         ("time_budget_hours_per_week", "INTEGER DEFAULT 5"),
         ("llm_enhance", "BOOLEAN DEFAULT FALSE"),
         ("llm_config", "JSONB DEFAULT '{}'::jsonb"),
+        ("gating_mode", "VARCHAR DEFAULT 'recommend'"),
         ("status", "VARCHAR DEFAULT 'active'"),
         ("progress", "FLOAT DEFAULT 0.0"),
         ("target_concept", "VARCHAR"),
@@ -269,6 +289,19 @@ def migrate_curriculums_table():
         try:
             postgres_conn.execute_write(f"ALTER TABLE curriculums ADD COLUMN {col_name} {col_type}")
             print(f"Added column {col_name} to curriculums table")
+        except Exception:
+            pass
+
+
+def migrate_curriculum_tasks_table():
+    """Add new columns to curriculum_tasks table if they are missing."""
+    cols_to_add = [
+        ("action_metadata", "JSONB DEFAULT '{}'::jsonb")
+    ]
+    for col_name, col_type in cols_to_add:
+        try:
+            postgres_conn.execute_write(f"ALTER TABLE curriculum_tasks ADD COLUMN {col_name} {col_type}")
+            print(f"Added column {col_name} to curriculum_tasks table")
         except Exception:
             pass
 

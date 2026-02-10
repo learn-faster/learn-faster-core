@@ -163,6 +163,7 @@ class DocumentLinkCreate(BaseModel):
     category: Optional[str] = None
     folder_id: Optional[str] = None
     tags: List[str] = []
+    auto_ingest: Optional[bool] = False
 
 
 class DocumentResponse(DocumentBase):
@@ -258,6 +259,8 @@ class DocumentSectionResponse(BaseModel):
     excerpt: Optional[str] = None
     relevance_score: float = 0.0
     included: bool = True
+    page_start: Optional[int] = None
+    page_end: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -491,6 +494,7 @@ class PracticeSessionCreate(BaseModel):
     goal_id: Optional[str] = None
     curriculum_id: Optional[str] = None
     duration_minutes: Optional[int] = Field(None, ge=5, le=180)
+    concept_filters: Optional[List[str]] = None
 
 
 class PracticeSessionItem(BaseModel):
@@ -733,6 +737,7 @@ class CurriculumGenerateRequest(CurriculumBase):
     start_date: Optional[date] = None
     llm_enhance: bool = False
     llm_config: Optional[LLMConfig] = None
+    gating_mode: Optional[str] = Field(default="recommend", description="recommend or strict")
 
 
 class CurriculumTaskResponse(BaseModel):
@@ -745,6 +750,11 @@ class CurriculumTaskResponse(BaseModel):
     estimate_minutes: int = 30
     notes: Optional[str] = None
     status: str = "pending"
+    action_metadata: Optional[Dict[str, Any]] = None
+    gated: bool = False
+    gate_reason: Optional[str] = None
+    mastery_score: Optional[float] = None
+    mastery_required: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -817,6 +827,7 @@ class CurriculumResponse(CurriculumBase):
     duration_weeks: int = 4
     time_budget_hours_per_week: int = 5
     llm_enhance: bool = False
+    gating_mode: str = "recommend"
     created_at: datetime
     updated_at: datetime
     modules: List[CurriculumModuleResponse] = []

@@ -32,6 +32,8 @@ class DocumentStore:
         
     def save_document(self, file: UploadFile) -> DocumentMetadata:
         """Save an uploaded file and create a metadata record."""
+        doc_id = None
+        file_path = None
         try:
             safe_original_name = self._sanitize_filename(file.filename)
             # unique filename to prevent overwrites could be handled here, 
@@ -69,6 +71,16 @@ class DocumentStore:
             )
         except Exception as e:
             logger.error(f"Failed to save document: {e}")
+            try:
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup file {file_path}: {cleanup_error}")
+            try:
+                if doc_id:
+                    self.db.execute_write("DELETE FROM documents WHERE id = %s", (doc_id,))
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup DB record {doc_id}: {cleanup_error}")
             raise e
             
     def save_transcript(self, video_id: str, transcript: str) -> DocumentMetadata:
@@ -195,6 +207,16 @@ class DocumentStore:
         doc = self.get_document(doc_id)
         if not doc:
             raise ValueError(f"Document {doc_id} not found")
+
+        # Try cascade-first delete to minimize manual cleanup
+        try:
+            self.db.execute_write("DELETE FROM documents WHERE id = %s", (doc_id,))
+            if doc.file_path and os.path.exists(doc.file_path):
+                os.remove(doc.file_path)
+            logger.info(f"Deleted document {doc_id} via cascade")
+            return
+        except Exception as e:
+            logger.warning(f"Cascade delete failed for document {doc_id}, falling back to manual cleanup: {e}")
 
         # 0. Delete DB records that don't have cascading foreign keys
         # Keep these in a best-effort cleanup to avoid FK constraint failures.

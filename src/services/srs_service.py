@@ -86,8 +86,12 @@ class SRSService:
             
             new_repetitions = repetitions + 1
         
+        # Apply max interval cap
+        max_interval = 365
+        new_interval = min(new_interval, max_interval)
+
         # Calculate next review date
-        next_review_date = datetime.utcnow() + timedelta(days=new_interval)
+        next_review_date = datetime.now() + timedelta(days=new_interval)
         
         return new_ease_factor, new_interval, new_repetitions, next_review_date
 

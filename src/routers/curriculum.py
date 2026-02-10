@@ -16,6 +16,7 @@ from src.models.schemas import (
     LLMConfig
 )
 from src.models.orm import CurriculumCheckpoint, CurriculumTask, CurriculumWeek, Document, DocumentQuizItem, DocumentQuizSession, DocumentStudySettings
+from src.database.graph_storage import multi_doc_graph_storage
 from src.services.llm_service import llm_service
 from src.services.prompts import CLOZE_GENERATION_PROMPT_TEMPLATE
 import uuid
@@ -46,7 +47,8 @@ async def generate_curriculum(
             time_budget_hours_per_week=request.time_budget_hours_per_week,
             start_date_value=start_date,
             llm_enhance=request.llm_enhance,
-            config=request.llm_config
+            config=request.llm_config,
+            gating_mode=request.gating_mode or "recommend"
         )
         return curriculum
     except Exception as e:
@@ -75,6 +77,46 @@ def get_curriculum_timeline(curriculum_id: str, db: Session = Depends(get_db)):
     return {"curriculum_id": curriculum_id, "weeks": weeks}
 
 
+@router.get("/{curriculum_id}/graph")
+def get_curriculum_graph(curriculum_id: str, db: Session = Depends(get_db)):
+    curriculum = curriculum_service.get_curriculum(db, curriculum_id)
+    if not curriculum:
+        raise HTTPException(status_code=404, detail="Curriculum not found")
+
+    doc_ids = curriculum.document_ids or ([] if not curriculum.document_id else [curriculum.document_id])
+    nodes = {}
+    links = []
+
+    for doc_id in doc_ids:
+        doc_graph = multi_doc_graph_storage.get_document_graph(doc_id)
+        if not doc_graph:
+            continue
+        for concept in doc_graph.get("concepts", []):
+            node_id = concept.get("scoped_id") or concept.get("id") or concept.get("name")
+            if not node_id:
+                continue
+            nodes[node_id] = {
+                "id": node_id,
+                "label": concept.get("name") or concept.get("global_name") or node_id,
+                "doc_id": doc_id
+            }
+        for rel in doc_graph.get("relationships", []):
+            source = rel.get("source")
+            target = rel.get("target")
+            if source and target:
+                links.append({
+                    "source": source,
+                    "target": target,
+                    "weight": rel.get("weight")
+                })
+
+    return {
+        "curriculum_id": curriculum_id,
+        "nodes": list(nodes.values()),
+        "links": links
+    }
+
+
 @router.post("/checkpoint/{checkpoint_id}/complete", response_model=CurriculumCheckpointResponse)
 def complete_checkpoint(checkpoint_id: str, db: Session = Depends(get_db)):
     checkpoint = curriculum_service.complete_checkpoint(db, checkpoint_id)
@@ -91,10 +133,15 @@ def get_curriculum_metrics(curriculum_id: str, db: Session = Depends(get_db)):
 
 @router.post("/task/{task_id}/toggle", response_model=CurriculumTaskResponse)
 def toggle_task(task_id: str, db: Session = Depends(get_db)):
-    task = curriculum_service.toggle_task_status(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    try:
+        task = curriculum_service.toggle_task_status(db, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return task
+    except Exception as e:
+        if getattr(e, "reason", None):
+            raise HTTPException(status_code=409, detail=e.reason)
+        raise
 
 
 @router.get("/week/{week_id}/report", response_model=CurriculumWeekReportResponse)

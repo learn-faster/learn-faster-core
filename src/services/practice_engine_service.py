@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import asyncio
+import math
+import re
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -9,6 +12,7 @@ from sqlalchemy.orm import Session
 from src.models.orm import Flashcard, Curriculum, CurriculumWeek, CurriculumTask, PracticeSession, PracticeItem, UserSettings
 from src.services.cognitive_service import cognitive_service
 from src.services.srs_service import SRSService
+from src.services.llm_service import llm_service
 
 
 @dataclass
@@ -36,10 +40,18 @@ class PracticeEngineService:
 
     def _fetch_due_flashcards(self, db: Session, limit: int) -> List[Flashcard]:
         from datetime import datetime
-        now = datetime.utcnow()
+        now = datetime.now()
         return db.query(Flashcard).filter(Flashcard.next_review <= now).order_by(Flashcard.next_review).limit(limit).all()
 
-    def _fetch_curriculum_tasks(self, db: Session, user_id: str, goal_id: Optional[str], curriculum_id: Optional[str], limit: int) -> List[CurriculumTask]:
+    def _fetch_curriculum_tasks(
+        self,
+        db: Session,
+        user_id: str,
+        goal_id: Optional[str],
+        curriculum_id: Optional[str],
+        limit: int,
+        concept_filters: Optional[List[str]] = None
+    ) -> List[CurriculumTask]:
         curr_query = db.query(Curriculum).filter(Curriculum.user_id == user_id)
         if curriculum_id:
             curr_query = curr_query.filter(Curriculum.id == curriculum_id)
@@ -61,11 +73,26 @@ class PracticeEngineService:
             .limit(limit)
             .all()
         )
+        if concept_filters:
+            normalized = {c.strip().lower() for c in concept_filters if c and c.strip()}
+            if normalized:
+                filtered = []
+                for task in tasks:
+                    metadata = task.action_metadata or {}
+                    concepts = metadata.get("concepts") or []
+                    concepts = [c.strip().lower() for c in concepts if c]
+                    if any(c in normalized for c in concepts):
+                        filtered.append(task)
+                tasks = filtered
         return tasks
 
-    def _fetch_frontier_concepts(self, user_id: str, limit: int) -> List[str]:
+    def _fetch_frontier_concepts(self, user_id: str, limit: int, concept_filters: Optional[List[str]] = None) -> List[str]:
         frontier = cognitive_service.get_growth_frontier(user_id)
         names = [c.get("name") for c in frontier if c.get("name")]
+        if concept_filters:
+            normalized = {c.strip().lower() for c in concept_filters if c and c.strip()}
+            if normalized:
+                names = [n for n in names if n and n.strip().lower() in normalized]
         return names[:limit]
 
     def _interleave(self, buckets: List[List[dict]], total: int) -> List[dict]:
@@ -86,6 +113,7 @@ class PracticeEngineService:
         goal_id: Optional[str] = None,
         curriculum_id: Optional[str] = None,
         duration_minutes: Optional[int] = None,
+        concept_filters: Optional[List[str]] = None,
     ) -> PracticeComposition:
         minutes, item_count = self._resolve_duration(mode, duration_minutes)
 
@@ -94,8 +122,8 @@ class PracticeEngineService:
         graph_target = max(1, item_count - srs_target - curriculum_target)
 
         flashcards = self._fetch_due_flashcards(db, srs_target * 2)
-        tasks = self._fetch_curriculum_tasks(db, user_id, goal_id, curriculum_id, curriculum_target * 2)
-        frontier = self._fetch_frontier_concepts(user_id, graph_target * 2)
+        tasks = self._fetch_curriculum_tasks(db, user_id, goal_id, curriculum_id, curriculum_target * 2, concept_filters=concept_filters)
+        frontier = self._fetch_frontier_concepts(user_id, graph_target * 2, concept_filters=concept_filters)
 
         srs_items = [
             {
@@ -114,7 +142,11 @@ class PracticeEngineService:
                 "source_id": task.id,
                 "prompt": f"{task.title}\n\nNotes: {task.notes or 'Use active recall and self-explanation.'}",
                 "expected_answer": None,
-                "metadata_json": {"week_id": task.week_id, "task_type": task.task_type}
+                "metadata_json": {
+                    "week_id": task.week_id,
+                    "task_type": task.task_type,
+                    "action_metadata": task.action_metadata or {}
+                }
             }
             for task in tasks
         ]
@@ -130,8 +162,13 @@ class PracticeEngineService:
             for concept in frontier
         ]
 
+        if not any([srs_items, task_items, graph_items]):
+            raise ValueError("No practice items available. Take a rest day or add content.")
+
         buckets = [srs_items, task_items, graph_items]
         blended = self._interleave(buckets, item_count)
+        if not blended:
+            raise ValueError("No practice items available. Take a rest day or add content.")
 
         session = PracticeSession(
             id=str(__import__("uuid").uuid4()),
@@ -224,7 +261,7 @@ class PracticeEngineService:
                 score = rating / 5.0
                 feedback = _rating_feedback(rating)
             elif response_text and item.expected_answer:
-                score = _simple_overlap_score(item.expected_answer, response_text)
+                score = _semantic_score(item.expected_answer, response_text)
                 feedback = "Response captured. Keep focusing on key ideas."
             else:
                 score = 0.4 if response_text else 0.0
@@ -263,6 +300,55 @@ def _simple_overlap_score(expected: str, response: str) -> float:
         return 0.0
     overlap = len(exp.intersection(resp)) / max(1, len(exp))
     return min(1.0, max(0.0, overlap))
+
+
+def _tokenize(text: str) -> List[str]:
+    tokens = re.findall(r"[a-zA-Z']+", text.lower())
+    stop_words = {
+        "the", "and", "or", "a", "an", "to", "of", "in", "on", "for", "with",
+        "is", "are", "was", "were", "be", "by", "as", "that", "this", "it",
+        "from", "at", "which", "but", "not", "we", "you", "they", "he", "she"
+    }
+    return [t for t in tokens if t not in stop_words]
+
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    if not a or not b:
+        return 0.0
+    if len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    mag_a = math.sqrt(sum(x * x for x in a))
+    mag_b = math.sqrt(sum(y * y for y in b))
+    if mag_a == 0 or mag_b == 0:
+        return 0.0
+    return max(0.0, min(1.0, dot / (mag_a * mag_b)))
+
+
+def _semantic_score(expected: str, response: str) -> float:
+    if not expected or not response:
+        return 0.0
+
+    # Fast lexical fallback
+    exp_tokens = _tokenize(expected)
+    resp_tokens = _tokenize(response)
+    if exp_tokens and resp_tokens:
+        lexical = len(set(exp_tokens).intersection(resp_tokens)) / max(1, len(set(exp_tokens)))
+    else:
+        lexical = 0.0
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            exp_emb = asyncio.run(llm_service.get_embedding(expected))
+            resp_emb = asyncio.run(llm_service.get_embedding(response))
+            semantic = _cosine_similarity(exp_emb, resp_emb)
+            return max(lexical, semantic)
+        except Exception:
+            return lexical
+
+    return lexical
 
 
 def _get_target_retention(db: Session, user_id: str) -> float:
