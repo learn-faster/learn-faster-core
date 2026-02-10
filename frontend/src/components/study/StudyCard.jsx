@@ -38,11 +38,11 @@ const StudyCard = ({ card, onRate }) => {
 
     const ratings = [
         { value: 0, label: '0', color: 'hover:bg-red-500 hover:text-white border-red-500/30' },
-        { value: 1, label: '1', color: 'hover:bg-orange-600 hover:text-white border-orange-600/30' },
-        { value: 2, label: '2', color: 'hover:bg-orange-400 hover:text-white border-orange-400/30' },
-        { value: 3, label: '3', color: 'hover:bg-blue-400 hover:text-white border-blue-400/30' },
-        { value: 4, label: '4', color: 'hover:bg-emerald-400 hover:text-white border-emerald-400/30' },
-        { value: 5, label: '5', color: 'hover:bg-emerald-600 hover:text-white border-emerald-600/30' },
+        { value: 1, label: '1', color: 'hover:bg-primary-700 hover:text-white border-primary-700/30' },
+        { value: 2, label: '2', color: 'hover:bg-primary-600 hover:text-white border-primary-600/30' },
+        { value: 3, label: '3', color: 'hover:bg-primary-500 hover:text-white border-primary-500/30' },
+        { value: 4, label: '4', color: 'hover:bg-primary-400 hover:text-white border-primary-400/30' },
+        { value: 5, label: '5', color: 'hover:bg-primary-300 hover:text-dark-950 border-primary-300/30' },
     ];
 
     return (
@@ -72,15 +72,15 @@ const StudyCard = ({ card, onRate }) => {
                                 <motion.div
                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                                    className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl relative overflow-hidden group/hint"
+                                    className="mb-6 p-4 bg-primary-500/10 border border-primary-500/20 rounded-2xl relative overflow-hidden group/hint"
                                 >
                                     <div className="flex items-start gap-3 text-left">
-                                        <Lightbulb className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                                        <p className="text-sm text-amber-100/90 font-medium leading-relaxed italic">
+                                        <Lightbulb className="w-5 h-5 text-primary-400 shrink-0 mt-0.5" />
+                                        <p className="text-sm text-primary-100/90 font-medium leading-relaxed italic">
                                             "{hint}"
                                         </p>
                                     </div>
-                                    <div className="absolute top-0 right-0 p-1 px-2 bg-amber-500 text-[8px] font-black text-black rounded-bl-lg uppercase tracking-widest">
+                                    <div className="absolute top-0 right-0 p-1 px-2 bg-primary-500 text-[8px] font-black text-dark-950 rounded-bl-lg uppercase tracking-widest">
                                         Socratic Hint
                                     </div>
                                 </motion.div>
@@ -93,8 +93,8 @@ const StudyCard = ({ card, onRate }) => {
                                     onClick={handleGetHint}
                                     disabled={loadingHint || hint}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all border font-bold text-xs uppercase tracking-widest z-10 ${hint
-                                            ? 'bg-amber-500/10 border-amber-500/20 text-amber-500/60 cursor-default'
-                                            : 'bg-white/5 border-white/10 text-dark-400 hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-400'
+                                            ? 'bg-primary-500/10 border-primary-500/20 text-primary-500/60 cursor-default'
+                                            : 'bg-white/5 border-white/10 text-dark-400 hover:bg-primary-500/10 hover:border-primary-500/30 hover:text-primary-400'
                                         }`}
                                 >
                                     {loadingHint ? (
@@ -130,8 +130,8 @@ const StudyCard = ({ card, onRate }) => {
                 >
                     <div className="w-full h-full glass-morphism rounded-[2.5rem] p-12 flex flex-col items-center justify-center text-center shadow-2xl border border-primary-500/20 relative">
                         <div className="absolute top-8 left-8 flex items-center gap-2 opacity-50">
-                            <Sparkles className="w-5 h-5 text-emerald-400" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Answer</span>
+                            <Sparkles className="w-5 h-5 text-primary-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-primary-400">Answer</span>
                         </div>
                         <div className="flex-1 flex flex-col justify-center">
                             <h2 className="text-2xl md:text-3xl font-medium leading-relaxed tracking-tight text-white/90">

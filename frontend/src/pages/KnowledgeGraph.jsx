@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import ForceGraph2D from 'react-force-graph-2d';
 import {
     Network,
-    RefreshCw,
     Zap,
     Search,
     ChevronRight,
@@ -67,7 +66,7 @@ const ConstructionHUD = ({ documents }) => {
                     || jobStatus === 'paused'
                     || jobMessage.toLowerCase().includes('rate limit');
                 return (
-                    <div key={doc.id} className="p-4 glass-morphism rounded-2xl border border-white/10 shadow-[0_0_15px_rgba(255,255,255,0.08)] backdrop-blur-md relative overflow-hidden">
+                    <div key={doc.id} className="p-4 glass-morphism rounded-2xl border border-white/10 shadow-[0_0_15px_rgba(220,214,247,0.18)] backdrop-blur-md relative overflow-hidden">
                         {/* Scanline Effect */}
                         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-transparent animate-scan" />
 
@@ -76,7 +75,7 @@ const ConstructionHUD = ({ documents }) => {
                                 <div className="w-2 h-2 rounded-full bg-white/80 animate-pulse" />
                                 <span className="text-[10px] font-black uppercase tracking-widest text-white/80">Neural Construction</span>
                                 {isRateLimited && (
-                                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-200 border border-primary-500/30">
                                         Paused (rate limited)
                                     </span>
                                 )}
@@ -94,7 +93,7 @@ const ConstructionHUD = ({ documents }) => {
                                 initial={{ width: 0 }}
                                 animate={{ width: `${doc.ingestion_progress || 5}%` }}
                                 transition={{ ease: "linear" }}
-                                className="h-full bg-white/80 shadow-[0_0_10px_rgba(255,255,255,0.4)]"
+                                className="h-full bg-white/80 shadow-[0_0_10px_rgba(220,214,247,0.35)]"
                             />
                         </div>
                     </div>
@@ -116,7 +115,6 @@ const KnowledgeGraph = () => {
 
     const [graphData, setGraphData] = useState({ nodes: [], links: [] });
     const [isLoading, setIsLoading] = useState(true);
-    const [isSyncing, setIsSyncing] = useState(false);
     const [graphs, setGraphs] = useState([]);
     const [selectedGraphId, setSelectedGraphId] = useState(null);
     const [isGraphLoading, setIsGraphLoading] = useState(false);
@@ -149,6 +147,9 @@ const KnowledgeGraph = () => {
         if (typeof window === 'undefined') return false;
         return localStorage.getItem('kgGuideDismissed') === '1';
     });
+    const [showManageMenu, setShowManageMenu] = useState(false);
+    const [showViewMenu, setShowViewMenu] = useState(false);
+    const [lastGraphRefreshAt, setLastGraphRefreshAt] = useState(null);
     const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
     const [graphError, setGraphError] = useState('');
 
@@ -165,6 +166,8 @@ const KnowledgeGraph = () => {
 
     const fgRef = useRef();
     const containerRef = useRef();
+    const manageMenuRef = useRef();
+    const viewMenuRef = useRef();
     const selectedGraph = useMemo(
         () => graphs.find(g => g.id === selectedGraphId),
         [graphs, selectedGraphId]
@@ -192,6 +195,19 @@ const KnowledgeGraph = () => {
         };
         document.addEventListener('fullscreenchange', onFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+    }, []);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (manageMenuRef.current && !manageMenuRef.current.contains(event.target)) {
+                setShowManageMenu(false);
+            }
+            if (viewMenuRef.current && !viewMenuRef.current.contains(event.target)) {
+                setShowViewMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
 
@@ -290,7 +306,7 @@ const KnowledgeGraph = () => {
             const chunkSize = Number(buildChunkSize);
             if (Number.isFinite(maxChars) && maxChars > 0) payload.extraction_max_chars = maxChars;
             if (Number.isFinite(chunkSize) && chunkSize > 0) payload.chunk_size = chunkSize;
-            await GraphService.buildGraph(selectedGraphId, payload);
+            await GraphService.buildGraph(selectedGraphId, payload, { wait: false });
             await fetchGraph(true);
             await loadGraphs();
             setShowBuildModal(false);
@@ -315,8 +331,7 @@ const KnowledgeGraph = () => {
 
     const fetchGraph = async (showSyncEffect = false) => {
         if (!selectedGraphId) return;
-        if (showSyncEffect) setIsSyncing(true);
-        else if (graphData.nodes.length === 0) setIsLoading(true);
+        if (graphData.nodes.length === 0 && !showSyncEffect) setIsLoading(true);
 
         try {
             const data = await GraphService.getGraphData(selectedGraphId, showCrossLinks);
@@ -348,6 +363,7 @@ const KnowledgeGraph = () => {
             }));
 
             setGraphData({ nodes: sizedNodes, links: sanitizedLinks });
+            setLastGraphRefreshAt(new Date());
 
             if (graphData.nodes.length === 0) {
                 setTimeout(() => {
@@ -367,7 +383,6 @@ const KnowledgeGraph = () => {
             if (graphData.nodes.length === 0) setGraphData({ nodes: [], links: [] });
         } finally {
             setIsLoading(false);
-            if (showSyncEffect) setTimeout(() => setIsSyncing(false), 1000);
         }
     };
 
@@ -471,6 +486,15 @@ const KnowledgeGraph = () => {
             setGraphData({ nodes: [], links: [] });
         }
     }, [selectedGraphId, showCrossLinks]);
+
+    useEffect(() => {
+        if (!selectedGraphId || selectedGraph?.status !== 'building') return;
+        const interval = setInterval(() => {
+            loadGraphs();
+            fetchGraph(true);
+        }, 6000);
+        return () => clearInterval(interval);
+    }, [selectedGraphId, selectedGraph?.status]);
 
     useEffect(() => {
         if (graphData.nodes.length > 0 && showGuide) {
@@ -581,32 +605,32 @@ const KnowledgeGraph = () => {
 
         const nodeVal = node.val || 12;
 
-        // Color Logic - Luminous Violet Palette
-        let coreColor = '#c4b5fd'; // Violet-300 base
-        let glowColor = 'rgba(167, 139, 250, 0.45)';
-        let strokeColor = 'rgba(255, 255, 255, 0.3)';
+        // Color Logic - Cosmic Doodle Palette
+        let coreColor = '#c2efb3'; // Mint base
+        let glowColor = 'rgba(194, 239, 179, 0.45)';
+        let strokeColor = 'rgba(220, 214, 247, 0.35)';
 
         if (node.status === 'COMPLETED') {
-            coreColor = '#fde68a'; // Amber-200
-            glowColor = 'rgba(251, 191, 36, 0.55)';
-            strokeColor = 'rgba(255, 255, 255, 0.9)';
+            coreColor = '#dcd6f7'; // Lavender
+            glowColor = 'rgba(220, 214, 247, 0.55)';
+            strokeColor = 'rgba(246, 242, 255, 0.9)';
         } else if (node.status === 'IN_PROGRESS') {
-            coreColor = '#fbbf24'; // Amber-400
-            glowColor = 'rgba(251, 191, 36, 0.6)';
-            strokeColor = 'rgba(255, 255, 255, 0.9)';
+            coreColor = '#2ec4b6'; // Cosmic teal
+            glowColor = 'rgba(46, 196, 182, 0.6)';
+            strokeColor = 'rgba(246, 242, 255, 0.9)';
         } else if (node.status === 'UNLOCKED') {
-            coreColor = '#a78bfa'; // Violet-400
-            glowColor = 'rgba(167, 139, 250, 0.7)';
-            strokeColor = 'rgba(255, 255, 255, 0.9)';
+            coreColor = '#c2efb3'; // Mint
+            glowColor = 'rgba(194, 239, 179, 0.7)';
+            strokeColor = 'rgba(246, 242, 255, 0.9)';
         } else if (node.is_merged) {
-            coreColor = '#8b5cf6'; // Violet-500
-            glowColor = 'rgba(139, 92, 246, 0.65)';
-            strokeColor = 'rgba(255, 255, 255, 0.85)';
+            coreColor = '#7fe3d2'; // Soft teal
+            glowColor = 'rgba(127, 227, 210, 0.65)';
+            strokeColor = 'rgba(246, 242, 255, 0.85)';
         } else {
             // LOCKED
-            coreColor = '#6b7280'; // Gray-500
-            glowColor = 'rgba(107, 114, 128, 0.25)';
-            strokeColor = 'rgba(255, 255, 255, 0.2)';
+            coreColor = '#6d687a'; // Ink gray
+            glowColor = 'rgba(109, 104, 122, 0.25)';
+            strokeColor = 'rgba(220, 214, 247, 0.2)';
         }
 
         // Draw Glow (only if not locked or if selected)
@@ -625,10 +649,10 @@ const KnowledgeGraph = () => {
         ctx.save();
         if (isSelected) {
             ctx.shadowBlur = 26;
-            ctx.shadowColor = 'rgba(56, 189, 248, 0.65)';
+            ctx.shadowColor = 'rgba(194, 239, 179, 0.65)';
         } else if (isNeighbor) {
             ctx.shadowBlur = 16;
-            ctx.shadowColor = 'rgba(129, 140, 248, 0.45)';
+            ctx.shadowColor = 'rgba(220, 214, 247, 0.45)';
         }
         ctx.beginPath();
         ctx.arc(node.x, node.y, nodeVal / 2.5, 0, 2 * Math.PI); // Larger core
@@ -656,7 +680,7 @@ const KnowledgeGraph = () => {
 
         if (shouldShowLabel) {
             const fontSize = 11 / globalScale;
-            ctx.font = `${isSelected ? '900' : (isImportant ? '700' : 'normal')} ${fontSize}px Outfit, sans-serif`;
+            ctx.font = `${isSelected ? '900' : (isImportant ? '700' : 'normal')} ${fontSize}px "Bruno Ace", sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
@@ -684,7 +708,7 @@ const KnowledgeGraph = () => {
                 const x = node.x + Math.cos(angle) * radius;
                 const y = node.y + Math.sin(angle) * radius;
                 ctx.beginPath();
-                ctx.fillStyle = 'rgba(56, 189, 248, 0.9)';
+                ctx.fillStyle = 'rgba(194, 239, 179, 0.9)';
                 ctx.arc(x, y, 1.4 + (i % 2) * 0.6, 0, 2 * Math.PI);
                 ctx.fill();
             }
@@ -697,20 +721,20 @@ const KnowledgeGraph = () => {
                 className="absolute inset-0"
                 style={{
                     background:
-                        'radial-gradient(circle at 15% 10%, rgba(255,255,255,0.08), transparent 45%), radial-gradient(circle at 80% 18%, rgba(255,255,255,0.06), transparent 42%), radial-gradient(circle at 50% 80%, rgba(147,197,253,0.12), transparent 48%), linear-gradient(180deg, #03040b 0%, #070b16 45%, #04070f 100%)'
+                        'radial-gradient(circle at 15% 10%, rgba(220,214,247,0.12), transparent 45%), radial-gradient(circle at 80% 18%, rgba(194,239,179,0.1), transparent 42%), radial-gradient(circle at 50% 80%, rgba(127,227,210,0.12), transparent 48%), linear-gradient(180deg, #0b0b0f 0%, #11121a 45%, #0d0f1a 100%)'
                 }}
             />
             <div
                 className="absolute -top-24 -right-24 w-[520px] h-[520px] rounded-full blur-3xl opacity-60"
-                style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.16), transparent 70%)' }}
+                style={{ background: 'radial-gradient(circle, rgba(220,214,247,0.2), transparent 70%)' }}
             />
             <div
                 className="absolute -bottom-32 -left-20 w-[620px] h-[620px] rounded-full blur-3xl opacity-50"
-                style={{ background: 'radial-gradient(circle, rgba(191,219,254,0.18), transparent 70%)' }}
+                style={{ background: 'radial-gradient(circle, rgba(194,239,179,0.18), transparent 70%)' }}
             />
             <div
                 className="absolute inset-0 opacity-30"
-                style={{ background: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06), transparent 45%)' }}
+                style={{ background: 'radial-gradient(circle at 50% 50%, rgba(220,214,247,0.08), transparent 45%)' }}
             />
 
             <div className="min-h-[calc(100vh-2rem)] flex flex-col gap-5 animate-fade-in relative z-10 font-sans pb-3 px-2 md:px-6">
@@ -722,7 +746,7 @@ const KnowledgeGraph = () => {
                         Knowledge Map
                     </h1>
                     <p className="text-sm text-slate-400 italic mt-2">Navigating your intellectual galaxy.</p>
-                    <div className="absolute -bottom-1 left-0 w-0 h-1 bg-white/70 group-hover:w-full transition-all duration-500 shadow-[0_0_15px_rgba(255,255,255,0.4)]" />
+                    <div className="absolute -bottom-1 left-0 w-0 h-1 bg-white/70 group-hover:w-full transition-all duration-500 shadow-[0_0_15px_rgba(220,214,247,0.4)]" />
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -740,14 +764,44 @@ const KnowledgeGraph = () => {
                                 </option>
                             ))}
                         </select>
-                        <button onClick={openCreateGraph} className="p-1.5 rounded-lg hover:bg-white/5 text-white/80">
-                            <Plus className="w-4 h-4" />
-                        </button>
-                        {selectedGraph && (
-                            <button onClick={() => openEditGraph(selectedGraph)} className="p-1.5 rounded-lg hover:bg-white/5 text-white/70">
-                                <SlidersHorizontal className="w-4 h-4" />
+                        <div ref={manageMenuRef} className="relative">
+                            <button
+                                onClick={() => setShowManageMenu((prev) => !prev)}
+                                className="px-3 py-1.5 rounded-lg hover:bg-white/5 text-white/80 text-xs font-black uppercase tracking-widest"
+                            >
+                                Manage
                             </button>
-                        )}
+                            <AnimatePresence>
+                                {showManageMenu && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 6 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 6 }}
+                                        className="absolute right-0 mt-2 w-48 glass-dark border border-white/10 rounded-2xl overflow-hidden z-40"
+                                    >
+                                        <button
+                                            onClick={() => {
+                                                setShowManageMenu(false);
+                                                openCreateGraph();
+                                            }}
+                                            className="w-full px-4 py-3 text-left text-xs font-bold uppercase tracking-widest text-white/80 hover:bg-white/5 flex items-center gap-2"
+                                        >
+                                            <Plus className="w-4 h-4" /> Create Graph
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setShowManageMenu(false);
+                                                if (selectedGraph) openEditGraph(selectedGraph);
+                                            }}
+                                            disabled={!selectedGraph}
+                                            className="w-full px-4 py-3 text-left text-xs font-bold uppercase tracking-widest text-white/80 hover:bg-white/5 flex items-center gap-2 disabled:opacity-40"
+                                        >
+                                            <SlidersHorizontal className="w-4 h-4" /> Graph Settings
+                                        </button>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
                     </div>
 
                     {selectedGraph && (
@@ -756,6 +810,11 @@ const KnowledgeGraph = () => {
                             {selectedGraph.status || 'draft'}
                             <span className="text-white/30">·</span>
                             {selectedGraph.node_count || 0} nodes
+                        </div>
+                    )}
+                    {lastGraphRefreshAt && (
+                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-white/5 bg-dark-900/40 text-[10px] font-black uppercase tracking-widest text-white/50">
+                            Updated {lastGraphRefreshAt.toLocaleTimeString()}
                         </div>
                     )}
 
@@ -775,16 +834,48 @@ const KnowledgeGraph = () => {
                         Connections
                     </button>
 
-                    <button
-                        onClick={() => setShowCrossLinks(!showCrossLinks)}
-                        className={`px-3 py-2.5 rounded-2xl border border-white/5 text-xs font-black uppercase tracking-widest transition-all ${showCrossLinks ? 'bg-white/15 text-white' : 'bg-dark-900/40 text-white/50 hover:bg-white/5'}`}
-                        title="Toggle cross-graph links"
-                    >
-                        <span className="inline-flex items-center gap-2">
-                            <Link2 className="w-4 h-4" />
-                            Links
-                        </span>
-                    </button>
+                    <div ref={viewMenuRef} className="relative">
+                        <button
+                            onClick={() => setShowViewMenu((prev) => !prev)}
+                            className="px-4 py-2.5 rounded-2xl glass-morphism border-white/5 text-white/80 text-xs font-black uppercase tracking-widest hover:bg-white/5 transition-all"
+                        >
+                            View
+                        </button>
+                        <AnimatePresence>
+                            {showViewMenu && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: 6 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: 6 }}
+                                    className="absolute right-0 mt-2 w-56 glass-dark border border-white/10 rounded-2xl overflow-hidden z-40"
+                                >
+                                    <button
+                                        onClick={() => setShowCrossLinks(!showCrossLinks)}
+                                        className="w-full px-4 py-3 text-left text-xs font-bold uppercase tracking-widest text-white/80 hover:bg-white/5 flex items-center gap-2"
+                                    >
+                                        <Link2 className="w-4 h-4" />
+                                        Cross-Graph Links
+                                        <span className="ml-auto text-[10px] text-white/50">{showCrossLinks ? 'On' : 'Off'}</span>
+                                    </button>
+                                    <button
+                                        onClick={() => fgRef.current?.zoomToFit(1000)}
+                                        className="w-full px-4 py-3 text-left text-xs font-bold uppercase tracking-widest text-white/80 hover:bg-white/5 flex items-center gap-2"
+                                    >
+                                        <Compass className="w-4 h-4" /> Center Graph
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowGuide(true);
+                                            setShowViewMenu(false);
+                                        }}
+                                        className="w-full px-4 py-3 text-left text-xs font-bold uppercase tracking-widest text-white/80 hover:bg-white/5 flex items-center gap-2"
+                                    >
+                                        <HelpCircle className="w-4 h-4" /> Show Guide
+                                    </button>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
 
                     {/* Smart Search Container */}
                     <div className="relative w-72">
@@ -830,17 +921,6 @@ const KnowledgeGraph = () => {
                             )}
                         </AnimatePresence>
                     </div>
-
-                    <button
-                        onClick={() => fetchGraph(true)}
-                        className="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-black uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-all border border-white/10"
-                        title="Sync Intelligence"
-                    >
-                        <span className="inline-flex items-center gap-2">
-                            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                            Sync Intelligence
-                        </span>
-                    </button>
 
                     <button
                         onClick={toggleFocusMode}
@@ -916,13 +996,13 @@ const KnowledgeGraph = () => {
                             nodeCanvasObject={paintNode}
                             onNodeClick={handleNodeFocus}
                             linkColor={(link) => {
-                                if (link?.relationship === 'cross_graph') return 'rgba(168, 85, 247, 0.5)';
-                                if (!selectedNode || !link) return 'rgba(255, 255, 255, 0.15)'; // Brighter default
+                                if (link?.relationship === 'cross_graph') return 'rgba(220, 214, 247, 0.5)';
+                                if (!selectedNode || !link) return 'rgba(220, 214, 247, 0.2)'; // Brighter default
                                 const sId = String(link.source?.id || link.source);
                                 const tId = String(link.target?.id || link.target);
                                 const nId = String(selectedNode.id);
                                 const isConnected = sId === nId || tId === nId;
-                                return isConnected ? 'rgba(6, 182, 212, 0.6)' : 'rgba(255, 255, 255, 0.05)';
+                                return isConnected ? 'rgba(194, 239, 179, 0.6)' : 'rgba(220, 214, 247, 0.08)';
                             }}
                             linkWidth={(link) => {
                                 if (link?.relationship === 'cross_graph') return 2.5;
@@ -942,11 +1022,11 @@ const KnowledgeGraph = () => {
                             }}
                             linkDirectionalParticleSpeed={selectedNode ? 0.014 : 0.003}
                             linkDirectionalParticleColor={(link) => {
-                                if (!selectedNode || !link) return 'rgba(255,255,255,0.2)';
+                                if (!selectedNode || !link) return 'rgba(220,214,247,0.2)';
                                 const sId = String(link.source?.id || link.source);
                                 const tId = String(link.target?.id || link.target);
                                 const nId = String(selectedNode.id);
-                                return (sId === nId || tId === nId) ? 'rgba(56, 189, 248, 0.9)' : 'rgba(255,255,255,0.08)';
+                                return (sId === nId || tId === nId) ? 'rgba(194, 239, 179, 0.9)' : 'rgba(220,214,247,0.08)';
                             }}
                             linkDirectionalParticleWidth={(link) => {
                                 if (!selectedNode || !link) return 1;
@@ -976,12 +1056,9 @@ const KnowledgeGraph = () => {
                             <p className="text-xs text-dark-400 max-w-md">
                                 Build the graph from existing document graphs or rebuild with LLM extraction.
                             </p>
-                            <button
-                                onClick={() => setShowBuildModal(true)}
-                                className="mt-6 px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-xs font-black uppercase tracking-widest text-white border border-white/10"
-                            >
-                                Build Now
-                            </button>
+                            <p className="mt-6 text-[10px] font-black uppercase tracking-[0.4em] text-white/40">
+                                Use Build in the header
+                            </p>
                         </div>
                     )}
 
@@ -990,7 +1067,6 @@ const KnowledgeGraph = () => {
                         <div className="absolute bottom-10 left-10 flex gap-3 z-10 p-2 glass-morphism rounded-3xl border-white/10 border backdrop-blur-md">
                             {[
                                 { icon: Compass, label: 'Center', action: () => fgRef.current?.zoomToFit(1000) },
-                                { icon: Maximize2, label: 'Focus', action: () => toggleFocusMode() },
                                 { icon: HelpCircle, label: 'Guide', action: () => setShowGuide(true) }
                             ].map((btn) => (
                                 <button
@@ -1017,7 +1093,7 @@ const KnowledgeGraph = () => {
                                 { color: 'bg-slate-700', label: 'Locked' }
                             ].map(item => (
                                 <div key={item.label} className="flex items-center gap-2 px-2 border-r border-white/5 last:border-0 cursor-help group/pill">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${item.color} shadow-[0_0_8px_rgba(255,255,255,0.2)]`} />
+                                    <div className={`w-1.5 h-1.5 rounded-full ${item.color} shadow-[0_0_8px_rgba(220,214,247,0.2)]`} />
                                     <span className="text-[10px] font-black text-white/60 uppercase tracking-tighter">{item.label}</span>
                                 </div>
                             ))}
@@ -1191,7 +1267,7 @@ const KnowledgeGraph = () => {
                                                 { color: 'bg-slate-700', label: 'Locked', desc: 'Hidden Nodes' }
                                             ].map(item => (
                                                 <div key={item.label} className="flex items-center gap-3 p-2 bg-white/5 rounded-xl border border-white/5">
-                                                    <div className={`w-2 h-2 rounded-full ${item.color} shadow-[0_0_8px_rgba(255,255,255,0.2)]`} />
+                                                    <div className={`w-2 h-2 rounded-full ${item.color} shadow-[0_0_8px_rgba(220,214,247,0.2)]`} />
                                                     <div className="text-left">
                                                         <p className="text-[9px] font-black text-white uppercase tracking-tighter leading-none">{item.label}</p>
                                                         <p className="text-[8px] text-dark-500 font-medium leading-none mt-1">{item.desc}</p>
@@ -1306,7 +1382,7 @@ const KnowledgeGraph = () => {
                                                     <div className="text-[10px] text-dark-400">
                                                         {doc.status}
                                                         {isRateLimited && (
-                                                            <span className="ml-2 text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                                                            <span className="ml-2 text-[9px] px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-200 border border-primary-500/30">
                                                                 Paused (rate limited)
                                                             </span>
                                                         )}

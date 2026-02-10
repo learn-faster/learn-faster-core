@@ -31,13 +31,13 @@ const StabilityMap = ({ stabilityData }) => {
             {
                 label: 'Neural Stability',
                 data: concepts && concepts.length > 0 ? concepts.map(c => c.stability) : [85, 92, 78, 88, 90],
-                backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                borderColor: 'rgba(139, 92, 246, 0.5)',
+                backgroundColor: 'rgba(194, 239, 179, 0.12)',
+                borderColor: 'rgba(194, 239, 179, 0.55)',
                 borderWidth: 1,
-                pointBackgroundColor: 'rgba(139, 92, 246, 0.8)',
-                pointBorderColor: '#fff',
-                pointHoverBackgroundColor: '#fff',
-                pointHoverBorderColor: 'rgba(139, 92, 246, 1)',
+                pointBackgroundColor: 'rgba(220, 214, 247, 0.9)',
+                pointBorderColor: 'rgba(17, 18, 26, 0.9)',
+                pointHoverBackgroundColor: 'rgba(194, 239, 179, 0.95)',
+                pointHoverBorderColor: 'rgba(194, 239, 179, 0.95)',
                 pointRadius: 2,
             },
         ],
@@ -46,9 +46,9 @@ const StabilityMap = ({ stabilityData }) => {
     const options = {
         scales: {
             r: {
-                angleLines: { color: 'rgba(255, 255, 255, 0.05)' },
-                grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                pointLabels: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10, weight: 'bold' } },
+                angleLines: { color: 'rgba(220, 214, 247, 0.12)' },
+                grid: { color: 'rgba(220, 214, 247, 0.12)' },
+                pointLabels: { color: 'rgba(220, 214, 247, 0.65)', font: { size: 10, weight: 'bold' } },
                 ticks: { display: false, backdropColor: 'transparent' },
                 suggestedMin: 0,
                 suggestedMax: 100

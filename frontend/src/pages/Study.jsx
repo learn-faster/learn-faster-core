@@ -74,8 +74,8 @@ const Study = () => {
     if (sessionResults) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[70vh] text-center max-w-2xl mx-auto animate-scale-in">
-                <div className="w-24 h-24 rounded-full bg-emerald-500/20 flex items-center justify-center mb-8 border border-emerald-500/30">
-                    <Trophy className="w-12 h-12 text-emerald-400" />
+                <div className="w-24 h-24 rounded-full bg-primary-500/20 flex items-center justify-center mb-8 border border-primary-500/30">
+                    <Trophy className="w-12 h-12 text-primary-300" />
                 </div>
                 <h1 className="text-4xl font-extrabold mb-4 tracking-tight">Session Complete!</h1>
                 <p className="text-dark-400 text-lg mb-12">Great work! You've successfully retrieved concepts from your long-term memory.</p>

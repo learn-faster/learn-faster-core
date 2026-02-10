@@ -39,15 +39,15 @@ export function EpisodeCard({ episode, onDelete, deleting }) {
   const getSTATUS_META = (t) => ({
     running: {
       label: t.podcasts.processingLabel,
-      className: 'bg-amber-100 text-amber-800 border-amber-200',
+      className: 'bg-primary-100 text-primary-800 border-primary-200',
     },
     processing: {
       label: t.podcasts.processingLabel,
-      className: 'bg-amber-100 text-amber-800 border-amber-200',
+      className: 'bg-primary-100 text-primary-800 border-primary-200',
     },
     completed: {
       label: t.podcasts.completedLabel,
-      className: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      className: 'bg-primary-100 text-primary-800 border-primary-200',
     },
     failed: {
       label: t.podcasts.failedLabel,
@@ -59,11 +59,11 @@ export function EpisodeCard({ episode, onDelete, deleting }) {
     },
     pending: {
       label: t.podcasts.pendingLabel,
-      className: 'bg-sky-100 text-sky-800 border-sky-200',
+      className: 'bg-primary-100 text-primary-800 border-primary-200',
     },
     submitted: {
       label: t.podcasts.pendingLabel,
-      className: 'bg-sky-100 text-sky-800 border-sky-200',
+      className: 'bg-primary-100 text-primary-800 border-primary-200',
     },
     unknown: {
       label: t.common.unknown,

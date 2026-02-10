@@ -26,8 +26,8 @@ const LearningVelocity = ({ data }) => {
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-dark-900/80 to-dark-950 border border-white/5 p-8">
             {/* Abstract Background Elements */}
             <div className="absolute inset-0 overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top_right,_rgba(139,92,246,0.1),transparent_50%)]" />
-                <div className="absolute bottom-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_bottom_left,_rgba(6,182,212,0.08),transparent_50%)]" />
+                <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top_right,_rgba(194,239,179,0.12),transparent_50%)]" />
+                <div className="absolute bottom-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_bottom_left,_rgba(220,214,247,0.1),transparent_50%)]" />
             </div>
 
             <div className="relative z-10 grid md:grid-cols-2 gap-8 items-center">
@@ -45,7 +45,7 @@ const LearningVelocity = ({ data }) => {
                         <div className="absolute inset-6 rounded-full border border-white/5" />
 
                         {/* Inner Glow */}
-                        <div className="absolute inset-12 rounded-full bg-gradient-to-br from-primary-500/20 to-cyan-500/10 blur-xl" />
+                        <div className="absolute inset-12 rounded-full bg-gradient-to-br from-primary-400/25 to-primary-200/10 blur-xl" />
 
                         {/* Center Core */}
                         <div className="absolute inset-14 rounded-full bg-dark-900/90 border border-primary-500/30 flex items-center justify-center">
@@ -58,7 +58,7 @@ const LearningVelocity = ({ data }) => {
                                 >
                                     {velocity}
                                 </motion.div>
-                                <div className="text-[9px] uppercase tracking-widest text-primary-400 font-bold">
+                                <div className="text-[9px] uppercase tracking-widest text-primary-300 font-bold">
                                     cards/hr
                                 </div>
                             </div>
@@ -79,14 +79,14 @@ const LearningVelocity = ({ data }) => {
                                 }}
                             >
                                 <motion.div
-                                    className="absolute rounded-full bg-gradient-to-r from-cyan-400 to-primary-500"
+                                    className="absolute rounded-full bg-gradient-to-r from-primary-300 to-primary-500"
                                     style={{
                                         width: particle.size,
                                         height: particle.size,
                                         top: '50%',
                                         left: `calc(50% + ${orbitRadius}px)`,
                                         transform: 'translate(-50%, -50%)',
-                                        boxShadow: '0 0 10px rgba(6, 182, 212, 0.5)'
+                                        boxShadow: '0 0 10px rgba(194, 239, 179, 0.5)'
                                     }}
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: [0.3, 1, 0.3] }}
@@ -100,8 +100,8 @@ const LearningVelocity = ({ data }) => {
                         ))}
 
                         {/* Static Accent Dots */}
-                        <div className="absolute top-2 right-8 w-1 h-1 rounded-full bg-primary-400/50" />
-                        <div className="absolute bottom-6 left-4 w-1.5 h-1.5 rounded-full bg-cyan-400/30" />
+                        <div className="absolute top-2 right-8 w-1 h-1 rounded-full bg-primary-300/60" />
+                        <div className="absolute bottom-6 left-4 w-1.5 h-1.5 rounded-full bg-primary-200/30" />
                         <div className="absolute top-12 left-2 w-0.5 h-0.5 rounded-full bg-white/30" />
                     </div>
                 </div>
@@ -110,7 +110,7 @@ const LearningVelocity = ({ data }) => {
                 <div className="space-y-6">
                     <div>
                         <h4 className="text-xl font-black text-white mb-1 flex items-center gap-2">
-                            <Zap className="w-5 h-5 text-amber-400" />
+                            <Zap className="w-5 h-5 text-primary-300" />
                             Learning Velocity
                         </h4>
                         <p className="text-sm text-dark-400">{description}</p>
@@ -119,7 +119,7 @@ const LearningVelocity = ({ data }) => {
                     <div className="grid grid-cols-2 gap-4">
                         <div className="bg-white/5 border border-white/5 rounded-2xl p-4">
                             <div className="flex items-center gap-2 mb-2">
-                                <Award className="w-4 h-4 text-emerald-400" />
+                                <Award className="w-4 h-4 text-primary-300" />
                                 <span className="text-[10px] uppercase tracking-widest text-dark-500 font-bold">Mastered</span>
                             </div>
                             <div className="text-2xl font-black text-white">{mastered_cards}</div>
@@ -128,7 +128,7 @@ const LearningVelocity = ({ data }) => {
 
                         <div className="bg-white/5 border border-white/5 rounded-2xl p-4">
                             <div className="flex items-center gap-2 mb-2">
-                                <Clock className="w-4 h-4 text-cyan-400" />
+                                <Clock className="w-4 h-4 text-primary-300" />
                                 <span className="text-[10px] uppercase tracking-widest text-dark-500 font-bold">Study Time</span>
                             </div>
                             <div className="text-2xl font-black text-white">{study_hours}</div>
@@ -146,7 +146,7 @@ const LearningVelocity = ({ data }) => {
                         </div>
                         <div className="h-2 bg-dark-800 rounded-full overflow-hidden">
                             <motion.div
-                                className="h-full bg-gradient-to-r from-cyan-500 via-primary-500 to-violet-500 rounded-full"
+                                className="h-full bg-gradient-to-r from-primary-300 via-primary-500 to-primary-700 rounded-full"
                                 initial={{ width: 0 }}
                                 animate={{ width: `${Math.min((velocity / 15) * 100, 100)}%` }}
                                 transition={{ duration: 1, ease: "easeOut" }}

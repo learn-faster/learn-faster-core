@@ -184,7 +184,7 @@ export function EpisodeProfileFormDialog({
         </DialogHeader>
 
         {speakerProfiles.length === 0 ? (
-          <Alert className="bg-amber-50 text-amber-900 border-amber-200">
+          <Alert className="bg-primary-50 text-primary-900 border-primary-200">
             <AlertTitle>{t.podcasts.noSpeakerProfilesAvailable}</AlertTitle>
             <AlertDescription>
               {t.podcasts.noSpeakerProfilesDesc}
@@ -193,7 +193,7 @@ export function EpisodeProfileFormDialog({
         ) : null}
 
         {providers.length === 0 ? (
-          <Alert className="bg-amber-50 text-amber-900 border-amber-200">
+          <Alert className="bg-primary-50 text-primary-900 border-primary-200">
             <AlertTitle>{t.podcasts.noLanguageModelsAvailable}</AlertTitle>
             <AlertDescription>
               {t.podcasts.noLanguageModelsDesc}

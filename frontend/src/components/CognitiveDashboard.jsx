@@ -121,13 +121,13 @@ const CognitiveDashboard = () => {
                                     </div>
                                     {data?.knowledge?.at_risk_concepts?.length > 0 && (
                                         <div className="space-y-3">
-                                            <div className="flex items-center gap-2 text-amber-400 text-[10px] font-bold uppercase tracking-widest">
+                                            <div className="flex items-center gap-2 text-primary-300 text-[10px] font-bold uppercase tracking-widest">
                                                 <AlertCircle className="w-3 h-3" /> Potential Decay Soon
                                             </div>
                                             {data?.knowledge?.at_risk_concepts.map(c => (
                                                 <div key={c.concept} className="flex justify-between items-center text-xs p-2 bg-white/5 rounded-lg border border-white/5">
                                                     <span className="text-white capitalize">{c.concept}</span>
-                                                    <span className="text-amber-400/70 font-mono">{c.stability}%</span>
+                                                    <span className="text-primary-300/70 font-mono">{c.stability}%</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -155,7 +155,7 @@ const CognitiveDashboard = () => {
 
                 {/* Right Panel: Insights / Quick Stats */}
                 <div className="lg:col-span-1 space-y-6">
-                    <div className="bg-gradient-to-br from-primary-600/20 to-indigo-600/20 rounded-3xl p-6 border border-primary-500/20 relative overflow-hidden group">
+                    <div className="bg-gradient-to-br from-primary-600/20 to-primary-400/20 rounded-3xl p-6 border border-primary-500/20 relative overflow-hidden group">
                         <h4 className="text-sm font-bold text-white mb-1">Knowledge Entropy</h4>
                         <p className="text-xs text-primary-200/50 mb-4">Complexity vs. Stability of your brain.</p>
                         <div className="flex items-end gap-1 h-12">
@@ -172,7 +172,7 @@ const CognitiveDashboard = () => {
                         <BrainCircuit className="absolute top-[-10px] right-[-10px] w-24 h-24 text-white/5 group-hover:text-white/10 transition-colors" />
                     </div>
 
-                    <div className="bg-dark-950/80 border border-primary-500/30 rounded-3xl p-6 shadow-[0_0_50px_rgba(139,92,246,0.1)] relative overflow-hidden">
+                    <div className="bg-dark-950/80 border border-primary-500/30 rounded-3xl p-6 shadow-[0_0_50px_rgba(194,239,179,0.1)] relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-3">
                             <BrainCircuit className="w-4 h-4 text-primary-500/20" />
                         </div>

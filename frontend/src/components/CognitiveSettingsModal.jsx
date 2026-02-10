@@ -71,8 +71,8 @@ const CognitiveSettingsModal = ({ isOpen, onClose, onUpdate }) => {
     // Retention rate to human-readable description
     const getRetentionDescription = (rate) => {
         if (rate >= 0.95) return { label: "High Stakes", desc: "For exams, certifications. Maximum retention, more reviews.", color: "text-red-400" };
-        if (rate >= 0.88) return { label: "Balanced", desc: "Recommended for most learners. Good retention, efficient reviews.", color: "text-emerald-400" };
-        return { label: "Relaxed", desc: "For casual learning. Fewer reviews, some forgetting expected.", color: "text-amber-400" };
+        if (rate >= 0.88) return { label: "Balanced", desc: "Recommended for most learners. Good retention, efficient reviews.", color: "text-primary-300" };
+        return { label: "Relaxed", desc: "For casual learning. Fewer reviews, some forgetting expected.", color: "text-primary-200" };
     };
 
     const retentionInfo = getRetentionDescription(settings.target_retention);
@@ -151,8 +151,8 @@ const CognitiveSettingsModal = ({ isOpen, onClose, onUpdate }) => {
                                 {/* Daily New Card Limit */}
                                 <div>
                                     <div className="flex items-center gap-3 mb-4">
-                                        <div className="p-2 bg-amber-500/10 rounded-xl">
-                                            <Layers className="w-5 h-5 text-amber-400" />
+                                        <div className="p-2 bg-primary-500/10 rounded-xl">
+                                            <Layers className="w-5 h-5 text-primary-300" />
                                         </div>
                                         <div>
                                             <h3 className="text-sm font-bold text-white">Daily New Cards</h3>
@@ -186,8 +186,8 @@ const CognitiveSettingsModal = ({ isOpen, onClose, onUpdate }) => {
                                 {/* Focus Timer Settings */}
                                 <div>
                                     <div className="flex items-center gap-3 mb-4">
-                                        <div className="p-2 bg-cyan-500/10 rounded-xl">
-                                            <Clock className="w-5 h-5 text-cyan-400" />
+                                        <div className="p-2 bg-primary-500/10 rounded-xl">
+                                            <Clock className="w-5 h-5 text-primary-300" />
                                         </div>
                                         <div>
                                             <h3 className="text-sm font-bold text-white">Focus Timer</h3>
@@ -205,7 +205,7 @@ const CognitiveSettingsModal = ({ isOpen, onClose, onUpdate }) => {
                                                     max="120"
                                                     value={settings.focus_duration}
                                                     onChange={(e) => updateSetting('focus_duration', parseInt(e.target.value) || 25)}
-                                                    className="w-full bg-dark-700 border border-white/10 rounded-xl px-4 py-3 text-white text-lg font-bold text-center focus:outline-none focus:border-cyan-500"
+                                                    className="w-full bg-dark-700 border border-white/10 rounded-xl px-4 py-3 text-white text-lg font-bold text-center focus:outline-none focus:border-primary-500"
                                                 />
                                             </div>
                                             <div>
@@ -216,7 +216,7 @@ const CognitiveSettingsModal = ({ isOpen, onClose, onUpdate }) => {
                                                     max="30"
                                                     value={settings.break_duration}
                                                     onChange={(e) => updateSetting('break_duration', parseInt(e.target.value) || 5)}
-                                                    className="w-full bg-dark-700 border border-white/10 rounded-xl px-4 py-3 text-white text-lg font-bold text-center focus:outline-none focus:border-cyan-500"
+                                                    className="w-full bg-dark-700 border border-white/10 rounded-xl px-4 py-3 text-white text-lg font-bold text-center focus:outline-none focus:border-primary-500"
                                                 />
                                             </div>
                                         </div>
@@ -242,7 +242,7 @@ const CognitiveSettingsModal = ({ isOpen, onClose, onUpdate }) => {
                             className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all ${saving || loading
                                     ? 'bg-dark-700 text-dark-400 cursor-not-allowed'
                                     : saveStatus === 'success'
-                                        ? 'bg-emerald-500 text-white'
+                                        ? 'bg-primary-500 text-white'
                                         : 'bg-primary-500 hover:bg-primary-400 text-white shadow-lg shadow-primary-500/20'
                                 }`}
                         >

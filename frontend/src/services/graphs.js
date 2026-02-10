@@ -14,8 +14,12 @@ const GraphService = {
     deleteGraph: async (graphId) => {
         return await api.delete(`/graphs/${graphId}`);
     },
-    buildGraph: async (graphId, payload) => {
-        return await api.post(`/graphs/${graphId}/build`, payload);
+    buildGraph: async (graphId, payload, options = {}) => {
+        const params = new URLSearchParams();
+        if (typeof options.wait === 'boolean') params.set('wait', options.wait ? 'true' : 'false');
+        if (typeof options.force === 'boolean') params.set('force', options.force ? 'true' : 'false');
+        const suffix = params.toString() ? `?${params.toString()}` : '';
+        return await api.post(`/graphs/${graphId}/build${suffix}`, payload);
     },
     getGraphData: async (graphId, includeConnections = true, targetGraphId = null) => {
         const params = new URLSearchParams();

@@ -7,10 +7,10 @@ const FocusAura = ({ focusData }) => {
 
     // Color mapping based on focus score
     const getAuraColor = (s) => {
-        if (s >= 80) return 'from-cyan-400 to-blue-600'; // High Flow
-        if (s >= 60) return 'from-indigo-400 to-purple-600'; // Work
-        if (s >= 40) return 'from-amber-400 to-orange-600'; // Dip
-        return 'from-slate-600 to-slate-900'; // Rest
+        if (s >= 80) return 'from-primary-300 to-primary-600'; // High Flow
+        if (s >= 60) return 'from-primary-400 to-primary-500'; // Work
+        if (s >= 40) return 'from-primary-200 to-primary-400'; // Dip
+        return 'from-dark-600 to-dark-900'; // Rest
     };
 
     return (
