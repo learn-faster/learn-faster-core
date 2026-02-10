@@ -31,10 +31,10 @@ const GoalProgress = () => {
 
     const getDomainColor = (domain) => {
         const colors = {
-            learning: { bg: 'bg-indigo-500', text: 'text-indigo-400', gradient: 'from-indigo-500 to-violet-500' },
-            health: { bg: 'bg-emerald-500', text: 'text-emerald-400', gradient: 'from-emerald-500 to-teal-500' },
-            career: { bg: 'bg-amber-500', text: 'text-amber-400', gradient: 'from-amber-500 to-orange-500' },
-            project: { bg: 'bg-cyan-500', text: 'text-cyan-400', gradient: 'from-cyan-500 to-blue-500' },
+            learning: { bg: 'bg-primary-500', text: 'text-primary-300', gradient: 'from-primary-500 to-primary-700' },
+            health: { bg: 'bg-primary-400', text: 'text-primary-300', gradient: 'from-primary-400 to-primary-600' },
+            career: { bg: 'bg-primary-300', text: 'text-primary-200', gradient: 'from-primary-300 to-primary-500' },
+            project: { bg: 'bg-primary-500', text: 'text-primary-400', gradient: 'from-primary-500 to-primary-600' },
         };
         return colors[domain] || colors.learning;
     };
@@ -120,12 +120,12 @@ const GoalProgress = () => {
                                         {goal.logged_hours?.toFixed(1)}h / {goal.target_hours}h
                                     </span>
                                     {goal.is_on_track !== false ? (
-                                        <span className="text-emerald-400 flex items-center gap-1">
+                                        <span className="text-primary-300 flex items-center gap-1">
                                             <TrendingUp className="w-3 h-3" />
                                             On track
                                         </span>
                                     ) : (
-                                        <span className="text-amber-400 text-xs">
+                                        <span className="text-primary-200 text-xs">
                                             Behind
                                         </span>
                                     )}

@@ -205,7 +205,7 @@ const AgentSettings = ({ onClose, onSaved }) => {
                 />
               </div>
               {settings.fitbit_demo_mode && (
-                <div className="mt-2 text-[11px] text-amber-200/80">
+                <div className="mt-2 text-[11px] text-primary-200/80">
                   Demo mode uses sample biometrics without OAuth.
                 </div>
               )}
@@ -297,7 +297,7 @@ const AgentSettings = ({ onClose, onSaved }) => {
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="w-full py-3 bg-gradient-to-r from-primary-500 to-indigo-500 text-white rounded-2xl hover:from-primary-400 hover:to-indigo-400 disabled:opacity-70 flex items-center justify-center gap-2 font-medium"
+              className="w-full py-3 bg-gradient-to-r from-primary-500 to-primary-700 text-white rounded-2xl hover:from-primary-400 hover:to-primary-600 disabled:opacity-70 flex items-center justify-center gap-2 font-medium"
             >
               {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
               Save Configuration

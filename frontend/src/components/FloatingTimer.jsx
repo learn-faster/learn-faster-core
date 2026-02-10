@@ -73,7 +73,7 @@ const FloatingTimer = () => {
                 <div className="flex gap-1">
                     <button
                         onClick={togglePlayPause}
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-95 ${isActive ? 'bg-amber-500/10 text-amber-500' : 'bg-primary-500/10 text-primary-500'
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-95 ${isActive ? 'bg-primary-500/10 text-primary-300' : 'bg-primary-500/10 text-primary-500'
                             }`}
                     >
                         {isActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}

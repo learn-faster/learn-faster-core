@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Square, RotateCcw, ChevronDown, ChevronUp, Coffee, Target } from 'lucide-react';
+import { Play, Pause, Square, RotateCcw, ChevronDown, ChevronUp, Coffee, Target, Timer } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import useTimerStore from '../stores/useTimerStore';
 import { EFFECTIVENESS_RATINGS } from '../constants/metacognition';
 import goalsService from '../services/goals';
+import { TIMER_PRESETS } from '../constants/timerPresets';
 
 /**
  * SmartTimer - Dashboard Version (Control Center)
@@ -15,7 +16,9 @@ const SmartTimer = () => {
         timeLeft, isActive, mode, studyType, activeSessionId, goal, selectedGoalId,
         sessionCount, isExpanded,
         togglePlayPause, stopSession, endSessionSync, reset, setStudyType,
-        loadSettings
+        loadSettings, focusDuration, breakDuration, presetKey,
+        setFocusDuration, setBreakDuration, setPresetKey,
+        startRequest, consumeStartRequest
     } = useTimerStore();
 
     const [localExpanded, setLocalExpanded] = useState(false);
@@ -27,6 +30,7 @@ const SmartTimer = () => {
     const [reflection, setReflection] = useState('');
     const [effectivenessRating, setEffectivenessRating] = useState(3);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [useCustom, setUseCustom] = useState(false);
 
     // Fetch goals when plan modal opens
     useEffect(() => {
@@ -34,6 +38,13 @@ const SmartTimer = () => {
             goalsService.getGoals({ status: 'active' }).then(setGoals).catch(console.error);
         }
     }, [showPlanModal]);
+
+    useEffect(() => {
+        if (startRequest && !showPlanModal && !isActive) {
+            setShowPlanModal(true);
+            consumeStartRequest();
+        }
+    }, [startRequest, showPlanModal, isActive, consumeStartRequest]);
 
     const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 60);
@@ -92,16 +103,16 @@ const SmartTimer = () => {
         }
     };
 
-    const themeColor = mode === 'WORK' ? (studyType === 'practice' ? 'emerald' : 'indigo') : 'orange';
+    const themeColor = mode === 'WORK' ? (studyType === 'practice' ? 'practice' : 'work') : 'break';
 
     const colorClasses = {
-        indigo: { bg: 'bg-indigo-500', text: 'text-indigo-400', border: 'border-indigo-500/30', glow: 'shadow-indigo-500/20' },
-        emerald: { bg: 'bg-emerald-500', text: 'text-emerald-400', border: 'border-emerald-500/30', glow: 'shadow-emerald-500/20' },
-        orange: { bg: 'bg-orange-500', text: 'text-orange-400', border: 'border-orange-500/30', glow: 'shadow-orange-500/20' },
+        work: { bg: 'bg-primary-500', text: 'text-primary-300', border: 'border-primary-500/30', glow: 'shadow-primary-500/20' },
+        practice: { bg: 'bg-primary-400', text: 'text-primary-300', border: 'border-primary-400/30', glow: 'shadow-primary-400/20' },
+        break: { bg: 'bg-primary-300', text: 'text-primary-200', border: 'border-primary-300/30', glow: 'shadow-primary-300/20' },
     };
 
     const colors = colorClasses[themeColor];
-    const progress = 100 - (timeLeft / (mode === 'WORK' ? (studyType === 'practice' ? useTimerStore.getState().focusDuration * 0.6 * 60 : useTimerStore.getState().focusDuration * 60) : useTimerStore.getState().breakDuration * 60) * 100);
+    const progress = 100 - (timeLeft / (mode === 'WORK' ? (studyType === 'practice' ? focusDuration * 0.6 * 60 : focusDuration * 60) : breakDuration * 60) * 100);
 
     return (
         <>
@@ -130,7 +141,7 @@ const SmartTimer = () => {
                             <div className="flex gap-2">
                                 <button
                                     onClick={handlePlayPause}
-                                    className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all active:scale-95 ${isActive ? 'bg-amber-500 hover:bg-amber-400 text-white' : `${colors.bg} hover:opacity-90 text-white`
+                                    className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all active:scale-95 ${isActive ? 'bg-primary-500 hover:bg-primary-400 text-dark-950' : `${colors.bg} hover:opacity-90 text-white`
                                         }`}
                                 >
                                     {isActive ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
@@ -159,7 +170,7 @@ const SmartTimer = () => {
                                         onClick={() => setStudyType(type)}
                                         disabled={isActive}
                                         className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${studyType === type
-                                            ? (type === 'deep' ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white')
+                                            ? (type === 'deep' ? 'bg-primary-500 text-white' : 'bg-primary-400 text-white')
                                             : 'text-dark-400 hover:text-white'
                                             } disabled:opacity-50`}
                                     >
@@ -189,9 +200,86 @@ const SmartTimer = () => {
                                 exit={{ height: 0, opacity: 0 }}
                                 className="overflow-hidden"
                             >
-                                <div className="pt-6 mt-6 border-t border-white/5">
+                                <div className="pt-6 mt-6 border-t border-white/5 space-y-6">
+                                    <div>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-dark-500 flex items-center gap-2">
+                                                <Timer className="w-3 h-3" /> Time Blueprint
+                                            </p>
+                                            <button
+                                                onClick={() => setUseCustom(!useCustom)}
+                                                disabled={isActive}
+                                                className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border ${
+                                                    useCustom ? 'border-primary-500/40 text-primary-300' : 'border-white/10 text-dark-400'
+                                                }`}
+                                            >
+                                                {useCustom ? 'Custom' : 'Science Presets'}
+                                            </button>
+                                        </div>
+
+                                        {!useCustom && (
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                                {TIMER_PRESETS.map((preset) => (
+                                                    <button
+                                                        key={preset.key}
+                                                        disabled={isActive}
+                                                        onClick={() => setPresetKey(preset.key, preset.focus, preset.break)}
+                                                        className={`px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all ${
+                                                            presetKey === preset.key
+                                                                ? 'border-primary-500/50 text-primary-200 bg-primary-500/10'
+                                                                : 'border-white/10 text-dark-400 hover:text-white hover:border-white/30'
+                                                        } disabled:opacity-40`}
+                                                    >
+                                                        {preset.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {!useCustom && (
+                                            <p className="text-[11px] text-dark-500 mt-3">
+                                                {TIMER_PRESETS.find((p) => p.key === presetKey)?.note || 'Longer sessions support deeper learning.'}
+                                            </p>
+                                        )}
+
+                                        {useCustom && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold uppercase tracking-widest text-dark-500 mb-2">
+                                                        Focus Length ({focusDuration}m)
+                                                    </label>
+                                                    <input
+                                                        type="range"
+                                                        min="10"
+                                                        max="120"
+                                                        step="5"
+                                                        disabled={isActive}
+                                                        value={focusDuration}
+                                                        onChange={(e) => setFocusDuration(parseInt(e.target.value, 10))}
+                                                        className="w-full accent-primary-400"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold uppercase tracking-widest text-dark-500 mb-2">
+                                                        Break Length ({breakDuration}m)
+                                                    </label>
+                                                    <input
+                                                        type="range"
+                                                        min="3"
+                                                        max="30"
+                                                        step="1"
+                                                        disabled={isActive}
+                                                        value={breakDuration}
+                                                        onChange={(e) => setBreakDuration(parseInt(e.target.value, 10))}
+                                                        className="w-full accent-primary-400"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
                                     {mode === 'BREAK' ? (
-                                        <div className="flex items-center gap-3 text-orange-400">
+                                        <div className="flex items-center gap-3 text-primary-300">
                                             <Coffee className="w-5 h-5" />
                                             <div>
                                                 <p className="font-bold">Time to recharge</p>
@@ -295,7 +383,7 @@ const SmartTimer = () => {
                             initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
                             className="w-full max-w-md bg-dark-900 rounded-2xl p-6 border border-white/10 shadow-2xl"
                         >
-                            <h3 className="text-xl font-bold text-emerald-400 mb-2">Session Complete</h3>
+                            <h3 className="text-xl font-bold text-primary-300 mb-2">Session Complete</h3>
                             <textarea
                                 value={reflection}
                                 onChange={e => setReflection(e.target.value)}
@@ -307,7 +395,7 @@ const SmartTimer = () => {
                                     <button
                                         key={rate}
                                         onClick={() => setEffectivenessRating(rate)}
-                                        className={`flex-1 py-2 rounded-lg font-bold ${effectivenessRating === rate ? 'bg-emerald-500 text-white' : 'bg-white/5 text-dark-400'}`}
+                                        className={`flex-1 py-2 rounded-lg font-bold ${effectivenessRating === rate ? 'bg-primary-500 text-white' : 'bg-white/5 text-dark-400'}`}
                                     >
                                         {rate}
                                     </button>
@@ -316,7 +404,7 @@ const SmartTimer = () => {
                             <button
                                 onClick={confirmEndSession}
                                 disabled={isSubmitting}
-                                className="w-full py-4 mt-6 rounded-xl font-bold bg-gradient-to-r from-primary-500 to-indigo-500 text-white disabled:opacity-50"
+                                className="w-full py-4 mt-6 rounded-xl font-bold bg-gradient-to-r from-primary-500 to-primary-700 text-white disabled:opacity-50"
                             >
                                 {isSubmitting ? 'Saving...' : 'Complete Session'}
                             </button>

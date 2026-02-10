@@ -1,12 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, ChevronRight, Mail, HeartPulse } from 'lucide-react';
 import { agentApi } from '../../services/agent';
+import cognitiveService from '../../services/cognitive';
+import useLLMConfig from '../../hooks/useLLMConfig';
+import ApiKeySetup from '../ApiKeySetup';
+import FileUpload from '../documents/FileUpload';
 
-const inputClass = "w-full px-3 py-2 rounded-xl bg-dark-900/70 border border-white/10 text-sm text-white placeholder:text-dark-500 focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/20";
+const inputClass = "w-full px-3 py-2 rounded-xl bg-dark-900/80 border border-primary-500/20 text-sm text-white placeholder:text-primary-100/40 focus:border-primary-500/70 focus:ring-2 focus:ring-primary-500/30";
 
 const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
   const [step, setStep] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [coreSaving, setCoreSaving] = useState(false);
+  const [coreError, setCoreError] = useState('');
   const [goals, setGoals] = useState({ short: '', near: '', long: '' });
   const [weeklyHours, setWeeklyHours] = useState('6');
   const [focusStyle, setFocusStyle] = useState('deep');
@@ -18,7 +24,18 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
   const [fitbitClientSecret, setFitbitClientSecret] = useState('');
   const [fitbitRedirectUri, setFitbitRedirectUri] = useState('http://localhost:5173/api/fitbit/callback');
 
-  const steps = ['Goals', 'Preferences', 'Integrations'];
+  const { isConfigured, getConfig, refresh } = useLLMConfig();
+
+  const steps = useMemo(() => {
+    const base = ['Goals', 'Preferences', 'Integrations', 'Upload'];
+    return isConfigured ? base : ['Core', ...base];
+  }, [isConfigured]);
+
+  useEffect(() => {
+    if (step >= steps.length) {
+      setStep(steps.length - 1);
+    }
+  }, [steps, step]);
 
   const saveOnboarding = async () => {
     setIsSaving(true);
@@ -54,16 +71,34 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
     }
   };
 
+  const handleCoreConfigured = async () => {
+    setCoreError('');
+    setCoreSaving(true);
+    try {
+      refresh();
+      const llmConfig = getConfig();
+      await agentApi.saveSettings({ llm_config: llmConfig });
+      await cognitiveService.updateSettings({ llm_config: llmConfig });
+      setStep((s) => Math.min(steps.length - 1, s + 1));
+    } catch (e) {
+      setCoreError(e?.userMessage || e?.message || 'Unable to save LLM configuration.');
+    } finally {
+      setCoreSaving(false);
+    }
+  };
+
+  const stepLabel = steps[step];
+
   return (
     <div className="h-full flex flex-col">
-      <div className="px-5 py-4 border-b border-white/5">
+      <div className="px-5 py-4 border-b border-primary-500/10">
         <p className="text-sm font-semibold text-white tracking-wide">Personalize your agent</p>
-        <p className="text-[11px] text-dark-400 mt-1">Help me build a pacing model that fits your goals and energy.</p>
+        <p className="text-[11px] text-primary-100/70 mt-1">Help me build a pacing model that fits your goals and energy.</p>
         <div className="mt-3 flex gap-2">
           {steps.map((label, idx) => (
             <div
               key={label}
-              className={`text-[10px] px-3 py-1 rounded-full border ${idx === step ? 'bg-primary-500/20 text-primary-200 border-primary-500/40' : 'bg-white/5 text-dark-500 border-white/10'}`}
+              className={`text-[10px] px-3 py-1 rounded-full border ${idx === step ? 'bg-primary-500/25 text-primary-100 border-primary-500/50' : 'bg-white/5 text-primary-100/60 border-primary-500/15'}`}
             >
               {label}
             </div>
@@ -72,10 +107,31 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6 custom-scrollbar">
-        {step === 0 && (
+        {stepLabel === 'Core' && (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <p className="text-xs text-dark-400">Define what “success” looks like at each time horizon.</p>
+            <div className="rounded-2xl border border-primary-500/20 bg-white/5 p-4">
+              <p className="text-xs text-primary-100/70">Connect your AI provider so we can generate maps, flashcards, and summaries.</p>
+            </div>
+            <ApiKeySetup onConfigured={handleCoreConfigured} />
+            {coreSaving && (
+              <div className="text-xs text-primary-100/70">Saving AI configuration…</div>
+            )}
+            {coreError && (
+              <div className="text-xs text-rose-300">{coreError}</div>
+            )}
+            <button
+              onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))}
+              className="text-xs text-primary-100/60 hover:text-white"
+            >
+              Skip for now
+            </button>
+          </div>
+        )}
+
+        {stepLabel === 'Goals' && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-primary-500/20 bg-white/5 p-4">
+              <p className="text-xs text-primary-100/70">Define what “success” looks like at each time horizon.</p>
               <div className="mt-4 space-y-4">
                 <Field label="Short‑term goal (days)">
                   <input className={inputClass} value={goals.short} onChange={(e) => setGoals({ ...goals, short: e.target.value })} placeholder="e.g. Finish chapter 2" />
@@ -91,9 +147,9 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
           </div>
         )}
 
-        {step === 1 && (
+        {stepLabel === 'Preferences' && (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-4">
+            <div className="rounded-2xl border border-primary-500/20 bg-white/5 p-4 space-y-4">
               <Field label="Available hours per week">
                 <input className={inputClass} type="number" value={weeklyHours} onChange={(e) => setWeeklyHours(e.target.value)} />
               </Field>
@@ -115,9 +171,9 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
           </div>
         )}
 
-        {step === 2 && (
+        {stepLabel === 'Integrations' && (
           <div className="space-y-6">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="rounded-2xl border border-primary-500/20 bg-white/5 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-white mb-2">
                 <Mail className="w-4 h-4 text-primary-300" /> Email setup
               </div>
@@ -129,12 +185,12 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
               </Field>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="rounded-2xl border border-primary-500/20 bg-white/5 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <HeartPulse className="w-4 h-4 text-emerald-300" /> Fitbit (optional)
+                  <HeartPulse className="w-4 h-4 text-primary-300" /> Fitbit (optional)
                 </div>
-                <label className="text-xs text-dark-400 flex items-center gap-2">
+                <label className="text-xs text-primary-100/70 flex items-center gap-2">
                   <input type="checkbox" checked={useBiometrics} onChange={(e) => setUseBiometrics(e.target.checked)} /> Enable
                 </label>
               </div>
@@ -151,7 +207,7 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
                   </Field>
                   <button
                     onClick={() => window.location.href = '/api/fitbit/auth'}
-                    className="mt-2 px-3 py-2 text-xs font-bold rounded-lg bg-emerald-500/80 hover:bg-emerald-500 text-white"
+                    className="mt-2 px-3 py-2 text-xs font-bold rounded-lg bg-primary-500/90 hover:bg-primary-500 text-dark-950 shadow-[0_0_16px_rgba(46,196,182,0.25)]"
                   >
                     Connect Fitbit
                   </button>
@@ -160,20 +216,29 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
             </div>
           </div>
         )}
+
+        {stepLabel === 'Upload' && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-primary-500/20 bg-white/5 p-4">
+              <p className="text-xs text-primary-100/70">Upload your first document to unlock maps, flashcards, and practice sessions.</p>
+            </div>
+            <FileUpload onComplete={() => setStep((s) => Math.min(steps.length - 1, s + 1))} />
+          </div>
+        )}
       </div>
 
-      <div className="p-4 border-t border-white/5 flex items-center justify-between">
+      <div className="p-4 border-t border-primary-500/10 flex items-center justify-between">
         <button
           onClick={() => setStep((s) => Math.max(0, s - 1))}
-          className="text-xs text-dark-400 hover:text-white"
+          className="text-xs text-primary-100/60 hover:text-white"
           disabled={step === 0}
         >
           Back
         </button>
-        {step < 2 ? (
+        {step < steps.length - 1 ? (
           <button
-            onClick={() => setStep((s) => Math.min(2, s + 1))}
-            className="px-4 py-2 text-xs font-bold rounded-xl bg-primary-500/90 hover:bg-primary-500 text-white flex items-center gap-1"
+            onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))}
+            className="px-4 py-2 text-xs font-bold rounded-xl bg-primary-500/90 hover:bg-primary-500 text-dark-950 flex items-center gap-1 shadow-[0_0_16px_rgba(46,196,182,0.25)]"
           >
             Next <ChevronRight className="w-4 h-4" />
           </button>
@@ -181,7 +246,7 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
           <button
             onClick={saveOnboarding}
             disabled={isSaving}
-            className="px-4 py-2 text-xs font-bold rounded-xl bg-emerald-500/90 hover:bg-emerald-500 text-white flex items-center gap-1"
+            className="px-4 py-2 text-xs font-bold rounded-xl bg-primary-500/90 hover:bg-primary-500 text-dark-950 flex items-center gap-1 shadow-[0_0_16px_rgba(46,196,182,0.25)]"
           >
             <CheckCircle2 className="w-4 h-4" /> Finish
           </button>
@@ -193,7 +258,7 @@ const AgentOnboarding = ({ onComplete, onOpenSettings }) => {
 
 const Field = ({ label, children }) => (
   <div>
-    <label className="block text-[11px] text-dark-400 mb-1">{label}</label>
+    <label className="block text-[11px] text-primary-100/70 mb-1">{label}</label>
     {children}
   </div>
 );
