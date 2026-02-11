@@ -1,8 +1,8 @@
 
 import logging
 import pytz
-from datetime import datetime, time
-from typing import List, Dict, Any
+from datetime import datetime, time, timedelta
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from src.models.orm import Flashcard, StudyReview, UserSettings
@@ -16,7 +16,24 @@ class CognitiveService:
     def __init__(self):
         self.nav = NavigationEngine()
 
-    def get_focus_phase(self, timezone_str: str = "UTC") -> Dict[str, Any]:
+    def _parse_bedtime_offset(self, bedtime: str) -> int:
+        try:
+            parts = bedtime.split(":")
+            hour = int(parts[0])
+            minute = int(parts[1]) if len(parts) > 1 else 0
+            bedtime_minutes = (hour * 60 + minute) % (24 * 60)
+            default_bedtime = 22 * 60
+            delta = bedtime_minutes - default_bedtime
+            # normalize to [-720, 720]
+            if delta > 720:
+                delta -= 1440
+            if delta < -720:
+                delta += 1440
+            return int(delta / 60)
+        except Exception:
+            return 0
+
+    def get_focus_phase(self, timezone_str: str = "UTC", bedtime: Optional[str] = None) -> Dict[str, Any]:
         """Calculates current cognitive phase based on circadian rhythm in user's local time."""
         try:
             tz = pytz.timezone(timezone_str)
@@ -24,7 +41,9 @@ class CognitiveService:
             tz = pytz.UTC
             
         now_local = datetime.now(tz)
-        current_time = now_local.time()
+        shift_hours = self._parse_bedtime_offset(bedtime) if bedtime else 0
+        shifted = now_local + timedelta(hours=shift_hours)
+        current_time = shifted.time()
         
         # Rigorous Circadian Model with Authoritative Scientific Copy
         if time(7, 0) <= current_time <= time(11, 0):
@@ -130,7 +149,12 @@ class CognitiveService:
             }
         except Exception as e:
             logger.error(f"Stability Calculation Error: {e}")
-            return {"global_stability": 100, "at_risk_concepts": [], "total_concepts_tracked": 0}
+            return {
+                "global_stability": 0,
+                "at_risk_concepts": [],
+                "total_concepts_tracked": 0,
+                "status": "Calculation Error"
+            }
 
     def get_growth_frontier(self, user_id: str) -> List[Dict[str, Any]]:
         """Identifies concepts ready to be learned."""
@@ -150,7 +174,11 @@ class CognitiveService:
 
     async def get_neural_report(self, user_id: str, db: Session, timezone: str = "UTC") -> str:
         """Generates a highly convincing, data-driven synthesis of the user's state."""
-        focus = self.get_focus_phase(timezone)
+        bedtime = None
+        user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        if user_settings:
+            bedtime = user_settings.bedtime
+        focus = self.get_focus_phase(timezone, bedtime)
         stability = self.get_knowledge_stability(db)
         frontier = self.get_growth_frontier(user_id)
         
@@ -159,7 +187,6 @@ class CognitiveService:
 
         # Get User LLM Config
         llm_config = None
-        user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
         if user_settings and user_settings.llm_config:
             try:
                 # Use 'global' or flat config

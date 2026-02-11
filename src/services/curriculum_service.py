@@ -1,14 +1,22 @@
 import uuid
 from datetime import datetime, date, timedelta
 from src.utils.logger import logger
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
-from src.models.orm import Curriculum, CurriculumModule, CurriculumWeek, CurriculumCheckpoint, CurriculumTask, CurriculumDocument, Document, UserSettings
-from src.models.schemas import LLMConfig
+from src.models.orm import Curriculum, CurriculumModule, CurriculumWeek, CurriculumCheckpoint, CurriculumTask, CurriculumDocument, Document, UserSettings, Flashcard, StudyReview
+from src.models.schemas import LLMConfig, CurriculumTaskResponse, CurriculumWeekResponse
 from src.services.llm_service import llm_service
 from src.path_resolution.path_resolver import PathResolver
 from src.services.prompts import ENHANCED_CURRICULUM_PROMPT_TEMPLATE, MODULE_CONTENT_PROMPT_TEMPLATE, WEEKLY_CURRICULUM_PROMPT_TEMPLATE
+from src.navigation.user_tracker import UserProgressTracker
+
+
+class TaskGateError(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 class CurriculumService:
     """
@@ -17,6 +25,94 @@ class CurriculumService:
     
     def __init__(self):
         self.path_resolver = PathResolver()
+        self.user_tracker = UserProgressTracker()
+
+    def _normalize_concepts(self, concepts: List[str]) -> List[str]:
+        return [c.strip() for c in (concepts or []) if c and c.strip()]
+
+    def _task_concepts(self, task: CurriculumTask, week: CurriculumWeek) -> List[str]:
+        metadata = task.action_metadata or {}
+        concepts = metadata.get("concepts") or []
+        if not concepts:
+            concepts = week.focus_concepts or []
+        return self._normalize_concepts(concepts)
+
+    def _task_prereqs(self, task: CurriculumTask, prior_concepts: List[str]) -> List[str]:
+        metadata = task.action_metadata or {}
+        prereqs = metadata.get("prerequisites")
+        if prereqs:
+            return self._normalize_concepts(prereqs)
+        return self._normalize_concepts(prior_concepts)
+
+    def _compute_mastery_for_concepts(self, db: Session, concepts: List[str]) -> Optional[float]:
+        concepts = self._normalize_concepts(concepts)
+        if not concepts:
+            return None
+
+        normalized = {c.lower() for c in concepts}
+        card_ids: List[str] = []
+        try:
+            filters = [Flashcard.tags.contains([c]) for c in normalized]
+            if filters:
+                card_ids = [row.id for row in db.query(Flashcard.id).filter(or_(*filters)).all()]
+        except Exception:
+            card_ids = []
+
+        if not card_ids:
+            try:
+                cards = db.query(Flashcard.id, Flashcard.tags).all()
+                card_ids = [
+                    card_id for card_id, tags in cards
+                    if any((t or "").strip().lower() in normalized for t in (tags or []))
+                ]
+            except Exception:
+                return 0.0
+
+        if not card_ids:
+            return 0.0
+
+        cutoff = datetime.utcnow() - timedelta(days=90)
+        reviews = db.query(StudyReview.rating).filter(
+            StudyReview.flashcard_id.in_(card_ids),
+            StudyReview.reviewed_at >= cutoff
+        ).all()
+        if not reviews:
+            return 0.0
+
+        avg_rating = sum(r[0] for r in reviews if r and r[0] is not None) / max(1, len(reviews))
+        return round(min(1.0, max(0.0, avg_rating / 5.0)), 3)
+
+    def _evaluate_task_gate(
+        self,
+        db: Session,
+        curriculum: Curriculum,
+        week: CurriculumWeek,
+        task: CurriculumTask,
+        prior_concepts: List[str]
+    ) -> Tuple[bool, Optional[str], Optional[float], Optional[float]]:
+        metadata = task.action_metadata or {}
+        threshold = metadata.get("mastery_threshold", 0.8)
+        prereqs = self._task_prereqs(task, prior_concepts)
+        mastery = self._compute_mastery_for_concepts(db, prereqs) if prereqs else None
+        if mastery is None:
+            return False, None, None, threshold
+        if mastery < threshold:
+            reason = f"Prerequisite mastery {int(mastery * 100)}% below {int(threshold * 100)}%"
+            return True, reason, mastery, threshold
+        return False, None, mastery, threshold
+
+    def _truncate_context(self, text: str, max_chars: int = 15000) -> str:
+        if not text:
+            return ""
+        if len(text) <= max_chars:
+            return text
+        head_len = int(max_chars * 0.7)
+        tail_len = max_chars - head_len - 40
+        head = text[:head_len]
+        tail = text[-tail_len:] if tail_len > 0 else ""
+        head = head.rsplit("\n", 1)[0] if "\n" in head else head
+        tail = tail.split("\n", 1)[-1] if "\n" in tail else tail
+        return f"{head}\n\n...[context truncated]...\n\n{tail}"
 
     async def generate_module_content(
         self,
@@ -64,7 +160,7 @@ class CurriculumService:
             module_title=module.title,
             module_description=module.description or "",
             module_type=module.module_type,
-            text=text_context[:15000] # Slightly more context for single module
+            text=self._truncate_context(text_context, 15000)
         )
 
         raw_content = await llm_service._get_completion(
@@ -98,7 +194,8 @@ class CurriculumService:
         time_budget_hours_per_week: int = 5,
         start_date_value: Optional[date] = None,
         llm_enhance: bool = False,
-        config: Optional[LLMConfig] = None
+        config: Optional[LLMConfig] = None,
+        gating_mode: str = "recommend"
     ) -> Curriculum:
         """
         Generates a multi-stage curriculum using LLM and Knowledge Graph context.
@@ -172,7 +269,8 @@ class CurriculumService:
             duration_weeks=duration_weeks,
             time_budget_hours_per_week=time_budget_hours_per_week,
             llm_enhance=llm_enhance,
-            llm_config=(llm_config.model_dump() if llm_config else {})
+            llm_config=(llm_config.model_dump() if llm_config else {}),
+            gating_mode=gating_mode or "recommend"
         )
         db.add(new_curriculum)
 
@@ -201,17 +299,32 @@ class CurriculumService:
             )
             db.add(week)
 
+            prior_concepts = []
+            if week_index > 1:
+                for w in weeks:
+                    if int(w.get("week_index", 1)) < week_index:
+                        prior_concepts.extend(w.get("focus_concepts", []) or [])
+
             for task_data in week_data.get("tasks", []):
                 linked_ids = task_data.get("linked_doc_ids", []) or []
                 linked_doc_id = linked_ids[0] if linked_ids else (doc_ids[0] if doc_ids else None)
+                task_type = (task_data.get("task_type") or "reading").lower()
+                action_metadata = task_data.get("action_metadata") or {}
+                action_metadata.setdefault("concepts", week_data.get("focus_concepts", []) or [])
+                if prior_concepts:
+                    action_metadata.setdefault("prerequisites", prior_concepts)
+                if task_type in ("practice", "quiz", "review"):
+                    action_metadata.setdefault("mastery_threshold", 0.8)
+                action_metadata.setdefault("linked_doc_ids", linked_ids or doc_ids)
                 task = CurriculumTask(
                     id=str(uuid.uuid4()),
                     week_id=week_id,
                     title=task_data.get("title", "Study task"),
-                    task_type=(task_data.get("task_type") or "reading").lower(),
+                    task_type=task_type,
                     linked_doc_id=linked_doc_id,
                     estimate_minutes=int(task_data.get("estimate_minutes") or 30),
-                    notes=task_data.get("notes")
+                    notes=task_data.get("notes"),
+                    action_metadata=action_metadata
                 )
                 db.add(task)
 
@@ -342,8 +455,52 @@ class CurriculumService:
         }
 
     def get_curriculum_timeline(self, db: Session, curriculum_id: str):
+        curriculum = db.query(Curriculum).filter(Curriculum.id == curriculum_id).first()
+        if not curriculum:
+            return []
         weeks = db.query(CurriculumWeek).filter(CurriculumWeek.curriculum_id == curriculum_id).order_by(CurriculumWeek.week_index.asc()).all()
-        return weeks
+        prior_concepts: List[str] = []
+        response_weeks: List[CurriculumWeekResponse] = []
+        for week in weeks:
+            tasks = []
+            for task in week.tasks or []:
+                gated, gate_reason, mastery, threshold = self._evaluate_task_gate(db, curriculum, week, task, prior_concepts)
+                action_metadata = task.action_metadata or {}
+                if not action_metadata:
+                    action_metadata = {"concepts": week.focus_concepts or []}
+                tasks.append(CurriculumTaskResponse(
+                    id=task.id,
+                    week_id=task.week_id,
+                    title=task.title,
+                    task_type=task.task_type,
+                    linked_doc_id=task.linked_doc_id,
+                    linked_module_id=task.linked_module_id,
+                    estimate_minutes=task.estimate_minutes,
+                    notes=task.notes,
+                    status=task.status,
+                    action_metadata=action_metadata,
+                    gated=gated,
+                    gate_reason=gate_reason,
+                    mastery_score=mastery,
+                    mastery_required=threshold
+                ))
+
+            response_weeks.append(CurriculumWeekResponse(
+                id=week.id,
+                curriculum_id=week.curriculum_id,
+                week_index=week.week_index,
+                goal=week.goal,
+                focus_concepts=week.focus_concepts or [],
+                estimated_hours=week.estimated_hours or 0.0,
+                status=week.status,
+                start_date=week.start_date,
+                end_date=week.end_date,
+                tasks=tasks,
+                checkpoints=week.checkpoints or []
+            ))
+            prior_concepts.extend(week.focus_concepts or [])
+
+        return response_weeks
 
     def complete_checkpoint(self, db: Session, checkpoint_id: str) -> Optional[CurriculumCheckpoint]:
         checkpoint = db.query(CurriculumCheckpoint).filter(CurriculumCheckpoint.id == checkpoint_id).first()
@@ -368,6 +525,13 @@ class CurriculumService:
 
         db.commit()
         db.refresh(checkpoint)
+        try:
+            week = checkpoint.week
+            if week and week.curriculum:
+                for concept in week.focus_concepts or []:
+                    self.user_tracker.mark_completed(week.curriculum.user_id, concept)
+        except Exception:
+            pass
         return checkpoint
 
     def get_metrics(self, db: Session, curriculum_id: str) -> Dict[str, Any]:
@@ -406,9 +570,27 @@ class CurriculumService:
         task = db.query(CurriculumTask).filter(CurriculumTask.id == task_id).first()
         if not task:
             return None
+        week = task.week
+        curriculum = week.curriculum if week else None
+        if curriculum:
+            prior_concepts: List[str] = []
+            for w in sorted(curriculum.weeks or [], key=lambda w: w.week_index):
+                if w.id == task.week_id:
+                    break
+                prior_concepts.extend(w.focus_concepts or [])
+            gated, gate_reason, mastery, threshold = self._evaluate_task_gate(db, curriculum, week, task, prior_concepts)
+            if curriculum.gating_mode == "strict" and task.status != "done" and gated:
+                raise TaskGateError(gate_reason or "Prerequisites not met.")
         task.status = "done" if task.status != "done" else "pending"
         db.commit()
         db.refresh(task)
+        if curriculum and task.status == "done":
+            try:
+                concepts = self._task_concepts(task, week) if week else []
+                for concept in concepts:
+                    self.user_tracker.mark_in_progress(curriculum.user_id, concept)
+            except Exception:
+                pass
         return task
 
     def get_week_report(self, db: Session, week_id: str) -> Optional[Dict[str, Any]]:
@@ -540,17 +722,32 @@ class CurriculumService:
             )
             db.add(week)
 
+            prior_concepts = []
+            if week_index > 1:
+                for w in weeks:
+                    if int(w.get("week_index", 1)) < week_index:
+                        prior_concepts.extend(w.get("focus_concepts", []) or [])
+
             for task_data in week_data.get("tasks", []):
                 linked_ids = task_data.get("linked_doc_ids", []) or []
                 linked_doc_id = linked_ids[0] if linked_ids else (doc_ids[0] if doc_ids else None)
+                task_type = (task_data.get("task_type") or "reading").lower()
+                action_metadata = task_data.get("action_metadata") or {}
+                action_metadata.setdefault("concepts", week_data.get("focus_concepts", []) or [])
+                if prior_concepts:
+                    action_metadata.setdefault("prerequisites", prior_concepts)
+                if task_type in ("practice", "quiz", "review"):
+                    action_metadata.setdefault("mastery_threshold", 0.8)
+                action_metadata.setdefault("linked_doc_ids", linked_ids or doc_ids)
                 task = CurriculumTask(
                     id=str(uuid.uuid4()),
                     week_id=week_id,
                     title=task_data.get("title", "Study task"),
-                    task_type=(task_data.get("task_type") or "reading").lower(),
+                    task_type=task_type,
                     linked_doc_id=linked_doc_id,
                     estimate_minutes=int(task_data.get("estimate_minutes") or 30),
-                    notes=task_data.get("notes")
+                    notes=task_data.get("notes"),
+                    action_metadata=action_metadata
                 )
                 db.add(task)
 

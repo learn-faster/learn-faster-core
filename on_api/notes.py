@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from .router_main import db
-from .db_utils import normalize_id, unwrap_query_result, first_record
+from surrealdb import AsyncSurreal
+from .router_main import get_surreal_db
+from .db_utils import normalize_id, unwrap_query_result, first_record, validate_record_id
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -19,7 +20,7 @@ class NoteUpdate(BaseModel):
     note_type: Optional[str] = None
 
 @router.get("")
-async def list_notes(notebook_id: Optional[str] = None):
+async def list_notes(notebook_id: Optional[str] = None, db: AsyncSurreal = Depends(get_surreal_db)):
     if notebook_id:
         result = await db.query(
             "SELECT * FROM note WHERE notebook_id = $notebook_id ORDER BY updated DESC",
@@ -29,7 +30,7 @@ async def list_notes(notebook_id: Optional[str] = None):
     return await db.select("note")
 
 @router.post("")
-async def create_note(note: NoteCreate):
+async def create_note(note: NoteCreate, db: AsyncSurreal = Depends(get_surreal_db)):
     return await db.create("note", {
         "title": note.title,
         "content": note.content,
@@ -41,8 +42,12 @@ async def create_note(note: NoteCreate):
 
 
 @router.get("/{id}")
-async def get_note(id: str):
+async def get_note(id: str, db: AsyncSurreal = Depends(get_surreal_db)):
     note_id = normalize_id("note", id)
+    try:
+        note_id = validate_record_id("note", note_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid note id")
     result = await db.select(note_id)
     note = first_record(result)
     if not note:
@@ -51,8 +56,12 @@ async def get_note(id: str):
 
 
 @router.put("/{id}")
-async def update_note(id: str, note: NoteUpdate):
+async def update_note(id: str, note: NoteUpdate, db: AsyncSurreal = Depends(get_surreal_db)):
     note_id = normalize_id("note", id)
+    try:
+        note_id = validate_record_id("note", note_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid note id")
     payload: Dict[str, Any] = {
         k: v for k, v in note.model_dump().items() if v is not None
     }
@@ -68,8 +77,12 @@ async def update_note(id: str, note: NoteUpdate):
 
 
 @router.delete("/{id}")
-async def delete_note(id: str):
+async def delete_note(id: str, db: AsyncSurreal = Depends(get_surreal_db)):
     note_id = normalize_id("note", id)
+    try:
+        note_id = validate_record_id("note", note_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid note id")
     result = await db.query(
         f"DELETE {note_id} RETURN BEFORE"
     )

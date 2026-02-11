@@ -90,6 +90,8 @@ Content to analyze:
         return str(name).strip().lower()
     
     MAX_EXTRACTION_CHARS = settings.extraction_max_chars  # Default limit for extraction windows
+    MAX_WINDOW_FAILURE_RATIO = 0.4
+    MAX_WINDOW_FAILURES = 3
     
     def _create_chunked_windows(self, chunks: List[str], max_chars: Optional[int] = None) -> List[Tuple[str, int, int]]:
         """
@@ -207,6 +209,7 @@ Content to analyze:
         
         schemas = []
         total_windows = len(windows)
+        window_errors: List[str] = []
         
         last_error = None
         resume_from_window = max(0, min(resume_from_window, total_windows - 1))
@@ -258,10 +261,12 @@ Content to analyze:
                     data = llm_service._extract_and_parse_json(response_text)
                 except Exception as e:
                     logger.error(f"Failed to parse LLM response in window {i+1}: {e}")
+                    window_errors.append(f"window {i+1}: parse_error")
                     continue 
                 
                 if not isinstance(data, dict):
                     logger.error(f"LLM response is not a JSON object in window {i+1}")
+                    window_errors.append(f"window {i+1}: non_json")
                     continue
                 
                 # Normalize concepts
@@ -324,17 +329,35 @@ Content to analyze:
 
                 except ValidationError as e:
                     logger.error(f"Schema validation failed in window {i+1}: {e}")
+                    window_errors.append(f"window {i+1}: validation_error")
                     continue
                     
             except Exception as e:
                 last_error = e
                 logger.error(f"Graph extraction failed for window {i+1}: {str(e)}")
+                window_errors.append(f"window {i+1}: {type(e).__name__}")
                 continue
         
         if not schemas:
             msg = str(last_error) if last_error else "Graph extraction failed for all windows"
             logger.error("No valid schemas extracted")
             raise ValueError(msg)
+
+        failure_ratio = len(window_errors) / max(1, total_windows)
+        if len(window_errors) >= self.MAX_WINDOW_FAILURES and failure_ratio >= self.MAX_WINDOW_FAILURE_RATIO:
+            msg = (
+                f"Partial extraction failure: {len(window_errors)}/{total_windows} windows failed. "
+                "Graph build aborted to avoid fragmented data."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+        if window_errors:
+            logger.warning(
+                "Partial extraction success: %s/%s windows failed (%s%%).",
+                len(window_errors),
+                total_windows,
+                int(failure_ratio * 100)
+            )
             
         final_schema = self._merge_schemas(schemas)
         logger.info(f"Merged {len(schemas)} partial schemas into final graph: {len(final_schema.concepts)} concepts")
@@ -503,17 +526,12 @@ Content to analyze:
             else:
                 final_chunks = [chunk for chunk in content_chunks if chunk.strip()]
 
-            # Define incremental persister
-            def incremental_persist(partial_schema: GraphSchema):
-                if document_id:
-                    self.store_graph_data(partial_schema, document_id)
-            
             # Extract graph structure from chunks
             # Pass incremental callbacks and llm_config
             schema = await self.extract_graph_structure(
                 final_chunks, 
                 on_progress=on_progress,
-                on_partial_schema=incremental_persist if document_id else None,
+                on_partial_schema=None,
                 llm_config=llm_config
             )
             

@@ -64,9 +64,9 @@ const ForgettingCurve = ({ data }) => {
         <div className="relative">
             {/* Abstract Background Elements */}
             <div className="absolute inset-0 overflow-hidden rounded-3xl">
-                <div className="absolute -top-20 -right-20 w-40 h-40 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/10 rounded-full blur-3xl" />
-                <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-gradient-to-tr from-cyan-500/15 to-blue-500/10 rounded-full blur-2xl" />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/5 rounded-full blur-[60px]" />
+                <div className="absolute -top-20 -right-20 w-40 h-40 bg-gradient-to-br from-primary-400/20 to-primary-200/10 rounded-full blur-3xl" />
+                <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-gradient-to-tr from-primary-300/15 to-primary-500/10 rounded-full blur-2xl" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-primary-500/5 rounded-full blur-[60px]" />
             </div>
 
             <div className="relative z-10 p-6">
@@ -87,12 +87,12 @@ const ForgettingCurve = ({ data }) => {
                     {/* Gradient Definitions */}
                     <defs>
                         <linearGradient id="theoreticalGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                            <stop offset="0%" stopColor="rgba(139, 92, 246, 0.3)" />
-                            <stop offset="100%" stopColor="rgba(139, 92, 246, 0)" />
+                            <stop offset="0%" stopColor="rgba(194, 239, 179, 0.3)" />
+                            <stop offset="100%" stopColor="rgba(194, 239, 179, 0)" />
                         </linearGradient>
                         <linearGradient id="actualGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stopColor="#06b6d4" />
-                            <stop offset="100%" stopColor="#8b5cf6" />
+                            <stop offset="0%" stopColor="#c2efb3" />
+                            <stop offset="100%" stopColor="#dcd6f7" />
                         </linearGradient>
                         <filter id="glow">
                             <feGaussianBlur stdDeviation="3" result="coloredBlur" />
@@ -151,7 +151,7 @@ const ForgettingCurve = ({ data }) => {
                     <motion.path
                         d={theoreticalPath}
                         fill="none"
-                        stroke="rgba(139, 92, 246, 0.5)"
+                        stroke="rgba(194, 239, 179, 0.5)"
                         strokeWidth="2"
                         strokeDasharray="6 4"
                         initial={{ pathLength: 0 }}
@@ -181,7 +181,7 @@ const ForgettingCurve = ({ data }) => {
                             cx={xScale(point.day)}
                             cy={yScale(point.retention)}
                             r="6"
-                            fill="#1e1b4b"
+                            fill="#161321"
                             stroke="url(#actualGradient)"
                             strokeWidth="2"
                             initial={{ scale: 0, opacity: 0 }}
@@ -194,12 +194,12 @@ const ForgettingCurve = ({ data }) => {
                 {/* Legend */}
                 <div className="flex items-center justify-center gap-6 mt-6 pt-4 border-t border-white/5">
                     <div className="flex items-center gap-2">
-                        <div className="w-4 h-0.5 bg-violet-500/50" style={{ borderStyle: 'dashed' }} />
+                        <div className="w-4 h-0.5 bg-primary-500/50" style={{ borderStyle: 'dashed' }} />
                         <span className="text-[10px] text-dark-500 uppercase tracking-wider">Theoretical</span>
                     </div>
                     {hasActualData && (
                         <div className="flex items-center gap-2">
-                            <div className="w-4 h-0.5 bg-gradient-to-r from-cyan-500 to-violet-500 rounded-full" />
+                            <div className="w-4 h-0.5 bg-gradient-to-r from-primary-300 to-primary-600 rounded-full" />
                             <span className="text-[10px] text-dark-500 uppercase tracking-wider">Your Retention</span>
                         </div>
                     )}

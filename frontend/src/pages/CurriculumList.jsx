@@ -184,12 +184,12 @@ const CurriculumList = () => {
                         </motion.p>
                     </div>
                     <motion.button
-                        whileHover={{ scale: 1.05, boxShadow: "0 0 20px rgba(139, 92, 246, 0.4)" }}
+                        whileHover={{ scale: 1.05, boxShadow: "0 0 20px rgba(194, 239, 179, 0.4)" }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => setIsCreating(true)}
-                        className="group relative flex items-center gap-3 bg-gradient-to-r from-primary-500 to-indigo-500 text-white px-10 py-5 rounded-[2rem] font-black shadow-2xl transition-all overflow-hidden"
+                        className="group relative flex items-center gap-3 bg-gradient-to-r from-primary-400 to-primary-700 text-white px-10 py-5 rounded-[2rem] font-black shadow-2xl transition-all overflow-hidden"
                     >
-                        <div className="absolute inset-0 bg-gradient-to-r from-primary-400 to-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="absolute inset-0 bg-gradient-to-r from-primary-300 to-primary-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                         <span className="relative z-10 flex items-center gap-2 group-hover:text-white transition-colors">
                             <Plus className="w-6 h-6" /> Create New Pathway
                         </span>
@@ -279,7 +279,7 @@ const CurriculumCard = ({ curr, metrics, navigate, variants, onDelete }) => {
     const nextCheckpoint = metrics?.next_checkpoint_title;
     const nextDue = metrics?.next_checkpoint_due;
     const icon = curr.icon || '🧠';
-    const themeColor = curr.theme_color || '#8b5cf6';
+    const themeColor = curr.theme_color || '#c2efb3';
 
     return (
         <motion.div
@@ -305,7 +305,7 @@ const CurriculumCard = ({ curr, metrics, navigate, variants, onDelete }) => {
                     </motion.span>
                     <div className="flex flex-col items-end gap-1">
                         <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border ${progress === 100
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            ? 'bg-primary-500/10 text-primary-300 border-primary-500/20'
                             : 'bg-primary-500/10 text-primary-400 border-primary-500/20'
                             }`}>
                             {progress === 100 ? 'Mastered' : 'Synapsing'}
@@ -350,7 +350,7 @@ const CurriculumCard = ({ curr, metrics, navigate, variants, onDelete }) => {
                             initial={{ width: 0 }}
                             animate={{ width: `${progress}%` }}
                             transition={{ duration: 1.5, ease: "circOut" }}
-                            className="h-full rounded-full shadow-[0_0_15px_rgba(139,92,246,0.5)]"
+                            className="h-full rounded-full shadow-[0_0_15px_rgba(194,239,179,0.5)]"
                             style={{
                                 backgroundColor: themeColor
                             }}
@@ -441,7 +441,7 @@ const CreateModal = ({
                                     <motion.div
                                         initial={{ scale: 0 }}
                                         animate={{ scale: 1 }}
-                                        className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-8 border border-emerald-500/30 text-emerald-400 text-5xl"
+                                        className="w-24 h-24 bg-primary-500/20 rounded-full flex items-center justify-center mx-auto mb-8 border border-primary-500/30 text-primary-300 text-5xl"
                                     >
                                         ✓
                                     </motion.div>

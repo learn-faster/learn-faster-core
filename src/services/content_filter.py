@@ -31,6 +31,18 @@ def _normalize_line(line: str) -> str:
     return re.sub(r"[\W_]+", "", line.lower()).strip()
 
 
+def _extract_page_number(title: Optional[str]) -> Optional[int]:
+    if not title:
+        return None
+    match = re.search(r"page\s+(\d+)", title, re.IGNORECASE)
+    if match:
+        try:
+            return int(match.group(1))
+        except Exception:
+            return None
+    return None
+
+
 def _split_by_pages(text: str) -> Optional[List[Tuple[str, str]]]:
     if "## Page" not in text:
         return None
@@ -68,6 +80,39 @@ def _split_into_sections(text: str, max_paragraphs: int = 3) -> List[Tuple[str, 
     if buffer:
         sections.append(("", "\n\n".join(buffer)))
     return sections
+
+
+def _build_page_ranges(raw_text: str, page_count: Optional[int]) -> Optional[List[Tuple[int, int, int]]]:
+    if not raw_text:
+        return None
+    if "## Page" in raw_text:
+        matches = list(re.finditer(r"## Page (\d+)", raw_text))
+        if not matches:
+            return None
+        ranges = []
+        for idx, match in enumerate(matches):
+            page_num = int(match.group(1))
+            start_idx = match.start()
+            end_idx = matches[idx + 1].start() if idx + 1 < len(matches) else len(raw_text)
+            ranges.append((page_num, start_idx, end_idx))
+        return ranges
+    if page_count and page_count > 1:
+        total = len(raw_text)
+        chunk = max(int(total / page_count), 1)
+        ranges = []
+        for page in range(1, page_count + 1):
+            start_idx = (page - 1) * chunk
+            end_idx = page * chunk if page < page_count else total
+            ranges.append((page, start_idx, end_idx))
+        return ranges
+    return None
+
+
+def _map_index_to_page(page_ranges: List[Tuple[int, int, int]], idx: int) -> Optional[int]:
+    for page_num, start_idx, end_idx in page_ranges:
+        if start_idx <= idx < end_idx:
+            return page_num
+    return None
 
 
 def _strip_boilerplate(sections: List[Tuple[str, str]]) -> Tuple[List[Tuple[str, str]], int]:
@@ -160,7 +205,8 @@ Sections: {payload}
 async def filter_document_content(
     raw_text: str,
     llm_config: Optional[LLMConfig] = None,
-    enable_llm: Optional[bool] = None
+    enable_llm: Optional[bool] = None,
+    page_count: Optional[int] = None
 ) -> FilterResult:
     if not raw_text or not raw_text.strip():
         return FilterResult(filtered_text="", sections=[], stats={
@@ -188,6 +234,7 @@ async def filter_document_content(
             continue
         seen_hashes.add(normalized)
         excerpt = content.strip().splitlines()[0][:200] if content else ""
+        page_num = _extract_page_number(title)
         sections.append({
             "section_index": idx,
             "title": title if title else None,
@@ -195,8 +242,32 @@ async def filter_document_content(
             "excerpt": excerpt,
             "heuristic_score": _heuristic_score(content),
             "relevance_score": 0.0,
-            "included": True
+            "included": True,
+            "page_start": page_num,
+            "page_end": page_num
         })
+
+    page_ranges = _build_page_ranges(raw_text, page_count)
+    if page_ranges:
+        total_sections = max(len(sections) - 1, 1)
+        for idx, section in enumerate(sections):
+            if section.get("page_start"):
+                continue
+            needle = (section.get("excerpt") or section.get("content") or "")[:200]
+            found_idx = raw_text.find(needle) if needle else -1
+            if found_idx >= 0:
+                start_page = _map_index_to_page(page_ranges, found_idx)
+                end_page = _map_index_to_page(page_ranges, found_idx + len(needle))
+                if start_page:
+                    section["page_start"] = start_page
+                if end_page:
+                    section["page_end"] = end_page
+                if section.get("page_start") and section.get("page_end") is None:
+                    section["page_end"] = section["page_start"]
+            if section.get("page_start") is None and page_count:
+                approx_page = max(1, int((idx / total_sections) * max(page_count - 1, 1)) + 1)
+                section["page_start"] = approx_page
+                section["page_end"] = approx_page
 
     llm_scores: Dict[int, float] = {}
     if enable_llm and sections:

@@ -29,14 +29,18 @@ def create_practice_session(
     user_id: str = Depends(get_request_user_id),
     db: Session = Depends(get_db)
 ):
-    comp = practice_engine_service.compose_session(
-        db=db,
-        user_id=user_id,
-        mode=payload.mode,
-        goal_id=payload.goal_id,
-        curriculum_id=payload.curriculum_id,
-        duration_minutes=payload.duration_minutes,
-    )
+    try:
+        comp = practice_engine_service.compose_session(
+            db=db,
+            user_id=user_id,
+            mode=payload.mode,
+            goal_id=payload.goal_id,
+            curriculum_id=payload.curriculum_id,
+            duration_minutes=payload.duration_minutes,
+            concept_filters=payload.concept_filters,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
     items = [PracticeSessionItem.model_validate(i) for i in comp.items]
     return PracticeSessionStartResponse(

@@ -32,8 +32,8 @@ export const REFLECTIVE_PROMPTS = {
 
 export const EFFECTIVENESS_RATINGS = [
     { value: 1, label: "Ineffective", color: "bg-red-500" },
-    { value: 2, label: "Low Impact", color: "bg-orange-500" },
-    { value: 3, label: "Average", color: "bg-yellow-500" },
-    { value: 4, label: "Effective", color: "bg-lime-500" },
-    { value: 5, label: "Highly Effective", color: "bg-green-500" }
+    { value: 2, label: "Low Impact", color: "bg-primary-300" },
+    { value: 3, label: "Average", color: "bg-primary-400" },
+    { value: 4, label: "Effective", color: "bg-primary-500" },
+    { value: 5, label: "Highly Effective", color: "bg-primary-600" }
 ];

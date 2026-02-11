@@ -13,6 +13,26 @@ import goalsService from '../services/goals';
  * - Handles WORK/BREAK transitions
  * - Logs time to Goals via FocusSessions
  */
+const safeLocalStorage = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+        return window.localStorage;
+    } catch (error) {
+        return null;
+    }
+};
+
+const storage = safeLocalStorage();
+const persisted = storage ? JSON.parse(storage.getItem('lf_timer_settings') || 'null') : null;
+
+const persistTimerSettings = (next) => {
+    storage?.setItem('lf_timer_settings', JSON.stringify({
+        focusDuration: next.focusDuration,
+        breakDuration: next.breakDuration,
+        presetKey: next.presetKey
+    }));
+};
+
 const useTimerStore = create((set, get) => ({
     // State
     timeLeft: 25 * 60,
@@ -29,8 +49,10 @@ const useTimerStore = create((set, get) => ({
     sessionStartTime: null, // When the session started
 
     // Config (loaded from settings)
-    focusDuration: 25,
-    breakDuration: 5,
+    focusDuration: persisted?.focusDuration || 25,
+    breakDuration: persisted?.breakDuration || 5,
+    presetKey: persisted?.presetKey || 'classic_25',
+    startRequest: 0,
 
     // Actions
     loadSettings: async () => {
@@ -38,11 +60,13 @@ const useTimerStore = create((set, get) => ({
             const settings = await cognitiveService.getSettings();
             const focus = settings.focus_duration || 25;
             const brk = settings.break_duration || 5;
-            set({
-                focusDuration: focus,
-                breakDuration: brk,
-                timeLeft: focus * 60
-            });
+            if (!persisted) {
+                set({
+                    focusDuration: focus,
+                    breakDuration: brk,
+                    timeLeft: focus * 60
+                });
+            }
         } catch (error) {
             console.error("Failed to load timer settings:", error);
         }
@@ -180,6 +204,41 @@ const useTimerStore = create((set, get) => ({
     setSelectedGoalId: (goalId) => set({ selectedGoalId: goalId }),
 
     setTimeLeft: (seconds) => set({ timeLeft: seconds }),
+
+    setFocusDuration: (minutes) => {
+        const { isActive, studyType } = get();
+        const focusDuration = Math.max(10, Math.min(120, Math.round(minutes)));
+        const next = { focusDuration };
+        if (!isActive) {
+            next.timeLeft = (studyType === 'practice' ? Math.round(focusDuration * 0.6) : focusDuration) * 60;
+        }
+        set(next);
+        persistTimerSettings({ ...get(), ...next });
+    },
+
+    setBreakDuration: (minutes) => {
+        const { isActive, mode } = get();
+        const breakDuration = Math.max(3, Math.min(30, Math.round(minutes)));
+        const next = { breakDuration };
+        if (!isActive && mode === 'BREAK') {
+            next.timeLeft = breakDuration * 60;
+        }
+        set(next);
+        persistTimerSettings({ ...get(), ...next });
+    },
+
+    setPresetKey: (presetKey, focusDuration, breakDuration) => {
+        const { isActive, studyType } = get();
+        const next = { presetKey, focusDuration, breakDuration };
+        if (!isActive) {
+            next.timeLeft = (studyType === 'practice' ? Math.round(focusDuration * 0.6) : focusDuration) * 60;
+        }
+        set(next);
+        persistTimerSettings({ ...get(), ...next });
+    },
+
+    requestStartSession: () => set({ startRequest: Date.now() }),
+    consumeStartRequest: () => set({ startRequest: 0 }),
 }));
 
 export default useTimerStore;

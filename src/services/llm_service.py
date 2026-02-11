@@ -20,7 +20,7 @@ from openai import (
     NotFoundError,
     RateLimitError
 )
-from src.services.prompts import FLASHCARD_PROMPT_TEMPLATE, QUESTION_PROMPT_TEMPLATE, LEARNING_PATH_PROMPT_TEMPLATE, CONCEPT_EXTRACTION_PROMPT_TEMPLATE
+from src.services.prompts import FLASHCARD_PROMPT_TEMPLATE, QUESTION_PROMPT_TEMPLATE, LEARNING_PATH_PROMPT_TEMPLATE, CONCEPT_EXTRACTION_PROMPT_TEMPLATE, FLASHCARD_TAGGING_PROMPT_TEMPLATE
 from src.observability.opik import build_opik_config, init_opik, get_opik_context
 from opik import track
 from src.utils.logger import logger
@@ -205,9 +205,12 @@ class LLMService:
             elif provider == "ollama":
                 effective_api_key = "ollama"
 
+        if provider in {"openai", "groq", "openrouter"} and not effective_api_key:
+            raise ValueError(f"{provider} provider requires an API key.")
+
         return AsyncOpenAI(
             base_url=effective_base_url,
-            api_key=effective_api_key or "sk-no-key", # Dummy key if none to avoid validation error
+            api_key=effective_api_key or "",
             http_client=self.http_client
         ), model, provider
 
@@ -280,6 +283,7 @@ class LLMService:
         import base64
         
         client, model, provider = self._get_client_for_config(config)
+        start_ts = time.perf_counter()
         
         def _read_image():
             with open(image_path, "rb") as image_file:
@@ -310,7 +314,7 @@ class LLMService:
             if usage is not None and hasattr(usage, "model_dump"):
                 usage = usage.model_dump()
             self._update_opik_span(
-                metadata={"latency_ms": latency_ms, "response_format": response_format},
+                metadata={"latency_ms": latency_ms, "response_format": "multimodal"},
                 usage=usage,
                 model=model,
                 provider=provider
@@ -528,7 +532,7 @@ class LLMService:
         self._embedding_api_key = effective_api_key
         self._embedding_client = AsyncOpenAI(
             base_url=effective_base,
-            api_key=effective_api_key or "sk-no-key",
+            api_key=effective_api_key or "",
             http_client=self.http_client
         )
         return self._embedding_client
@@ -587,6 +591,25 @@ class LLMService:
         prompt = FLASHCARD_PROMPT_TEMPLATE.format(text=text, count=count)
         response_text = await self._get_completion(prompt, system_prompt="You are a JSON-speaking flashcard generator.", config=config)
         return self._extract_and_parse_json(response_text)
+
+    @track
+    async def tag_flashcards(self, cards: list[dict], config=None) -> list[dict]:
+        """
+        Assign concept tags to multiple flashcards in a single LLM call.
+        Returns a list of {"tags": [...]} aligned with the cards order.
+        """
+        serialized = json.dumps(
+            [{"front": c.get("front", ""), "back": c.get("back", "")} for c in cards],
+            ensure_ascii=False
+        )
+        prompt = FLASHCARD_TAGGING_PROMPT_TEMPLATE.format(cards=serialized)
+        response_text = await self._get_completion(prompt, system_prompt="You are a JSON-speaking knowledge engineer.", config=config)
+        data = self._extract_and_parse_json(response_text)
+        if isinstance(data, dict) and "tags" in data:
+            return [data]
+        if not isinstance(data, list):
+            raise ValueError("Unexpected tagging response format.")
+        return data
 
     @track
     async def generate_questions(self, text: str, count: int = 5, config=None):

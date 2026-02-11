@@ -130,8 +130,8 @@ const DiscoveryAgent = ({ documentId, onProfileGenerated }) => {
     if (step === 'complete') {
         return (
             <div className="flex flex-col items-center justify-center p-8 animate-fade-in">
-                <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-4" />
-                <p className="text-sm font-bold text-emerald-400 uppercase tracking-widest">Tutor Initialized!</p>
+                <CheckCircle2 className="w-12 h-12 text-primary-300 mb-4" />
+                <p className="text-sm font-bold text-primary-300 uppercase tracking-widest">Tutor Initialized!</p>
                 <p className="text-[10px] text-dark-400 mt-2">Ready to generate "No Compromise" results.</p>
             </div>
         );

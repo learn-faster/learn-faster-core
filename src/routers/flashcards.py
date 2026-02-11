@@ -10,6 +10,7 @@ from datetime import datetime
 
 from src.database.orm import get_db
 from src.models.orm import Flashcard, Document
+from src.database.graph_storage import graph_storage
 from src.models.schemas import FlashcardCreate, FlashcardResponse, FlashcardUpdate
 
 router = APIRouter(prefix="/api/flashcards", tags=["flashcards"])
@@ -39,6 +40,12 @@ def create_flashcard(
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
     
+    # Auto-tag with document concepts when tags are empty
+    tags = list(flashcard.tags or [])
+    if flashcard.document_id and not tags:
+        concept_tags = graph_storage.get_document_concepts(flashcard.document_id, limit=6)
+        tags = concept_tags or tags
+
     # Create flashcard
     import uuid
     db_flashcard = Flashcard(
@@ -47,7 +54,7 @@ def create_flashcard(
         card_type=flashcard.card_type,
         front=flashcard.front,
         back=flashcard.back,
-        tags=flashcard.tags
+        tags=tags
     )
     
     db.add(db_flashcard)

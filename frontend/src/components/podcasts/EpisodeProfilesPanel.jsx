@@ -77,7 +77,7 @@ export function EpisodeProfilesPanel({
       </div>
 
       {disableCreate ? (
-        <p className="rounded-lg border border-dashed bg-amber-50 p-4 text-sm text-amber-900">
+        <p className="rounded-lg border border-dashed bg-primary-50 p-4 text-sm text-primary-900">
           {t.podcasts.createSpeakerFirst}
         </p>
       ) : null}

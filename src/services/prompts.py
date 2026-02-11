@@ -3,6 +3,8 @@ You are an expert tutor creating flashcards for spaced repetition.
 Based on the following text, create {count} flashcards.
 Each flashcard should focus on a single key concept, fact, or definition.
 Avoid complex or ambiguous questions.
+Avoid trivia and metadata (author names, ISBNs, publication dates, legal boilerplate, headers/footers).
+Focus on core ideas and explanations found in the main content.
 Use LaTeX for math notation (e.g. \( ... \) for inline, \[ ... \] for block equations).
 The output must be a valid JSON array of objects with "front" and "back" keys.
 
@@ -14,6 +16,18 @@ Output format:
   {{"front": "Question or term", "back": "Answer or definition"}},
   ...
 ]
+"""
+
+FLASHCARD_TAGGING_PROMPT_TEMPLATE = r"""
+You are a knowledge engineer. For each flashcard, assign 1-3 concise concept tags.
+Use lower-case concept phrases (e.g., "bayes theorem", "gradient descent").
+Avoid metadata (author names, ISBNs, dates). Focus on core concepts only.
+
+Return a JSON array with the same length and order as the cards, where each item is:
+{"tags": ["concept 1", "concept 2"]}
+
+Cards:
+{cards}
 """
 
 QUESTION_PROMPT_TEMPLATE = r"""

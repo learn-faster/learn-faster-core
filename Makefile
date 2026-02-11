@@ -1,19 +1,21 @@
 # Variables
 FRONTEND_DIR = frontend
 BACKEND_PORT = 8001
+BACKEND_HOST ?= 127.0.0.1
 ENV ?= windows
 
 # Commands
 WSL = wsl
-DOCKER_COMPOSE = docker-compose
+DOCKER_CMD ?= docker compose
+DOCKER_CMD_FALLBACK = docker-compose
 
 ifeq ($(ENV),wsl)
-	DOCKER_CMD = $(WSL) $(DOCKER_COMPOSE)
+	DOCKER_CMD = $(WSL) $(DOCKER_CMD)
 else
-	DOCKER_CMD = $(DOCKER_COMPOSE)
+	DOCKER_CMD = $(DOCKER_CMD)
 endif
 
-.PHONY: help setup db-init backend frontend both docker-up docker-down dev
+.PHONY: help setup db-init backend frontend both docker-up docker-down dev worker test
 
 help:
 	@echo "Available targets:"
@@ -24,18 +26,20 @@ help:
 	@echo "  make both         - Start both frontend and backend"
 	@echo "  make docker-up    - Start Docker services (default ENV=windows, use ENV=wsl for WSL)"
 	@echo "  make docker-down  - Stop Docker services"
-	@echo "  make dev          - Start Docker (WSL), backend, and frontend"
+	@echo "  make dev          - Start Docker, backend, and frontend (set ENV=wsl for WSL)"
+	@echo "  make worker       - Start the Redis ingestion worker"
+	@echo "  make test         - Run backend tests"
 
 setup:
-	if [ ! -f .env ]; then cp .env.example .env; fi
+	uv run python -c "from pathlib import Path; import shutil; dst=Path('.env'); dst.exists() or shutil.copyfile('.env.example', dst)"
 	uv sync
 	cd $(FRONTEND_DIR) && npm install
 
 db-init:
-	uv run python -c "from src.database.init_db import initialize_orm_tables; print(initialize_orm_tables())"
+	uv run python -m src.database.init_db
 
 backend:
-	uv run uvicorn main:app --reload --port $(BACKEND_PORT)
+	uv run uvicorn main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 
 frontend:
 	cd $(FRONTEND_DIR) && npm run dev
@@ -45,11 +49,17 @@ both:
 	@$(MAKE) -j 2 backend frontend
 
 dev:
-	@$(MAKE) docker-up ENV=wsl
+	@$(MAKE) docker-up ENV=$(ENV)
 	@$(MAKE) -j 2 backend frontend
 
 docker-up:
-	$(DOCKER_CMD) up -d
+	$(DOCKER_CMD) up -d || $(DOCKER_CMD_FALLBACK) up -d
 
 docker-down:
-	$(DOCKER_CMD) down
+	$(DOCKER_CMD) down || $(DOCKER_CMD_FALLBACK) down
+
+worker:
+	uv run python scripts/rq_worker.py
+
+test:
+	uv run pytest

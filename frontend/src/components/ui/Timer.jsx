@@ -90,8 +90,8 @@ const Timer = ({ initialDuration = 25 * 60, onComplete }) => {
                     onClick={toggleTimer}
                     className={`p-3 rounded-full transition-all ${
                         isActive 
-                        ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30' 
-                        : 'bg-primary-500 text-white hover:bg-primary-600 shadow-[0_0_15px_rgba(139,92,246,0.3)]'
+                        ? 'bg-primary-500/20 text-primary-300 hover:bg-primary-500/30' 
+                        : 'bg-primary-500 text-white hover:bg-primary-600 shadow-[0_0_15px_rgba(194,239,179,0.3)]'
                     }`}
                 >
                     {isActive ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-1" />}

@@ -17,6 +17,7 @@ CREATE_STATEMENTS = [
         time_budget_hours_per_week INTEGER DEFAULT 5,
         llm_enhance BOOLEAN DEFAULT FALSE,
         llm_config JSONB DEFAULT '{}'::jsonb,
+        gating_mode TEXT DEFAULT 'recommend',
         status TEXT DEFAULT 'active',
         progress FLOAT DEFAULT 0.0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -68,7 +69,8 @@ CREATE_STATEMENTS = [
         linked_module_id TEXT REFERENCES curriculum_modules(id),
         estimate_minutes INTEGER DEFAULT 30,
         notes TEXT,
-        status TEXT DEFAULT 'pending'
+        status TEXT DEFAULT 'pending',
+        action_metadata JSONB DEFAULT '{}'::jsonb
     );
     """,
     """

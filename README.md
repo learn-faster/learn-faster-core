@@ -1,50 +1,90 @@
-# 🧠 LearnBetter: The AI-Native "Goal-Adaptive" Learning Operating System
+# LearnFast Core
 
-> **"Most LMS tools are just digital filing cabinets. LearnBetter is your personal cognitive architect, powered by Hybrid Graph-RAG and Neuro-Biometric feedback."**
+LearnFast Core is an AI-native learning engine that turns documents, links, and videos into structured knowledge graphs, adaptive curricula, and practice workflows. It combines Graph-RAG, vector search, and agent orchestration to personalize learning and keep progress aligned with user goals.
 
-LearnBetter is an AI-native learning system that doesn't just store notes; it **re-engineers your cognitive workflow**. By combining **Hybrid Graph-RAG**, **Multi-node Autonomous Agents**, and **Biometric Synthesis**, it turns fragmented source material into a personalized, goal-aligned learning journey backed by rigorous cognitive science.
+**What you get**
+- Knowledge graphs built from PDFs, web pages, and YouTube transcripts.
+- Adaptive curriculum and practice sessions backed by spaced repetition.
+- Analytics and daily planning that tie progress to goals.
+- Open Notebook module with SurrealDB for local-first note capture.
 
----
+**Exceptional capabilities**
+- **Agent monitoring via screenshots**: capture and analyze URLs as proof-of-work or progress checks.
+- **Quiz generation + grading**: per-document quiz items, sessions, grading, and stats endpoints.
+- **Voice workflows**: podcast generation with text-to-speech (TTS) and speech-to-text (STT) support in Open Notebook.
+- **Multi-document graphs**: cross-document concept linking and graph statistics.
+- **Queue-aware ingestion**: Redis-backed workers with local fallback and status reporting.
+- **Observability**: Opik tracing hooks for API calls and tool usage.
+- **Fitbit integration**: optional biometric sync for scheduling and focus planning.
+- **Automated nudges**: daily quiz reminders and weekly digests.
 
-## 🚀 The "Wow" Factor: What Makes This Different?
+**Architecture at a glance**
+| Layer | Component | Tech | Purpose |
+| --- | --- | --- | --- |
+| Cognition | Graph Engine | Neo4j | Prerequisites and concept relationships |
+| Memory | Vector Store | PostgreSQL + pgvector | Semantic retrieval |
+| Workflow | Open Notebook | SurrealDB | Notes and sources |
+| Orchestration | Agents | LangGraph | Planning and automation |
+| Observability | Tracing | Opik | Request-level tracing and tool events |
+| Queue | Background Jobs | Redis + RQ | Scalable ingestion and processing |
 
-While other projects do simple Vector RAG, LearnBetter builds a **living knowledge ecosystem**.
+**Repository layout**
+- `src/` FastAPI backend and core services
+- `frontend/` React frontend (Vite)
+- `on_api/` Open Notebook API
+- `scripts/` maintenance scripts
+- `docs/` internal docs and audits
+- `database/` DB artifacts and migrations
 
-### 1. 🕸️ Prerequisite-Aware Graph-RAG (The Vertical Advantage)
-Most RAG systems only find "related facts." LearnBetter uses **Neo4j + pgvector** to map the *structural hierarchy* of knowledge.
-- **Hierarchical Retrieval**: Navigates conceptual dependencies so you don't study *Quantum Field Theory* without mastering *Linear Algebra* first.
-- **Cross-Document Nexus**: Automatically identifies concept merges and prerequisites across disparate PDFs and sources.
+## Requirements
+- Python 3.12
+- Node.js 18+ and npm
+- Docker (recommended for Neo4j/Postgres/SurrealDB)
+- `uv` for Python dependency management
 
-### 2. 🤖 Autonomous Goal Manifestation Agent (GMA)
-Our agent doesn't just track progress; it **monitors and negotiates** it.
-- **Agentic Proof-of-Work**: The agent uses **Playwright** to autonomously take screenshots of your workspace/URLs to verify goal manifestation and "deep work" evidence.
-- **Accountability Negotiation**:missing a milestone triggers an automated email negotiation (via **Resend**) to recalibrate your daily load based on remaining time and goal priority.
+## Getting Started
 
-### 3. ⌚ Neuro-Biometric Feedback Loop (Fitbit Integration)
-Learning is a physical process. LearnBetter synchronizes your load with your biological state.
-- **Readiness-Based Pacing**: Syncs with **Fitbit** to calculate a real-time **Readiness Score** based on sleep duration, efficiency, and resting heart rate.
-- **Circadian Optimization**: Automatically schedules "Deep Abstraction" sessions during your diurnal cortisol peaks and "Light Review" during metabolic nadirs.
+### 1) Clone and configure
+```bash
+git clone https://github.com/learn-faster/Learn_Better.git
+cd Learn_Better
+cp .env.example .env
+```
 
-### 4. 🧪 Scientific Mastery Engine (SM-2 & FSRS)
-- **Retention Targeting**: A custom Spaced Repetition System (SRS) based on **SM-2 with log-linear scaling**, allowing you to target specific retention rates (e.g., 90%).
-- **Memory Stability Index**: Real-time calculation of synaptic decay and retention risk across your entire knowledge graph.
+### 2) Start infrastructure (Docker)
+```bash
+docker compose up -d
+```
 
----
+### 3) Install dependencies
+```bash
+uv sync
+cd frontend
+npm install
+```
 
-## 🛠️ The Architecture of Intelligence
+### 4) Initialize databases
+```bash
+uv run python -m src.database.init_db
+```
 
-LearnBetter is built on a "Triple-Store" architecture to handle the complexity of human learning.
+### 5) Run the backend
+```bash
+uv run uvicorn main:app --reload --host 127.0.0.1 --port 8001
+```
 
-| Layer | Component | Tech Stack | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Cognition** | **Graph Engine** | Neo4j | Concept hierarchies & prerequisites |
-| **Memory** | **Vector Memory** | pgvector (PostgreSQL) | Semantic context & factual recall |
-| **Workflow** | **Open Notebook** | SurrealDB | Decentralized, local-first synced notes |
-| **Logic** | **Agentic Layer** | **LangGraph** + Playwright | Autonomous planning, monitoring & negotiation |
+### 6) Run the frontend
+```bash
+cd frontend
+npm run dev
+```
 
----
+### 7) Open the app
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8001`
 
-## 📦 Core Capabilities
+## Configuration
+All environment variables live in `.env`. See `.env.example` for defaults.
 
 <div align="center">
   <h3>Interactive Dashboard</h3>
@@ -67,7 +107,10 @@ LearnBetter is built on a "Triple-Store" architecture to handle the complexity o
   <img src="frontend/src/assets/welcome.png" width="800" alt="Knowledge Graph Visualization">
 </div>
 
----
+**LLM and Embeddings**
+- `LLM_PROVIDER`, `LLM_MODEL`
+- `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_CONCURRENCY`
+- Optional overrides: `EXTRACTION_MODEL`, `REWRITE_MODEL`, context window limits
 
 ## Architecture (High-Level)
 ```
@@ -87,36 +130,49 @@ Data Layer
   └─ SurrealDB (Open Notebook)
 ---
 
-  <kbd><img src="frontend/src/assets/curri.png" width="800" alt="Curriculum"></kbd>
-  <p><i>AI-Generated Curriculum: Concepts mapped from your sources into a logical learning path.</i></p>
-</div>
+**Fitbit integration (optional)**
+- `FITBIT_CLIENT_ID`
+- `FITBIT_CLIENT_SECRET`
+- `FITBIT_REDIRECT_URI` (auto-built from `FRONTEND_URL` if empty)
 
----
+**Frontend/Backend URLs**
+- `FRONTEND_URL` for CORS and OAuth callbacks
+- `VITE_BACKEND_URL` when frontend cannot reach `http://localhost:8001`
 
-## ⚡ Quick Start
+**Queue/Worker (optional)**
+- `RQ_ENABLED=true` enables Redis queue processing
+- `REDIS_URL`, `REDIS_QUEUE_NAME`, `REDIS_JOB_TIMEOUT`
 
-### 1) Clone and Configure
+## Running with Makefile
 ```bash
-git clone https://github.com/learn-faster/Learn_Better.git
-cd Learn_Better
-cp .env.example .env
+make help
+make setup
+make docker-up
+make db-init
+make backend
+make frontend
+make dev
+make worker
+make test
+```
+Notes:
+- For WSL Docker: `make docker-up ENV=wsl`
+- `make worker` runs the Redis ingestion worker
+
+## Common Tasks
+**Run backend tests**
+```bash
+uv run pytest
 ```
 
-### 2) Infrastructure (Docker)
+**Start Redis worker**
 ```bash
-docker compose up -d
+uv run python scripts/rq_worker.py
 ```
 
-### 3) Backend Engine
+**Rebuild DB schema (non-destructive checks)**
 ```bash
-uv sync
-uv run python main.py
-```
-
-### 4) Frontend Interface
-```bash
-cd frontend
-npm install && npm run dev
+uv run python -m src.database.init_db
 ```
 
 ---

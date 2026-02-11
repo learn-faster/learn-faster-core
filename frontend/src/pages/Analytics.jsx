@@ -153,25 +153,25 @@ const Analytics = () => {
             {
                 label: 'Cards Reviewed',
                 data: performance.map(p => p.cards_reviewed),
-                borderColor: '#8b5cf6',
-                backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                borderColor: '#c2efb3',
+                backgroundColor: 'rgba(194, 239, 179, 0.12)',
                 fill: true,
                 tension: 0.4,
                 pointRadius: 4,
-                pointBackgroundColor: '#8b5cf6',
-                pointBorderColor: '#1a1a2e',
+                pointBackgroundColor: '#c2efb3',
+                pointBorderColor: '#11121a',
                 pointBorderWidth: 2,
             },
             {
                 label: 'New Cards',
                 data: performance.map(p => p.new_cards),
-                borderColor: '#06b6d4',
-                backgroundColor: 'rgba(6, 182, 212, 0.05)',
+                borderColor: '#dcd6f7',
+                backgroundColor: 'rgba(220, 214, 247, 0.1)',
                 fill: true,
                 tension: 0.4,
                 pointRadius: 4,
-                pointBackgroundColor: '#06b6d4',
-                pointBorderColor: '#1a1a2e',
+                pointBackgroundColor: '#dcd6f7',
+                pointBorderColor: '#11121a',
                 pointBorderWidth: 2,
             }
         ],
@@ -192,8 +192,8 @@ const Analytics = () => {
                 display: true,
                 position: 'top',
                 labels: {
-                    color: '#94a3b8',
-                    font: { family: 'Inter', weight: '600', size: 11 },
+                    color: '#b5b0c4',
+                    font: { family: 'Bruno Ace', weight: '600', size: 11 },
                     usePointStyle: true,
                     pointStyle: 'circle',
                     padding: 20
@@ -201,10 +201,10 @@ const Analytics = () => {
             },
             tooltip: {
                 padding: 16,
-                backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                titleFont: { family: 'Inter', size: 14, weight: '600' },
-                bodyFont: { family: 'Inter', size: 13 },
-                borderColor: 'rgba(139, 92, 246, 0.3)',
+                backgroundColor: 'rgba(12, 13, 20, 0.95)',
+                titleFont: { family: 'Bruno Ace', size: 14, weight: '600' },
+                bodyFont: { family: 'Gaegu', size: 13 },
+                borderColor: 'rgba(194, 239, 179, 0.3)',
                 borderWidth: 1,
                 cornerRadius: 12,
                 displayColors: true,
@@ -213,13 +213,13 @@ const Analytics = () => {
         },
         scales: {
             y: {
-                grid: { color: 'rgba(255, 255, 255, 0.03)' },
-                ticks: { color: '#64748b', font: { size: 11 } },
+                grid: { color: 'rgba(220, 214, 247, 0.08)' },
+                ticks: { color: '#8f8aa0', font: { size: 11 } },
                 border: { display: false }
             },
             x: {
                 grid: { display: false },
-                ticks: { color: '#64748b', font: { size: 11 } },
+                ticks: { color: '#8f8aa0', font: { size: 11 } },
                 border: { display: false }
             }
         }
@@ -240,9 +240,9 @@ const Analytics = () => {
                 ] : [1, 1, 1, 1],
                 backgroundColor: [
                     'rgba(239, 68, 68, 0.85)',
-                    'rgba(245, 158, 11, 0.85)',
-                    'rgba(59, 130, 246, 0.85)',
-                    'rgba(16, 185, 129, 0.85)',
+                    'rgba(220, 214, 247, 0.85)',
+                    'rgba(194, 239, 179, 0.85)',
+                    'rgba(46, 196, 182, 0.85)',
                 ],
                 borderWidth: 0,
                 hoverOffset: 8
@@ -259,9 +259,9 @@ const Analytics = () => {
         datasets: [{
             data: [srsDistribution.new, srsDistribution.learning, srsDistribution.mastered],
             backgroundColor: [
-                'rgba(99, 102, 241, 0.85)',
-                'rgba(245, 158, 11, 0.85)',
-                'rgba(16, 185, 129, 0.85)',
+                'rgba(220, 214, 247, 0.85)',
+                'rgba(194, 239, 179, 0.85)',
+                'rgba(46, 196, 182, 0.85)',
             ],
             borderWidth: 0,
             hoverOffset: 6
@@ -280,8 +280,8 @@ const Analytics = () => {
                 display: true,
                 position: 'bottom',
                 labels: {
-                    color: '#94a3b8',
-                    font: { family: 'Inter', size: 11, weight: '500' },
+                    color: '#b5b0c4',
+                    font: { family: 'Bruno Ace', size: 11, weight: '500' },
                     usePointStyle: true,
                     pointStyle: 'circle',
                     padding: 16
@@ -289,7 +289,7 @@ const Analytics = () => {
             },
             tooltip: {
                 padding: 12,
-                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                backgroundColor: 'rgba(12, 13, 20, 0.95)',
                 cornerRadius: 8
             }
         }
@@ -335,10 +335,10 @@ const Analytics = () => {
                 </div>
                 {/* Visual Marker: Streak Badge */}
                 {overview?.study_streak > 0 && (
-                    <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500/20 to-amber-500/20 border border-orange-500/30">
-                        <Flame className="w-5 h-5 text-orange-400 animate-pulse" />
+                    <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-gradient-to-r from-primary-400/20 to-primary-300/20 border border-primary-400/30">
+                        <Flame className="w-5 h-5 text-primary-300 animate-pulse" />
                         <div>
-                            <p className="text-xs font-bold text-orange-400 uppercase tracking-wider">Streak</p>
+                            <p className="text-xs font-bold text-primary-300 uppercase tracking-wider">Streak</p>
                             <p className="text-xl font-extrabold text-white">{overview.study_streak} days</p>
                         </div>
                     </div>
@@ -387,32 +387,32 @@ const Analytics = () => {
                     title="Total Cards"
                     value={overview?.total_flashcards || 0}
                     subtitle={`${overview?.cards_due_today || 0} due today`}
-                    gradient="bg-gradient-to-br from-indigo-500/10 to-violet-500/5"
-                    iconColor="text-indigo-400"
+                    gradient="bg-gradient-to-br from-primary-400/10 to-primary-600/5"
+                    iconColor="text-primary-300"
                 />
                 <StatCard
                     icon={Target}
                     title="Retention"
                     value={`${(overview?.retention_rate || 0).toFixed(0)}%`}
                     subtitle="Success rate"
-                    gradient="bg-gradient-to-br from-emerald-500/10 to-teal-500/5"
-                    iconColor="text-emerald-400"
+                    gradient="bg-gradient-to-br from-primary-500/10 to-primary-700/5"
+                    iconColor="text-primary-400"
                 />
                 <StatCard
                     icon={Zap}
                     title="Reviews"
                     value={retention?.total_reviews || 0}
                     subtitle="All-time reviews"
-                    gradient="bg-gradient-to-br from-amber-500/10 to-orange-500/5"
-                    iconColor="text-amber-400"
+                    gradient="bg-gradient-to-br from-primary-300/10 to-primary-500/5"
+                    iconColor="text-primary-300"
                 />
                 <StatCard
                     icon={Clock}
                     title="Time Spent"
                     value={`${Math.round((overview?.total_time_spent || 0) / 3600)}h`}
                     subtitle={`${Math.round(((overview?.total_time_spent || 0) % 3600) / 60)}m total`}
-                    gradient="bg-gradient-to-br from-cyan-500/10 to-blue-500/5"
-                    iconColor="text-cyan-400"
+                    gradient="bg-gradient-to-br from-primary-400/10 to-primary-600/5"
+                    iconColor="text-primary-300"
                 />
             </div>
 
@@ -453,7 +453,7 @@ const Analytics = () => {
                                         {goal.required_minutes_per_day > 0 ? `${goal.required_minutes_per_day} min/day` : "No deadline"}
                                     </p>
                                 </div>
-                                <span className={`text-[10px] font-bold uppercase tracking-widest ${goal.pace_status === 'on_track' ? 'text-emerald-400' : goal.pace_status === 'overdue' ? 'text-red-400' : 'text-amber-400'}`}>
+                                <span className={`text-[10px] font-bold uppercase tracking-widest ${goal.pace_status === 'on_track' ? 'text-primary-300' : goal.pace_status === 'overdue' ? 'text-red-400' : 'text-primary-200'}`}>
                                     {goal.pace_status.replace('_', ' ')}
                                 </span>
                             </div>
@@ -466,7 +466,7 @@ const Analytics = () => {
                                 </div>
                                 <div className="w-full h-2 bg-dark-800 rounded-full overflow-hidden">
                                     <div
-                                        className="h-full bg-gradient-to-r from-primary-500 to-violet-500"
+                                        className="h-full bg-gradient-to-r from-primary-500 to-primary-700"
                                         style={{ width: `${goal.progress_pct}%` }}
                                     />
                                 </div>
@@ -494,17 +494,17 @@ const Analytics = () => {
                                     {
                                         label: 'Focus',
                                         data: timeAllocation.map((item) => item.focus_minutes),
-                                        backgroundColor: 'rgba(99, 102, 241, 0.7)'
+                                        backgroundColor: 'rgba(220, 214, 247, 0.7)'
                                     },
                                     {
                                         label: 'Practice',
                                         data: timeAllocation.map((item) => item.practice_minutes),
-                                        backgroundColor: 'rgba(14, 165, 233, 0.7)'
+                                        backgroundColor: 'rgba(194, 239, 179, 0.7)'
                                     },
                                     {
                                         label: 'Study',
                                         data: timeAllocation.map((item) => item.study_minutes),
-                                        backgroundColor: 'rgba(16, 185, 129, 0.7)'
+                                        backgroundColor: 'rgba(46, 196, 182, 0.7)'
                                     }
                                 ]
                             }}
@@ -627,7 +627,7 @@ const Analytics = () => {
                                         legend: {
                                             position: 'right',
                                             labels: {
-                                                color: '#94a3b8',
+                                                color: '#b5b0c4',
                                                 font: { size: 11 },
                                                 usePointStyle: true,
                                                 padding: 12
@@ -647,11 +647,11 @@ const Analytics = () => {
                             <div className="mt-6 pt-6 border-t border-white/5">
                                 <div className="flex items-center justify-between text-sm mb-3">
                                     <span className="text-dark-400">Overall Retention</span>
-                                    <span className="font-bold text-emerald-400">{retention?.retention_rate?.toFixed(1)}%</span>
+                                    <span className="font-bold text-primary-300">{retention?.retention_rate?.toFixed(1)}%</span>
                                 </div>
                                 <div className="w-full h-2 bg-dark-800 rounded-full overflow-hidden">
                                     <div
-                                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+                                        className="h-full bg-gradient-to-r from-primary-400 to-primary-600 transition-all duration-500"
                                         style={{ width: `${retention?.retention_rate || 0}%` }}
                                     />
                                 </div>
@@ -695,7 +695,7 @@ const Analytics = () => {
                                             <div className="flex items-center justify-center gap-2">
                                                 <div className="w-16 h-1.5 bg-dark-800 rounded-full overflow-hidden">
                                                     <div
-                                                        className="h-full bg-gradient-to-r from-primary-500 to-violet-500 transition-all"
+                                                        className="h-full bg-gradient-to-r from-primary-500 to-primary-700 transition-all"
                                                         style={{ width: `${(doc.progress || 0) * 100}%` }}
                                                     />
                                                 </div>

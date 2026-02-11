@@ -93,6 +93,8 @@ class DocumentSection(Base):
     excerpt = Column(Text, nullable=True)
     relevance_score = Column(Float, default=0.0)
     included = Column(Boolean, default=True)
+    page_start = Column(Integer, nullable=True)
+    page_end = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -343,6 +345,7 @@ class Curriculum(Base):
     time_budget_hours_per_week = Column(Integer, default=5)
     llm_enhance = Column(Boolean, default=False)
     llm_config = Column(JSON, default=dict)
+    gating_mode = Column(String, default="recommend")  # recommend, strict
     
     status = Column(String, default="active") # active, completed, archvied
     progress = Column(Float, default=0.0)
@@ -441,6 +444,7 @@ class CurriculumTask(Base):
     estimate_minutes = Column(Integer, default=30)
     notes = Column(Text, nullable=True)
     status = Column(String, default="pending")  # pending, done
+    action_metadata = Column(JSON, default=dict)
 
     week = relationship("CurriculumWeek", back_populates="tasks")
     document = relationship("Document")
@@ -610,6 +614,8 @@ class KnowledgeGraph(Base):
     error_message = Column(Text, nullable=True)
     build_progress = Column(Float, default=0.0)
     build_stage = Column(String, nullable=True)
+    extraction_max_chars = Column(Integer, nullable=True)
+    chunk_size = Column(Integer, nullable=True)
 
     node_count = Column(Integer, default=0)
     relationship_count = Column(Integer, default=0)

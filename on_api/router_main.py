@@ -1,25 +1,41 @@
-from fastapi import APIRouter
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
 import logging
-import os
 from surrealdb import AsyncSurreal
 from src.config import settings
+from src.dependencies import get_request_user_id
 
 logger = logging.getLogger("learnfast-core.on_api")
 
 router = APIRouter()
 
-# Use AsyncSurreal for async compatibility with settings from environment
-db = AsyncSurreal(settings.surreal_url)
+_surreal_db: AsyncSurreal | None = None
+_surreal_ready: bool = False
 
 async def init_surrealdb():
+    global _surreal_db, _surreal_ready
+    if _surreal_db is None:
+        _surreal_db = AsyncSurreal(settings.surreal_url)
+
     try:
-        await db.signin({"username": settings.surreal_user, "password": settings.surreal_password})
-        await db.use(settings.surreal_namespace, settings.surreal_database)
+        await _surreal_db.signin({"username": settings.surreal_user, "password": settings.surreal_password})
+        await _surreal_db.use(settings.surreal_namespace, settings.surreal_database)
         logger.info(f"Connected to SurrealDB at {settings.surreal_url}")
+        _surreal_ready = True
     except Exception as e:
         logger.error(f"SurrealDB connection failed: {e}")
         # Don't raise - allow app to start with degraded functionality
         logger.warning("SurrealDB features will be unavailable")
+        _surreal_ready = False
+
+async def get_surreal_db() -> AsyncSurreal:
+    global _surreal_ready
+    if _surreal_ready is False or _surreal_db is None:
+        await init_surrealdb()
+    if not _surreal_ready or _surreal_db is None:
+        raise HTTPException(status_code=503, detail="SurrealDB is unavailable")
+    return _surreal_db
 
 # Import and include sub-routers
 # (We'll create these files next)
@@ -44,9 +60,8 @@ async def get_config():
     }
 
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from sqlalchemy.orm import Session
-from fastapi import Depends, HTTPException
 from src.database.orm import get_db
 from src.models.orm import UserSettings
 
@@ -54,7 +69,10 @@ class LLMConfigUpdate(BaseModel):
     config: Dict[str, Any]
 
 @router.get("/config/llm")
-async def get_llm_config(user_id: str = "default_user", db: Session = Depends(get_db)):
+async def get_llm_config(
+    user_id: str = Depends(get_request_user_id),
+    db: Session = Depends(get_db)
+):
     """Get LLM configuration for the specified user."""
     user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     if not user_settings:
@@ -67,7 +85,11 @@ async def get_llm_config(user_id: str = "default_user", db: Session = Depends(ge
     return user_settings.llm_config or {}
 
 @router.post("/config/llm")
-async def update_llm_config(update: LLMConfigUpdate, user_id: str = "default_user", db: Session = Depends(get_db)):
+async def update_llm_config(
+    update: LLMConfigUpdate,
+    user_id: str = Depends(get_request_user_id),
+    db: Session = Depends(get_db)
+):
     """Update LLM configuration."""
     user_settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     if not user_settings:

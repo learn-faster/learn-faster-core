@@ -67,12 +67,12 @@ const AgentTools = ({ status }) => {
             )}
           </div>
         )}
-        {shotResult?.error && <p className="text-xs text-amber-300">{shotResult.error}</p>}
+        {shotResult?.error && <p className="text-xs text-primary-300">{shotResult.error}</p>}
       </ToolCard>
 
       <ToolCard title="Send email" icon={Mail}>
         {!status?.email_configured && (
-          <p className="text-xs text-amber-300">Email not configured — set it in Settings.</p>
+          <p className="text-xs text-primary-300">Email not configured — set it in Settings.</p>
         )}
         <input className={inputClass} placeholder="to@example.com" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} />
         <input className={inputClass} placeholder="Subject" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />

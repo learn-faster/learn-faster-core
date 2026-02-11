@@ -12,35 +12,35 @@ import {
   Globe,
   FileCode,
   Network,
-  RotateCcw,
-  Pencil,
-  Play
+  Pencil
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import FileUpload from '../components/documents/FileUpload';
 import useDocumentStore from '../stores/useDocumentStore';
+import useFolderStore from '../stores/useFolderStore';
 import cognitiveService from '../services/cognitive';
 import InlineErrorBanner from '../components/common/InlineErrorBanner';
-import { getConfig, resetConfig } from '../lib/config';
+import { getUserId } from '../lib/utils/user-id';
+import { getApiUrl, getConfig, resetConfig } from '../lib/config';
 
 const STATUS_STYLES = {
-  uploading: 'bg-amber-500/15 text-amber-200 border border-amber-500/30',
-  processing: 'bg-blue-500/15 text-blue-200 border border-blue-500/30',
-  pending: 'bg-blue-500/15 text-blue-200 border border-blue-500/30',
-  ingesting: 'bg-cyan-500/15 text-cyan-200 border border-cyan-500/30',
-  extracted: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
-  complete: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
-  completed: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',
+  uploading: 'bg-primary-500/15 text-primary-200 border border-primary-500/30',
+  processing: 'bg-primary-400/15 text-primary-200 border border-primary-400/30',
+  pending: 'bg-primary-400/15 text-primary-200 border border-primary-400/30',
+  ingesting: 'bg-primary-500/15 text-primary-200 border border-primary-500/30',
+  extracted: 'bg-primary-300/15 text-primary-200 border border-primary-300/30',
+  complete: 'bg-primary-300/15 text-primary-200 border border-primary-300/30',
+  completed: 'bg-primary-300/15 text-primary-200 border border-primary-300/30',
   failed: 'bg-rose-500/15 text-rose-200 border border-rose-500/30',
-  rate_limited: 'bg-amber-500/15 text-amber-200 border border-amber-500/30',
-  paused: 'bg-amber-500/15 text-amber-200 border border-amber-500/30'
+  rate_limited: 'bg-primary-500/15 text-primary-200 border border-primary-500/30',
+  paused: 'bg-primary-500/15 text-primary-200 border border-primary-500/30'
 };
 
 const FOLDER_COLORS = [
-  '#F43F5E', '#06B6D4', '#10B981', '#F59E0B',
-  '#8B5CF6', '#EC4899', '#6366F1', '#94A3B8'
+  '#c2efb3', '#dcd6f7', '#2ec4b6', '#b5efe2',
+  '#7fe3d2', '#49d6c2', '#e8e5f2', '#8f8aa0'
 ];
 
 const EMBEDDING_PROVIDERS = [
@@ -59,22 +59,27 @@ const EMBEDDING_PROVIDERS = [
 const EMBEDDING_DIM_PRESETS = [256, 384, 512, 768, 1024, 1536, 3072];
 
 const Documents = () => {
+  const navigate = useNavigate();
   const {
-        documents,
-        folders,
-        selectedFolderId,
-        isLoading,
-        error,
-        fetchDocuments,
-    fetchFolders,
+    documents,
+    isLoading,
+    error,
+    fetchDocuments,
     updateDocument,
     deleteDocument,
-        createFolder,
-        setSelectedFolder,
-        moveToFolder,
-        synthesizeDocument,
-        reprocessDocument
+    moveToFolder,
+    synthesizeDocument,
+    reprocessDocument,
+    setDocumentsFromSocket
   } = useDocumentStore();
+
+  const {
+    folders,
+    selectedFolderId,
+    fetchFolders,
+    createFolder,
+    setSelectedFolder
+  } = useFolderStore();
 
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -89,6 +94,10 @@ const Documents = () => {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState(null);
+  const [folderError, setFolderError] = useState(null);
+  const [llmStatus, setLlmStatus] = useState(null);
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmError, setLlmError] = useState(null);
   const [deleteModal, setDeleteModal] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -99,6 +108,7 @@ const Documents = () => {
   const [queueTesting, setQueueTesting] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const [reindexError, setReindexError] = useState(null);
+  const [wsConnected, setWsConnected] = useState(false);
   const [embeddingSettings, setEmbeddingSettings] = useState({
     embedding_provider: 'ollama',
     embedding_model: 'embeddinggemma:latest',
@@ -108,12 +118,72 @@ const Documents = () => {
   });
   const [embeddingDimSelection, setEmbeddingDimSelection] = useState('768');
   const [embeddingDimCustom, setEmbeddingDimCustom] = useState('768');
+  const [progressDisplay, setProgressDisplay] = useState({});
   const progressTrackerRef = useRef(new Map());
 
   useEffect(() => {
     fetchDocuments(false, { force: true });
     fetchFolders();
   }, [fetchDocuments, fetchFolders]);
+
+  useEffect(() => {
+    let ws;
+    let reconnectTimer;
+    const buildWsUrl = (baseUrl) => {
+      if (!baseUrl) {
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        return `${protocol}://${window.location.host}/api/documents/ws`;
+      }
+      try {
+        const url = new URL(baseUrl);
+        const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${wsProtocol}//${url.host}/api/documents/ws`;
+      } catch {
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        return `${protocol}://${window.location.host}/api/documents/ws`;
+      }
+    };
+    const connect = async () => {
+      let apiUrl = '';
+      try {
+        apiUrl = await getApiUrl();
+      } catch {
+        apiUrl = '';
+      }
+      const wsUrl = buildWsUrl(apiUrl);
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        setWsConnected(true);
+      };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (Array.isArray(data?.documents)) {
+            setDocumentsFromSocket(data.documents);
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      };
+      ws.onclose = () => {
+        setWsConnected(false);
+        reconnectTimer = setTimeout(connect, 5000);
+      };
+      ws.onerror = () => {
+        ws.close();
+      };
+    };
+
+    connect();
+    const handleScroll = () => setContextMenu(null);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [setDocumentsFromSocket]);
 
   useEffect(() => {
     const map = progressTrackerRef.current;
@@ -135,7 +205,41 @@ const Documents = () => {
   }, [documents]);
 
   useEffect(() => {
+    let interval;
+    const tick = () => {
+      setProgressDisplay((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        documents.forEach((doc) => {
+          const statusKey = doc.status || 'complete';
+          const isProcessing = ['processing', 'pending', 'ingesting', 'uploading'].includes(statusKey);
+          const ingestionProgress = Math.max(0, Math.min(100, Number(doc.ingestion_progress ?? 0)));
+          const readingProgress = Math.max(0, Math.min(100, Math.round((doc.reading_progress || 0) * 100)));
+          const target = isProcessing ? ingestionProgress : readingProgress;
+          const current = prev[doc.id] ?? target;
+          let updated = current;
+          if (isProcessing && current < target) {
+            updated = Math.min(target, current + 1);
+          } else if (!isProcessing) {
+            updated = target;
+          }
+          if (prev[doc.id] === undefined || updated !== current) {
+            next[doc.id] = updated;
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    };
+    tick();
+    interval = setInterval(tick, 500);
+    return () => clearInterval(interval);
+  }, [documents]);
+
+  useEffect(() => {
     checkEmbeddingHealth();
+    loadLlmStatus();
+    loadEmbeddingSettings();
   }, []);
 
   useEffect(() => {
@@ -189,6 +293,7 @@ const Documents = () => {
   }, [isUploadOpen, showFolderModal, showSettingsModal, deleteModal]);
 
   useEffect(() => {
+    if (wsConnected) return;
     const hasProcessingDocs = documents.some(d => ['processing', 'pending', 'ingesting', 'uploading'].includes(d.status));
     let interval;
     let isActive = true;
@@ -214,6 +319,15 @@ const Documents = () => {
       if (interval) clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibility);
     };
+  }, [documents, fetchDocuments, wsConnected]);
+
+  useEffect(() => {
+    const hasProcessingDocs = documents.some(d => ['processing', 'pending', 'ingesting', 'uploading'].includes(d.status));
+    if (!hasProcessingDocs) return;
+    const interval = setInterval(() => {
+      fetchDocuments(true, { minIntervalMs: 5000 });
+    }, 6000);
+    return () => clearInterval(interval);
   }, [documents, fetchDocuments]);
 
   const loadEmbeddingSettings = async () => {
@@ -244,6 +358,34 @@ const Documents = () => {
       setSettingsLoading(false);
     }
   };
+
+  const loadLlmStatus = async () => {
+    setLlmLoading(true);
+    setLlmError(null);
+    try {
+      const userId = getUserId();
+      let data = null;
+      const response = await fetch(`/api/config/llm?user_id=${encodeURIComponent(userId)}`);
+      if (response.ok) {
+        data = await response.json();
+      }
+      if (!data || (typeof data === 'object' && Object.keys(data).length === 0)) {
+        const fallbackRes = await fetch(`/api/goals/agent/settings?user_id=${encodeURIComponent(userId)}`);
+        if (!fallbackRes.ok) {
+          throw new Error(`LLM config status ${fallbackRes.status}`);
+        }
+        const fallbackData = await fallbackRes.json();
+        data = fallbackData?.llm_config || null;
+      }
+      setLlmStatus(data);
+    } catch (err) {
+      setLlmStatus(null);
+      setLlmError(err?.message || 'Unable to check LLM status');
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
 
   const checkEmbeddingHealth = async () => {
     setEmbeddingHealthLoading(true);
@@ -308,8 +450,9 @@ const Documents = () => {
       setNewFolderName('');
       setNewFolderColor(FOLDER_COLORS[0]);
       setShowFolderModal(false);
+      setFolderError(null);
     } catch (err) {
-      setSettingsError(err?.userMessage || err?.message || 'Failed to create folder.');
+      setFolderError(err?.userMessage || err?.message || 'Failed to create folder.');
     }
   };
 
@@ -330,7 +473,12 @@ const Documents = () => {
     .sort((a, b) => {
       if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
       if (sortBy === 'progress') return (b.reading_progress || 0) - (a.reading_progress || 0);
-      return new Date(b.created_at || b.upload_date) - new Date(a.created_at || a.upload_date);
+      const getTime = (value) => {
+        if (!value) return 0;
+        const t = Date.parse(value);
+        return Number.isNaN(t) ? 0 : t;
+      };
+      return getTime(b.created_at || b.upload_date) - getTime(a.created_at || a.upload_date);
     });
 
   const unfiledCount = documents.filter(d => !d.folder_id).length;
@@ -386,9 +534,28 @@ const Documents = () => {
     const current = doc.title || doc.filename || '';
     const next = window.prompt('Rename document', current);
     if (!next || next.trim() === current) return;
-    await updateDocument(doc.id, { title: next.trim() });
+    try {
+      await updateDocument(doc.id, { title: next.trim() });
+    } catch (err) {
+      toast.error(err?.userMessage || err?.message || 'Failed to rename document.');
+    }
   };
 
+  const resolveLlmGlobal = () => {
+    if (!llmStatus) return null;
+    if (llmStatus.global) return llmStatus.global;
+    if (llmStatus.provider || llmStatus.api_key || llmStatus.model || llmStatus.base_url) return llmStatus;
+    return null;
+  };
+  const llmGlobal = resolveLlmGlobal();
+  const llmConfigured = (() => {
+    const globalCfg = llmGlobal || {};
+    const provider = globalCfg.provider || '';
+    if (!provider) return false;
+    if (provider === 'ollama') return Boolean(globalCfg.base_url || globalCfg.model);
+    return Boolean(globalCfg.api_key || globalCfg.model);
+  })();
+  const llmProviderLabel = llmGlobal?.provider || 'Not set';
   const showBaseUrl = ['openrouter', 'together', 'fireworks', 'mistral', 'deepseek', 'perplexity', 'huggingface', 'custom', 'ollama'].includes(embeddingSettings.embedding_provider);
   const showApiKey = embeddingSettings.embedding_provider !== 'ollama';
 
@@ -445,6 +612,8 @@ const Documents = () => {
               <div className="text-[11px] text-dark-500 py-4 text-center">No folders yet.</div>
             )}
           </div>
+
+
         </div>
       </aside>
 
@@ -457,38 +626,85 @@ const Documents = () => {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => { setShowSettingsModal(true); loadEmbeddingSettings(); }}
-              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-dark-200 border border-white/10 text-sm"
-            >
-              Processing settings
-            </button>
-            <div className={`px-3 py-2 rounded-xl text-xs border ${embeddingHealth?.ok ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border-rose-500/20'}`}>
-              {embeddingHealthLoading ? 'Embedding: checking' : `Embedding: ${embeddingHealth?.ok ? 'connected' : 'not connected'}`}
-            </div>
-            <div className={`px-3 py-2 rounded-xl text-xs border ${
-              queueStatus === 'connected'
-                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-                : queueStatus === 'disabled'
-                  ? 'bg-white/5 text-dark-300 border-white/10'
-                  : queueStatus === 'no_workers'
-                    ? 'bg-amber-500/10 text-amber-200 border-amber-500/20'
-                    : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
-            }`}>
-              {queueStatus ? `Queue: ${queueStatus}${queueWorkers !== null ? ` (${queueWorkers})` : ''}` : 'Queue: checking'}
-            </div>
-            <button
-              onClick={refreshQueueStatus}
-              disabled={queueTesting}
-              className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-dark-200 border border-white/10 text-xs disabled:opacity-60"
-            >
-              {queueTesting ? 'Testing...' : 'Test queue'}
-            </button>
-            <button
               onClick={() => setIsUploadOpen(true)}
               className="px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-400 text-white text-sm font-semibold"
             >
               Upload
             </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-primary-500/20 bg-dark-900/70 p-4 md:p-5 shadow-[0_0_24px_rgba(46,196,182,0.12)]">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.3em] text-primary-300 font-black">Processing Readiness</p>
+              <p className="text-sm text-primary-100/80 mt-2 max-w-2xl">
+                Extraction and knowledge maps require embeddings. Advanced summarization and rewriting require an LLM.
+                Check both before starting large ingestions.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => { setShowSettingsModal(true); loadEmbeddingSettings(); }}
+                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-primary-100/80 text-[11px] font-bold uppercase tracking-widest border border-primary-500/20"
+              >
+                Embedding Settings
+              </button>
+              <button
+                onClick={() => navigate('/settings')}
+                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-primary-100/80 text-[11px] font-bold uppercase tracking-widest border border-primary-500/20"
+              >
+                LLM Settings
+              </button>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className={`rounded-xl border px-3 py-3 text-xs ${embeddingHealth?.ok ? 'bg-primary-500/10 text-primary-200 border-primary-500/30' : 'bg-rose-500/10 text-rose-200 border-rose-500/30'}`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold uppercase tracking-widest text-[10px]">Embeddings</span>
+                <button
+                  onClick={checkEmbeddingHealth}
+                  disabled={embeddingHealthLoading}
+                  className="text-[10px] uppercase tracking-widest text-primary-200/80 hover:text-primary-100 disabled:opacity-60"
+                >
+                  {embeddingHealthLoading ? 'Checking...' : 'Check'}
+                </button>
+              </div>
+              <div className="mt-2">
+                {embeddingHealthLoading ? 'Checking connection...' : (embeddingHealth?.ok ? 'Connected' : 'Not connected')}
+              </div>
+              <div className="mt-2 text-[10px] text-primary-100/80">
+                Provider: {embeddingSettings.embedding_provider || 'Not set'}
+              </div>
+              <div className="text-[10px] text-primary-100/80">
+                Model: {embeddingSettings.embedding_model || 'Not set'}
+              </div>
+              <div className="text-[10px] text-primary-100/80">
+                Dim: {embeddingSettings.embedding_dimensions || 'Not set'}
+              </div>
+            </div>
+            <div className={`rounded-xl border px-3 py-3 text-xs ${llmConfigured ? 'bg-primary-500/10 text-primary-200 border-primary-500/30' : 'bg-rose-500/10 text-rose-200 border-rose-500/30'}`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold uppercase tracking-widest text-[10px]">LLM</span>
+                <button
+                  onClick={loadLlmStatus}
+                  disabled={llmLoading}
+                  className="text-[10px] uppercase tracking-widest text-primary-200/80 hover:text-primary-100 disabled:opacity-60"
+                >
+                  {llmLoading ? 'Checking...' : 'Check'}
+                </button>
+              </div>
+              <div className="mt-2">
+                {llmLoading ? 'Checking connection...' : llmConfigured ? `Connected (${llmProviderLabel})` : 'Not connected'}
+                {llmError && <div className="mt-1 text-[10px] text-rose-200/80">{llmError}</div>}
+              </div>
+              <div className="mt-2 text-[10px] text-primary-100/80">
+                Provider: {llmGlobal?.provider || 'Not set'}
+              </div>
+              <div className="text-[10px] text-primary-100/80">
+                Model: {llmGlobal?.model || 'Not set'}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -546,7 +762,7 @@ const Documents = () => {
                     <X className="w-4 h-4" />
                   </button>
                 </div>
-                <FileUpload onClose={() => setIsUploadOpen(false)} />
+                <FileUpload onComplete={() => setIsUploadOpen(false)} />
               </motion.div>
             </div>
           )}
@@ -559,23 +775,24 @@ const Documents = () => {
         ) : (
           <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' : 'space-y-3'}>
             {filteredDocs.map((doc) => {
-                const statusKey = doc.status || 'complete';
-                const statusClass = STATUS_STYLES[statusKey] || STATUS_STYLES.complete;
-                let iconType = (doc.display_type || doc.file_type || '').toLowerCase();
-                if (!iconType && doc.filename) {
-                  const name = doc.filename.toLowerCase();
-                  if (name.endsWith('.pdf')) iconType = 'pdf';
-                  else if (name.endsWith('.md') || name.endsWith('.markdown')) iconType = 'markdown';
-                  else if (name.endsWith('.txt') || name.endsWith('.text')) iconType = 'text';
-                  else if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif') || name.endsWith('.webp')) iconType = 'image';
-                  else if (name.endsWith('.mp4') || name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.m4a') || name.endsWith('.mov') || name.endsWith('.avi') || name.endsWith('.webm') || name.endsWith('.mkv')) iconType = 'video';
-                }
-                const title = doc.title || doc.filename || `Document ${doc.id}`;
-                const isProcessing = ['processing', 'pending', 'ingesting', 'uploading'].includes(statusKey);
-                const canIngest = ['extracted', 'completed', 'failed'].includes(statusKey);
-                const ingestionProgress = Math.max(0, Math.min(100, Number(doc.ingestion_progress ?? 0)));
-                const readingProgress = Math.max(0, Math.min(100, Math.round((doc.reading_progress || 0) * 100)));
-                const displayProgress = isProcessing ? ingestionProgress : readingProgress;
+              const statusKey = doc.status || 'complete';
+              const statusClass = STATUS_STYLES[statusKey] || STATUS_STYLES.complete;
+              let iconType = (doc.display_type || doc.file_type || '').toLowerCase();
+              if (!iconType && doc.filename) {
+                const name = doc.filename.toLowerCase();
+                if (name.endsWith('.pdf')) iconType = 'pdf';
+                else if (name.endsWith('.md') || name.endsWith('.markdown')) iconType = 'markdown';
+                else if (name.endsWith('.txt') || name.endsWith('.text')) iconType = 'text';
+                else if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif') || name.endsWith('.webp')) iconType = 'image';
+                else if (name.endsWith('.mp4') || name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.m4a') || name.endsWith('.mov') || name.endsWith('.avi') || name.endsWith('.webm') || name.endsWith('.mkv')) iconType = 'video';
+              }
+              const title = doc.title || doc.filename || `Document ${doc.id}`;
+              const isProcessing = ['processing', 'pending', 'ingesting', 'uploading'].includes(statusKey);
+              const canIngest = ['extracted', 'completed', 'failed'].includes(statusKey);
+              const ingestionProgress = Math.max(0, Math.min(100, Number(doc.ingestion_progress ?? 0)));
+              const readingProgress = Math.max(0, Math.min(100, Math.round((doc.reading_progress || 0) * 100)));
+              const displayProgress = isProcessing ? ingestionProgress : readingProgress;
+              const smoothProgress = progressDisplay[doc.id] ?? displayProgress;
               const phase = (doc.ingestion_step || '').toLowerCase();
               const jobMessage = doc.ingestion_job_message;
               const jobStatus = doc.ingestion_job_status;
@@ -583,6 +800,18 @@ const Documents = () => {
                 || jobStatus === 'paused'
                 || (jobMessage && jobMessage.toLowerCase().includes('rate limit'));
               const phaseLabel = phase ? phase.replace(/_/g, ' ') : '';
+              const phaseFriendlyMap = {
+                queued: 'Queued for processing',
+                queued_extraction: 'Queued for extraction',
+                extracting: 'Scanning content',
+                filtering: 'Cleaning text',
+                ocr: 'Running OCR',
+                ingesting: 'Building knowledge graph',
+                ready_for_synthesis: 'Ready for graph build',
+                initializing: 'Starting ingestion',
+                complete: 'Complete'
+              };
+              const phaseFriendly = phaseFriendlyMap[phase] || (phaseLabel ? `Working: ${phaseLabel}` : '');
               const messageLabel = jobMessage && (!phaseLabel || !jobMessage.toLowerCase().includes(phaseLabel))
                 ? jobMessage
                 : '';
@@ -598,32 +827,33 @@ const Documents = () => {
               const showRetryExtract = ['processing', 'pending', 'ingesting'].includes(statusKey) && !isRateLimited;
               const showRetryIngest = statusKey === 'extracted' && !isRateLimited;
               const showQueueHint = isProcessing && displayProgress === 0 && queueState === 'queued' && queueStatus === 'connected';
-                const normalizeJobTime = (value) => {
-                  if (!value) return null;
-                  if (value instanceof Date) return value;
-                  if (typeof value === 'string') {
-                    const hasTimezone = /[zZ]|[+-]\d{2}:\d{2}$/.test(value);
-                    return new Date(hasTimezone ? value : `${value}Z`);
-                  }
-                  return new Date(value);
-                };
-                const lastUpdate = normalizeJobTime(doc.ingestion_job_updated_at);
-                const lastUpdateMinutes = lastUpdate ? Math.max(0, Math.floor((Date.now() - lastUpdate.getTime()) / 60000)) : null;
-                const progressEntry = progressTrackerRef.current.get(doc.id);
-                const progressAgeMinutes = progressEntry ? Math.max(0, Math.floor((Date.now() - progressEntry.changedAt) / 60000)) : null;
-              const isStalled = !isRateLimited && isProcessing && lastUpdateMinutes !== null && progressAgeMinutes !== null && lastUpdateMinutes >= 5 && progressAgeMinutes >= 5;
-                const prevProgress = progressEntry?.prevProgress ?? null;
-                const prevChangedAt = progressEntry?.prevChangedAt ?? null;
-                let etaMinutes = null;
-                if (isProcessing && prevProgress !== null && prevChangedAt && ingestionProgress > prevProgress) {
-                  const deltaProgress = ingestionProgress - prevProgress;
-                  const deltaMinutes = Math.max(1, (Date.now() - prevChangedAt) / 60000);
-                  const rate = deltaProgress / deltaMinutes;
-                  if (rate > 0 && ingestionProgress > 1 && ingestionProgress < 99) {
-                    etaMinutes = Math.ceil((100 - ingestionProgress) / rate);
-                  }
+              const normalizeJobTime = (value) => {
+                if (!value) return null;
+                if (value instanceof Date) return value;
+                if (typeof value === 'string') {
+                  const hasTimezone = /[zZ]|[+-]\d{2}:\d{2}$/.test(value);
+                  return new Date(hasTimezone ? value : `${value}Z`);
                 }
-                return (
+                return new Date(value);
+              };
+              const lastUpdate = normalizeJobTime(doc.ingestion_job_updated_at);
+              const lastUpdateMinutes = lastUpdate ? Math.max(0, Math.floor((Date.now() - lastUpdate.getTime()) / 60000)) : null;
+              const progressEntry = progressTrackerRef.current.get(doc.id);
+              const progressAgeMinutes = progressEntry ? Math.max(0, Math.floor((Date.now() - progressEntry.changedAt) / 60000)) : null;
+              const progressAgeSeconds = progressEntry ? Math.max(0, Math.floor((Date.now() - progressEntry.changedAt) / 1000)) : null;
+              const isStalled = !isRateLimited && isProcessing && lastUpdateMinutes !== null && progressAgeMinutes !== null && lastUpdateMinutes >= 5 && progressAgeMinutes >= 5;
+              const prevProgress = progressEntry?.prevProgress ?? null;
+              const prevChangedAt = progressEntry?.prevChangedAt ?? null;
+              let etaMinutes = null;
+              if (isProcessing && prevProgress !== null && prevChangedAt && ingestionProgress > prevProgress) {
+                const deltaProgress = ingestionProgress - prevProgress;
+                const deltaMinutes = Math.max(1, (Date.now() - prevChangedAt) / 60000);
+                const rate = deltaProgress / deltaMinutes;
+                if (rate > 0 && ingestionProgress > 1 && ingestionProgress < 99) {
+                  etaMinutes = Math.ceil((100 - ingestionProgress) / rate);
+                }
+              }
+              return (
                 <div
                   key={doc.id}
                   className={`rounded-2xl border border-white/10 bg-dark-900/60 p-4 hover:border-primary-500/30 transition ${viewMode === 'list' ? 'flex items-center gap-4' : 'space-y-3'}`}
@@ -632,11 +862,11 @@ const Documents = () => {
                     {(iconType === 'pdf' || (doc.filename && doc.filename.toLowerCase().endsWith('.pdf'))) ? (
                       <FileText className="w-5 h-5 text-primary-400" />
                     ) : iconType === 'link' ? (
-                      <Globe className="w-5 h-5 text-cyan-400" />
+                      <Globe className="w-5 h-5 text-primary-300" />
                     ) : (iconType === 'markdown' || iconType === 'text') ? (
-                      <FileCode className="w-5 h-5 text-amber-400" />
+                      <FileCode className="w-5 h-5 text-primary-300" />
                     ) : iconType === 'video' ? (
-                      <Network className="w-5 h-5 text-indigo-400" />
+                      <Network className="w-5 h-5 text-primary-300" />
                     ) : iconType === 'image' ? (
                       <ImageIcon className="w-5 h-5 text-fuchsia-400" />
                     ) : (
@@ -663,32 +893,35 @@ const Documents = () => {
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-dark-400">
                       <span className="uppercase tracking-wider text-dark-500">Type: {iconType || 'file'}</span>
                       {isProcessing ? (
-                        <span className="text-dark-300">Progress: {displayProgress}%</span>
+                        <span className="text-dark-300">Progress: {Math.round(smoothProgress)}%</span>
                       ) : (
                         <span className="text-dark-300">Reading: {readingProgress}%</span>
                       )}
                       {doc.linked_to_graph && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 text-cyan-200 border border-cyan-500/20 px-2 py-0.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary-500/10 text-primary-200 border border-primary-500/20 px-2 py-0.5">
                           <Network className="w-3 h-3" />
                           Graph linked{doc.graph_link_count > 1 ? ` · ${doc.graph_link_count}` : ''}
                         </span>
                       )}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-dark-300">
-                      {isProcessing && phaseLabel && (
-                        <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 uppercase tracking-wider text-white/80">
-                          Phase: {phaseLabel}
+                      {isProcessing && phaseFriendly && (
+                        <span
+                          title={`Phase: ${phaseLabel}${jobMessage ? ` · ${jobMessage}` : ''}`}
+                          className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 uppercase tracking-wider text-white/80"
+                        >
+                          {phaseFriendly}
                         </span>
                       )}
                       {isProcessing && etaMinutes !== null && (
-                        <span className="text-dark-400">ETA ~{etaMinutes}m</span>
+                        <span className="text-dark-400">Est. {etaMinutes}m</span>
                       )}
                     </div>
                     {isProcessing && messageLabel && !isRateLimited && (
                       <div className="mt-1 text-[11px] text-dark-400">{messageLabel}</div>
                     )}
                     {isRateLimited && (
-                      <div className="mt-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1">
+                      <div className="mt-2 text-[11px] text-primary-200 bg-primary-500/10 border border-primary-500/20 rounded-lg px-2 py-1">
                         Paused due to rate limits. Resume when ready.
                         {jobMessage ? ` ${jobMessage}` : ''}
                       </div>
@@ -699,43 +932,54 @@ const Documents = () => {
                       </div>
                     )}
                     {showQueueHint && (
-                      <div className="mt-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1">
+                      <div className="mt-2 text-[11px] text-primary-200 bg-primary-500/10 border border-primary-500/20 rounded-lg px-2 py-1">
                         Queued. If this stays for a while, start the RQ worker to process jobs.
                       </div>
                     )}
                     {isProcessing && displayProgress === 0 && queueStatus !== 'connected' && (
-                      <div className="mt-2 text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1">
+                      <div className="mt-2 text-[11px] text-primary-200 bg-primary-500/10 border border-primary-500/20 rounded-lg px-2 py-1">
                         Running locally (queue not connected).
                       </div>
                     )}
-                      {statusKey === 'extracted' && !isRateLimited && (
-                        <div className="mt-2 text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1">
-                          Ready to read. Graph pending.
-                        </div>
-                      )}
-                      {statusKey === 'extracted' && isRateLimited && (
-                        <div className="mt-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1">
-                          Graph build paused (rate limited).
-                        </div>
-                      )}
-                      {isStalled && (
-                        <div className="mt-2 text-[11px] text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-lg px-2 py-1">
-                          No updates for {lastUpdateMinutes} min and no progress change for {progressAgeMinutes} min. Try retrying extraction.
-                        </div>
-                      )}
-                      {lastUpdate && (
-                        <div className="mt-2 text-[11px] text-dark-500">
-                          Last update: {lastUpdate.toLocaleTimeString()} · {lastUpdateMinutes}m ago
-                        </div>
-                      )}
-                      <div className="mt-2 h-1.5 bg-dark-950 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary-500"
-                          style={{ width: `${Math.max(5, displayProgress)}%` }}
-                        />
+                    {statusKey === 'extracted' && !isRateLimited && (
+                      <div className="mt-2 text-[11px] text-primary-200 bg-primary-500/10 border border-primary-500/20 rounded-lg px-2 py-1">
+                        Ready to read. Graph pending.
                       </div>
+                    )}
+                    {statusKey === 'extracted' && isRateLimited && (
+                      <div className="mt-2 text-[11px] text-primary-200 bg-primary-500/10 border border-primary-500/20 rounded-lg px-2 py-1">
+                        Graph build paused (rate limited).
+                      </div>
+                    )}
+                    {isStalled && (
+                      <div className="mt-2 text-[11px] text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-lg px-2 py-1">
+                        No updates for {lastUpdateMinutes} min and no progress change for {progressAgeMinutes} min. Try retrying extraction.
+                      </div>
+                    )}
+                    {lastUpdate && (
+                      <div className="mt-2 text-[11px] text-dark-500">
+                        Last update: {lastUpdate.toLocaleTimeString()} · {lastUpdateMinutes}m ago
+                      </div>
+                    )}
+                    {isProcessing && progressAgeSeconds !== null && (
+                      <div className="mt-2 flex items-center justify-end text-[10px] text-dark-400">
+                        <span>{progressAgeSeconds < 60 ? 'Updating now' : `No change for ${progressAgeMinutes}m`}</span>
+                      </div>
+                    )}
+                    <div className="mt-1 h-2 bg-dark-950 rounded-full overflow-hidden border border-white/5 relative">
+                      <div
+                        className={`h-full ${isProcessing ? 'bg-gradient-to-r from-primary-400 via-primary-500 to-primary-300' : 'bg-primary-400'} ${isProcessing ? 'animate-pulse' : ''}`}
+                        style={{ width: `${Math.max(5, smoothProgress)}%` }}
+                      />
+                      {isProcessing && (
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white/80 shadow-[0_0_12px_rgba(194,239,179,0.8)]"
+                          style={{ left: `calc(${Math.max(5, smoothProgress)}% - 6px)` }}
+                        />
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
+                  </div>
+                  <div className="flex items-center gap-2">
 
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRename(doc); }}
@@ -744,49 +988,33 @@ const Documents = () => {
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
+
                     {canIngest && !isRateLimited && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id); }}
-                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300"
-                        title="Ingest"
+                        className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-primary-200 text-xs font-semibold"
+                        title="Build graph"
                       >
-                        <Network className="w-4 h-4" />
+                        Build Graph
                       </button>
                     )}
-                    {isRateLimited && (
-                      <>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id, { resume: true }); }}
-                          className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-emerald-300"
-                          title="Resume graph build"
-                        >
-                          <Play className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id, { resume: false }); }}
-                          className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-amber-300"
-                          title="Restart graph build"
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                        </button>
-                      </>
-                    )}
-                    {(doc.status === 'failed' || showRetryExtract) && (
+
+                    {(isRateLimited || doc.status === 'failed' || showRetryExtract || showRetryIngest) && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id); }}
-                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-amber-300"
-                        title="Retry extraction"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isRateLimited) {
+                            handleSynthesize(doc.id, { resume: true });
+                          } else if (doc.status === 'failed' || showRetryExtract) {
+                            handleReprocess(doc.id);
+                          } else {
+                            handleSynthesize(doc.id);
+                          }
+                        }}
+                        className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-primary-200 text-xs font-semibold"
+                        title="Retry"
                       >
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
-                    )}
-                    {showRetryIngest && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleSynthesize(doc.id); }}
-                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-purple-300"
-                        title="Retry graph build"
-                      >
-                        <Network className="w-4 h-4" />
+                        Retry
                       </button>
                     )}
                     <button
@@ -814,7 +1042,7 @@ const Documents = () => {
             })}
           </div>
         )}
-        {isLoading && documents.length > 0 && (
+        {isLoading && documents.length > 0 && !wsConnected && (
           <div className="mt-4 text-[11px] text-dark-400">Refreshing documents...</div>
         )}
       </main>
@@ -862,6 +1090,11 @@ const Documents = () => {
                 <X className="w-4 h-4" />
               </button>
             </div>
+            {folderError && (
+              <div className="mb-4 text-[12px] text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+                {folderError}
+              </div>
+            )}
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-dark-400">Folder name</label>
@@ -974,7 +1207,7 @@ const Documents = () => {
                 <div className="rounded-xl border border-white/10 bg-dark-950/60 p-3 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[11px] uppercase tracking-widest text-dark-400">Embedding Connection</p>
-                    <p className={`text-xs font-semibold ${embeddingHealth?.ok ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    <p className={`text-xs font-semibold ${embeddingHealth?.ok ? 'text-primary-300' : 'text-rose-300'}`}>
                       {embeddingHealthLoading ? 'Checking...' : (embeddingHealth?.ok ? 'Connected' : 'Not connected')}
                     </p>
                     {embeddingHealth?.detail && (
@@ -1049,7 +1282,7 @@ const Documents = () => {
                       placeholder="Custom dimensions"
                     />
                   </div>
-                  <p className="mt-2 text-[11px] text-amber-300">
+                  <p className="mt-2 text-[11px] text-primary-300">
                     Changing dimensions requires re-indexing documents.
                   </p>
                 </div>

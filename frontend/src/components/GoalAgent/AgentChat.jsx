@@ -211,15 +211,15 @@ const AgentChat = ({ status, onOpenSettings }) => {
         <div className="w-full space-y-4">
           <div className="flex items-center justify-between text-xs text-dark-400">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-[0.25em] text-amber-200/70">Agent Channel</span>
+              <span className="text-[10px] uppercase tracking-[0.25em] text-primary-200/70">Agent Channel</span>
               {status?.email_configured ? (
-                <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-200">Email ready</span>
+                <span className="text-[10px] px-2 py-1 rounded-full bg-primary-500/15 text-primary-200">Email ready</span>
               ) : (
-                <span className="text-[10px] px-2 py-1 rounded-full bg-amber-500/15 text-amber-200">Email missing</span>
+                <span className="text-[10px] px-2 py-1 rounded-full bg-primary-500/15 text-primary-200">Email missing</span>
               )}
             </div>
             {!status?.email_configured && (
-              <button onClick={onOpenSettings} className="text-amber-200 hover:text-amber-100 text-[11px] font-semibold">Set it up</button>
+              <button onClick={onOpenSettings} className="text-primary-200 hover:text-primary-100 text-[11px] font-semibold">Set it up</button>
             )}
           </div>
 
@@ -251,7 +251,7 @@ const AgentChat = ({ status, onOpenSettings }) => {
             <button
               onClick={handleNegotiate}
               disabled={isNegotiating}
-              className="flex items-center gap-2 text-[11px] px-3 py-2 rounded-full bg-white/5 text-amber-200 hover:bg-white/10 disabled:opacity-40"
+              className="flex items-center gap-2 text-[11px] px-3 py-2 rounded-full bg-white/5 text-primary-200 hover:bg-white/10 disabled:opacity-40"
             >
               <Gauge className="w-3.5 h-3.5" />
               Recalculate pacing
@@ -264,12 +264,12 @@ const AgentChat = ({ status, onOpenSettings }) => {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask about goals, schedules, or study plans..."
-              className="w-full pr-20 pl-4 py-2.5 rounded-full bg-dark-900/70 border border-amber-500/20 text-sm text-white placeholder:text-dark-500 focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20"
+              className="w-full pr-20 pl-4 py-2.5 rounded-full bg-dark-900/70 border border-primary-500/20 text-sm text-white placeholder:text-dark-500 focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/20"
             />
             <button
               onClick={sendMessage}
               disabled={!input.trim() || isLoading}
-              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-full bg-amber-500 hover:bg-amber-400 text-[11px] font-semibold text-white disabled:opacity-40"
+              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-full bg-primary-500 hover:bg-primary-400 text-[11px] font-semibold text-dark-950 disabled:opacity-40"
             >
               <Send className="w-3.5 h-3.5" />
             </button>
@@ -310,17 +310,17 @@ const MessageBubble = ({ message, onQuickAction, saveConfig, onToggleAction, onS
   return (
     <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && (
-        <div className="w-9 h-9 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shadow-[0_0_24px_rgba(251,191,36,0.35)]">
+        <div className="w-9 h-9 rounded-full bg-primary-500/10 border border-primary-500/30 flex items-center justify-center shadow-[0_0_24px_rgba(194,239,179,0.35)]">
           <SolarCoreIcon size={22} />
         </div>
       )}
-      <div className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${isUser ? 'bg-amber-500/15 text-amber-100 border border-amber-500/30' : 'bg-dark-900/70 border border-amber-500/20 text-white shadow-[0_0_30px_rgba(251,191,36,0.12)] agent-stardust'}`}>
+      <div className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${isUser ? 'bg-primary-500/15 text-primary-100 border border-primary-500/30' : 'bg-dark-900/70 border border-primary-500/20 text-white shadow-[0_0_30px_rgba(194,239,179,0.12)] agent-stardust'}`}>
         {message.guardrail?.status === 'out_of_domain' && (
-          <div className="mb-2 text-[11px] text-amber-300 flex items-center gap-1">
+          <div className="mb-2 text-[11px] text-primary-300 flex items-center gap-1">
             <AlertTriangle className="w-3 h-3" /> Outside goal scope — I’ll steer back to your learning.
           </div>
         )}
-        <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-strong:text-amber-100 prose-code:text-amber-200 prose-code:bg-white/5 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-dark-950/80 prose-pre:border prose-pre:border-white/10 prose-pre:rounded-xl prose-pre:p-3 prose-pre:shadow-[0_0_20px_rgba(0,0,0,0.3)] agent-chat-content">
+        <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-li:my-1 prose-ul:my-2 prose-ol:my-2 prose-strong:text-primary-100 prose-code:text-primary-200 prose-code:bg-white/5 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-dark-950/80 prose-pre:border prose-pre:border-white/10 prose-pre:rounded-xl prose-pre:p-3 prose-pre:shadow-[0_0_20px_rgba(0,0,0,0.3)] agent-chat-content">
           <ReactMarkdown>
             {text || message.content}
           </ReactMarkdown>
@@ -329,7 +329,7 @@ const MessageBubble = ({ message, onQuickAction, saveConfig, onToggleAction, onS
           <div className="mt-2 text-[11px] text-dark-400">
             <button
               onClick={() => setShowReasoning((v) => !v)}
-              className="text-amber-200 hover:text-amber-100 underline underline-offset-2"
+              className="text-primary-200 hover:text-primary-100 underline underline-offset-2"
             >
               {showReasoning ? 'Hide reasoning' : 'Show reasoning'}
             </button>
@@ -355,7 +355,7 @@ const MessageBubble = ({ message, onQuickAction, saveConfig, onToggleAction, onS
               <button
                 key={idx}
                 onClick={() => onQuickAction(action)}
-                className="text-[10px] px-2 py-1 rounded-full bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
+                className="text-[10px] px-2 py-1 rounded-full bg-primary-500/20 text-primary-200 hover:bg-primary-500/30"
               >
                 {action}
               </button>
@@ -415,16 +415,16 @@ const MessageBubble = ({ message, onQuickAction, saveConfig, onToggleAction, onS
               <span className="ml-auto text-[10px] text-dark-500">Duration per task</span>
             </div>
             {saveConfig?.status === 'saved' && (
-              <div className="text-[11px] text-emerald-300">Saved to Daily Goals.</div>
+              <div className="text-[11px] text-primary-300">Saved to Daily Goals.</div>
             )}
             {saveConfig?.status === 'error' && (
-              <div className="text-[11px] text-amber-300">Unable to save right now.</div>
+              <div className="text-[11px] text-primary-300">Unable to save right now.</div>
             )}
           </div>
         )}
       </div>
       {isUser && (
-        <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-200 flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full bg-primary-500/20 text-primary-200 flex items-center justify-center">
           <User className="w-4 h-4" />
         </div>
       )}

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from .router_main import db
-from .db_utils import normalize_id, unwrap_query_result, first_record
+from surrealdb import AsyncSurreal
+from .router_main import get_surreal_db
+from .db_utils import normalize_id, unwrap_query_result, first_record, validate_record_id
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -19,7 +20,7 @@ class SourceUpdate(BaseModel):
     source_type: Optional[str] = None
 
 @router.get("")
-async def list_sources(notebook_id: Optional[str] = None):
+async def list_sources(notebook_id: Optional[str] = None, db: AsyncSurreal = Depends(get_surreal_db)):
     if notebook_id:
         result = await db.query(
             "SELECT * FROM source WHERE notebook_id = $notebook_id ORDER BY updated DESC",
@@ -29,7 +30,7 @@ async def list_sources(notebook_id: Optional[str] = None):
     return await db.select("source")
 
 @router.post("")
-async def create_source(source: SourceCreate):
+async def create_source(source: SourceCreate, db: AsyncSurreal = Depends(get_surreal_db)):
     return await db.create("source", {
         "title": source.title,
         "content": source.content,
@@ -40,8 +41,12 @@ async def create_source(source: SourceCreate):
     })
 
 @router.get("/{id}")
-async def get_source(id: str):
+async def get_source(id: str, db: AsyncSurreal = Depends(get_surreal_db)):
     source_id = normalize_id("source", id)
+    try:
+        source_id = validate_record_id("source", source_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid source id")
     source = await db.select(source_id)
     record = first_record(source)
     if not record:
@@ -50,8 +55,12 @@ async def get_source(id: str):
 
 
 @router.put("/{id}")
-async def update_source(id: str, source: SourceUpdate):
+async def update_source(id: str, source: SourceUpdate, db: AsyncSurreal = Depends(get_surreal_db)):
     source_id = normalize_id("source", id)
+    try:
+        source_id = validate_record_id("source", source_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid source id")
     payload: Dict[str, Any] = {
         k: v for k, v in source.model_dump().items() if v is not None
     }
@@ -67,8 +76,12 @@ async def update_source(id: str, source: SourceUpdate):
 
 
 @router.delete("/{id}")
-async def delete_source(id: str):
+async def delete_source(id: str, db: AsyncSurreal = Depends(get_surreal_db)):
     source_id = normalize_id("source", id)
+    try:
+        source_id = validate_record_id("source", source_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid source id")
     result = await db.query(f"DELETE {source_id} RETURN BEFORE")
     deleted = first_record(result)
     if not deleted:
