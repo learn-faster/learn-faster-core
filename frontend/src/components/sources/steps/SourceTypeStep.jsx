@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Controller } from "react-hook-form"
 
+const MAX_BATCH_SIZE = 50
+
 
 // Helper functions for batch URL parsing
 function parseUrls(text) {

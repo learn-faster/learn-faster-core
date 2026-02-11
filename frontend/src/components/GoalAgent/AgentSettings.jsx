@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Loader2, Eye, EyeOff, ShieldCheck, Sparkles, RefreshCw } from 'lucide-react';
 import { agentApi } from '../../services/agent';
+import aiSettings from '../../services/aiSettings';
 
 const AgentSettings = ({ onClose, onSaved }) => {
   const [settings, setSettings] = useState({
@@ -39,13 +40,28 @@ const AgentSettings = ({ onClose, onSaved }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showVisionKey, setShowVisionKey] = useState(false);
+  const [providerRegistry, setProviderRegistry] = useState([]);
+  const [globalConfig, setGlobalConfig] = useState(null);
+  const [useGlobalLlm, setUseGlobalLlm] = useState(true);
+  const [useGlobalVision, setUseGlobalVision] = useState(true);
+
+  const isSameConfig = (a, b) => {
+    if (!a || !b) return false;
+    return (
+      a.provider === b.provider &&
+      a.model === b.model &&
+      (a.base_url || '') === (b.base_url || '') &&
+      (a.api_key || '') === (b.api_key || '')
+    );
+  };
 
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const [settingsData, statusData] = await Promise.all([
+        const [settingsData, statusData, aiData] = await Promise.all([
           agentApi.settings(),
-          agentApi.status()
+          agentApi.status(),
+          aiSettings.get()
         ]);
 
         if (settingsData) {
@@ -53,6 +69,17 @@ const AgentSettings = ({ onClose, onSaved }) => {
             ...prev,
             ...settingsData
           }));
+        }
+        if (Array.isArray(aiData?.providers)) {
+          setProviderRegistry(aiData.providers);
+        }
+        const global = aiData?.llm?.global || null;
+        setGlobalConfig(global);
+        if (settingsData?.llm_config && global) {
+          setUseGlobalLlm(isSameConfig(settingsData.llm_config, global));
+        }
+        if (settingsData?.vision_llm_config && global) {
+          setUseGlobalVision(isSameConfig(settingsData.vision_llm_config, global));
         }
         setConnected(statusData?.fitbit_connected || false);
         if (statusData?.fitbit_connected) {
@@ -90,7 +117,12 @@ const AgentSettings = ({ onClose, onSaved }) => {
     setIsSaving(true);
     setError(null);
     try {
-      await agentApi.saveSettings(settings);
+      const payload = {
+        ...settings,
+        llm_config: useGlobalLlm && globalConfig ? globalConfig : settings.llm_config,
+        vision_llm_config: useGlobalVision && globalConfig ? globalConfig : settings.vision_llm_config
+      };
+      await agentApi.saveSettings(payload);
       onSaved?.();
       if (onClose) onClose();
     } catch (error) {
@@ -148,11 +180,45 @@ const AgentSettings = ({ onClose, onSaved }) => {
             </Section>
 
             <Section title="LLM Configuration">
-              <ConfigFields config={settings.llm_config} onChange={(f, v) => handleChange('llm_config', f, v)} showKey={showApiKey} setShowKey={setShowApiKey} />
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-dark-300">Use global settings</span>
+                <input
+                  type="checkbox"
+                  checked={useGlobalLlm}
+                  onChange={(e) => setUseGlobalLlm(e.target.checked)}
+                  className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
+                />
+              </div>
+              {!useGlobalLlm && (
+                <ConfigFields
+                  config={settings.llm_config}
+                  providers={providerRegistry}
+                  onChange={(f, v) => handleChange('llm_config', f, v)}
+                  showKey={showApiKey}
+                  setShowKey={setShowApiKey}
+                />
+              )}
             </Section>
 
             <Section title="Vision LLM">
-              <ConfigFields config={settings.vision_llm_config} onChange={(f, v) => handleChange('vision_llm_config', f, v)} showKey={showVisionKey} setShowKey={setShowVisionKey} />
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-dark-300">Use global settings</span>
+                <input
+                  type="checkbox"
+                  checked={useGlobalVision}
+                  onChange={(e) => setUseGlobalVision(e.target.checked)}
+                  className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
+                />
+              </div>
+              {!useGlobalVision && (
+                <ConfigFields
+                  config={settings.vision_llm_config}
+                  providers={providerRegistry}
+                  onChange={(f, v) => handleChange('vision_llm_config', f, v)}
+                  showKey={showVisionKey}
+                  setShowKey={setShowVisionKey}
+                />
+              )}
             </Section>
 
             <Section title="Capabilities & Biometrics">
@@ -319,7 +385,24 @@ const Section = ({ title, icon: Icon, children }) => (
   </div>
 );
 
-const ConfigFields = ({ config, onChange, showKey, setShowKey }) => (
+const ConfigFields = ({ config, providers = [], onChange, showKey, setShowKey }) => {
+  const fallbackProviders = [
+    { id: 'openai', label: 'OpenAI' },
+    { id: 'groq', label: 'Groq' },
+    { id: 'openrouter', label: 'OpenRouter' },
+    { id: 'together', label: 'Together' },
+    { id: 'fireworks', label: 'Fireworks' },
+    { id: 'mistral', label: 'Mistral' },
+    { id: 'deepseek', label: 'DeepSeek' },
+    { id: 'perplexity', label: 'Perplexity' },
+    { id: 'huggingface', label: 'Hugging Face' },
+    { id: 'ollama', label: 'Ollama (Local)' },
+    { id: 'custom', label: 'OpenAI-Compatible' }
+  ];
+  const providerOptions = (Array.isArray(providers) && providers.length ? providers : fallbackProviders)
+    .map((p) => ({ value: p.id, label: p.label || p.name || p.id }));
+
+  return (
   <div className="space-y-3">
     <div>
       <label className="block text-xs text-dark-400 mb-1">Provider</label>
@@ -328,10 +411,9 @@ const ConfigFields = ({ config, onChange, showKey, setShowKey }) => (
         onChange={(e) => onChange('provider', e.target.value)}
         className={inputClass}
       >
-        <option value="openai">OpenAI</option>
-        <option value="groq">Groq</option>
-        <option value="ollama">Ollama</option>
-        <option value="openrouter">OpenRouter</option>
+        {providerOptions.map((prov) => (
+          <option key={prov.value} value={prov.value}>{prov.label}</option>
+        ))}
       </select>
     </div>
     <div>
@@ -343,25 +425,27 @@ const ConfigFields = ({ config, onChange, showKey, setShowKey }) => (
         className={inputClass}
       />
     </div>
-    <div>
-      <label className="block text-xs text-dark-400 mb-1">API Key</label>
-      <div className="relative">
-        <input
-          type={showKey ? 'text' : 'password'}
-          value={config.api_key || ''}
-          onChange={(e) => onChange('api_key', e.target.value)}
-          className={inputClass}
-        />
-        <button
-          type="button"
-          onClick={() => setShowKey(!showKey)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"
-        >
-          {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-        </button>
+    {config.provider !== 'ollama' && (
+      <div>
+        <label className="block text-xs text-dark-400 mb-1">API Key</label>
+        <div className="relative">
+          <input
+            type={showKey ? 'text' : 'password'}
+            value={config.api_key || ''}
+            onChange={(e) => onChange('api_key', e.target.value)}
+            className={inputClass}
+          />
+          <button
+            type="button"
+            onClick={() => setShowKey(!showKey)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"
+          >
+            {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
       </div>
-    </div>
-    {config.provider === 'ollama' && (
+    )}
+    {(config.provider === 'ollama' || ['openrouter','together','fireworks','mistral','deepseek','perplexity','huggingface','custom'].includes(config.provider)) && (
       <div>
         <label className="block text-xs text-dark-400 mb-1">Base URL</label>
         <input
@@ -369,12 +453,13 @@ const ConfigFields = ({ config, onChange, showKey, setShowKey }) => (
           value={config.base_url || ''}
           onChange={(e) => onChange('base_url', e.target.value)}
           className={inputClass}
-          placeholder="http://localhost:11434"
+          placeholder={config.provider === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'}
         />
       </div>
     )}
   </div>
-);
+  );
+};
 
 const inputClass = "w-full px-3 py-2 rounded-xl bg-dark-900/70 border border-white/10 text-sm text-white placeholder:text-dark-500 focus:border-primary-500/60 focus:ring-2 focus:ring-primary-500/20";
 

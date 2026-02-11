@@ -6,14 +6,14 @@ import { useState, useEffect } from 'react'
  * Hook to detect if viewport matches a media query.
  * Returns false during SSR to avoid hydration mismatches.
  */
-export function useMediaQuery(query: string): boolean {
+export function useMediaQuery(query) {
   const [matches, setMatches] = useState(false)
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(query)
     setMatches(mediaQuery.matches)
 
-    const handler = ( event) => {
+    const handler = (event) => {
       setMatches(event.matches)
     }
 
@@ -27,6 +27,6 @@ export function useMediaQuery(query: string): boolean {
 /**
  * Returns true if viewport is >= 1024px (Tailwind's 'lg' breakpoint)
  */
-export function useIsDesktop(): boolean {
+export function useIsDesktop() {
   return useMediaQuery('(min-width: 1024px)')
 }

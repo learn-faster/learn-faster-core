@@ -14,6 +14,22 @@ if (!window.matchMedia) {
   });
 }
 
+if (!window.localStorage) {
+  const store = new Map();
+  window.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key) => {
+      store.delete(key);
+    },
+    clear: () => {
+      store.clear();
+    },
+  };
+}
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key, options) => {

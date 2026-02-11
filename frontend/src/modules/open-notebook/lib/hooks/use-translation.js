@@ -36,7 +36,6 @@ export function useTranslation() {
       'Symbol(Symbol.toStringTag)', 'Symbol(Symbol.iterator)',
     ]);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const createProxy = (path, depth = 0) => {
       // SAFETY: Strict depth limit to prevent stack overflow
       if (depth > 3) {
@@ -47,10 +46,8 @@ export function useTranslation() {
       const proxyTarget = (keyOrOptions, options) => {
         if (typeof keyOrOptions === 'string') {
           const fullPath = path ? `${path}.${keyOrOptions}` : keyOrOptions;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return i18nTranslateCopy(fullPath, options);
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return i18nTranslateCopy(path, keyOrOptions);
       };
 
@@ -75,13 +72,11 @@ export function useTranslation() {
 
           // Handle Symbol properties immediately
           if (typeof prop === 'symbol') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return (target)[prop];
           }
 
           // Handle function's own properties
           if (prop in target) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return (target)[prop];
           }
 
@@ -107,14 +102,12 @@ export function useTranslation() {
             prop === 'trim' || prop === 'toLowerCase' || prop === 'toUpperCase') {
             const translated = i18nTranslateCopy(path);
             if (typeof translated === 'string') {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const val = (translated)[prop];
               return typeof val === 'function' ? val.bind(translated) : val;
             }
           }
 
           // If i18n returned the key itself (meaning not found), stop recursion
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           if ((result) === currentPath || result === undefined || result === null) {
             return currentPath; // Return path as fallback instead of continuing
           }
@@ -148,7 +141,6 @@ export function useTranslation() {
   }, [i18n])
 
   return useMemo(() => ({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     t: t,
     i18n,
     language: i18n.language,

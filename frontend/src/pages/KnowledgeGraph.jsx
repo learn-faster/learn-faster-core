@@ -131,6 +131,8 @@ const KnowledgeGraph = () => {
     });
     const [buildMode, setBuildMode] = useState('existing');
     const [buildSourceMode, setBuildSourceMode] = useState('filtered');
+    const [buildExtractionMaxChars, setBuildExtractionMaxChars] = useState('');
+    const [buildChunkSize, setBuildChunkSize] = useState('');
     const [buildError, setBuildError] = useState('');
     const [showConnections, setShowConnections] = useState(false);
     const [showCrossLinks, setShowCrossLinks] = useState(true);

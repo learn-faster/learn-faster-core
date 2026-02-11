@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
+import { vi } from 'vitest';
 import AgentSettings from '../components/GoalAgent/AgentSettings';
 
 const mockAgentApi = vi.hoisted(() => ({
@@ -12,6 +13,15 @@ const mockAgentApi = vi.hoisted(() => ({
 
 vi.mock('../services/agent', () => ({
   agentApi: mockAgentApi
+}));
+
+vi.mock('../services/aiSettings', () => ({
+  default: {
+    get: vi.fn().mockResolvedValue({
+      providers: [],
+      llm: { global: { provider: 'openai', model: 'gpt-4o' } },
+    }),
+  },
 }));
 
 describe('AgentSettings Fitbit UI', () => {
