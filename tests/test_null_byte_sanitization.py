@@ -1,6 +1,6 @@
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from src.ingestion.vector_storage import VectorStorage
 
 class TestNullByteSanitization:
@@ -9,19 +9,16 @@ class TestNullByteSanitization:
         # Create a mock database connection
         mock_db_conn = MagicMock()
         mock_db_conn.execute_query.return_value = [{'id': 1}]
+        mock_db_conn.connect = None
 
-        # Patch Ollama Client
-        with patch('src.ingestion.vector_storage.ollama.Client') as mock_client_cls:
-            mock_client = mock_client_cls.return_value
-            mock_client.embeddings.return_value = {'embedding': [0.1] * 768}
-            
+        # Patch embedding generation to avoid network calls
+        with patch('src.services.llm_service.llm_service.get_embedding', new=AsyncMock(return_value=[0.1] * 768)):
             # Inject mock dependencies
             storage = VectorStorage(db_connection=mock_db_conn)
-            storage._client = mock_client
-            
-            return storage, mock_db_conn
+            yield storage, mock_db_conn
 
-    def test_store_chunk_sanitizes_input(self, mock_vector_storage):
+    @pytest.mark.asyncio
+    async def test_store_chunk_sanitizes_input(self, mock_vector_storage):
         storage, mock_db_conn = mock_vector_storage
         
         # Input with null bytes
@@ -30,7 +27,7 @@ class TestNullByteSanitization:
         concept_tag = "general\x00"
         
         try:
-            storage.store_chunk(doc_source, content, concept_tag)
+            await storage.store_chunk(doc_source, content, concept_tag)
         except Exception as e:
             pytest.fail(f"store_chunk raised exception: {e}")
         
@@ -47,7 +44,8 @@ class TestNullByteSanitization:
         assert params[1] == "This contains a null byte  in the middle."
         assert params[3] == "general"
 
-    def test_store_chunks_batch_sanitizes_input(self, mock_vector_storage):
+    @pytest.mark.asyncio
+    async def test_store_chunks_batch_sanitizes_input(self, mock_vector_storage):
         storage, mock_db_conn = mock_vector_storage
         
         chunks = [
@@ -55,7 +53,7 @@ class TestNullByteSanitization:
             ("doc2", "content2", "tag2")
         ]
         
-        storage.store_chunks_batch(chunks)
+        await storage.store_chunks_batch(chunks)
         
         # Verify batch calls. Since store_chunks_batch does individual inserts (based on code), 
         # we check the call history.

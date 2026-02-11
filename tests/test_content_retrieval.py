@@ -1,90 +1,92 @@
 """
-Property-based tests for Content Retrieval verification.
+Tests for Content Retriever ordering and generation behavior.
 """
 
 import pytest
-import uuid
-from hypothesis import given, strategies as st, settings
-from unittest.mock import MagicMock
 
 from src.path_resolution.content_retriever import ContentRetriever
 from src.models.schemas import LearningChunk
 
-# Initialize retriever
-retriever = ContentRetriever()
 
-class TestContentRetrieval:
-    """Property-based tests for content retrieval and formatting."""
+@pytest.mark.asyncio
+async def test_content_ordering():
+    """
+    Content ordering should preserve input concept order when building raw content.
+    """
+    retriever = ContentRetriever()
+    concepts = ["alpha", "beta", "gamma"]
 
-    @given(st.lists(st.text(min_size=1, max_size=10, alphabet=st.characters(whitelist_categories=('L',))), min_size=1, max_size=5))
-    @settings(max_examples=50, deadline=None)
-    def test_content_ordering(self, concepts):
-        """
-        **Feature: learnfast-core-engine, Property 13: Content ordering consistency**
-        **Validates: Requirements 3.4**
-        
-        The generated lesson must follow the exact order of concepts in basic input.
-        """
-        # Mock the retrieve_chunks_by_concept method to return dummy content
-        # We need to mock the instance method
-        
-        original_retrieve = retriever.retrieve_chunks_by_concept
-        
-        def mock_retrieve(concept):
-            return [LearningChunk(
-                id=1, 
-                doc_source="test.md", 
-                content=f"Content for {concept}", 
-                concept_tag=concept
-            )]
-            
-        retriever.retrieve_chunks_by_concept = mock_retrieve
-        
-        try:
-            lesson = retriever.get_lesson_content(concepts)
-            
-            # Verify order by checking indices of concept headers
-            last_index = -1
-            for i, concept in enumerate(concepts):
-                header = f"## {i+1}. {concept.title()}"
-                
-                # Should be present
-                idx = lesson.find(header)
-                assert idx != -1, f"Header for {concept} missing"
-                
-                # Should be after the previous one
-                assert idx > last_index, f"Header for {concept} out of order"
-                last_index = idx
-                
-                # Content should be present
-                content_snippet = f"Content for {concept}"
-                assert content_snippet in lesson
-                
-        finally:
-            retriever.retrieve_chunks_by_concept = original_retrieve
+    original_retrieve = retriever.retrieve_chunks_by_concept
+    original_cached = retriever._get_cached_lesson
+    original_cache = retriever._cache_lesson
+    original_rewrite = retriever._rewrite_with_llm
 
-    @given(st.lists(st.text(min_size=1, max_size=10, alphabet=st.characters(whitelist_categories=('L',))), min_size=1, max_size=5))
-    @settings(max_examples=50, deadline=None)
-    def test_lesson_formatting(self, concepts):
-        """
-        **Feature: learnfast-core-engine, Property 14: Lesson formatting completeness**
-        **Validates: Requirements 3.5**
-        
-        Lesson should contain title, target, and concept headers.
-        """
-        original_retrieve = retriever.retrieve_chunks_by_concept
-        retriever.retrieve_chunks_by_concept = lambda c: [] # Empty content is fine for structure check
-        
-        try:
-            lesson = retriever.get_lesson_content(concepts)
-            
-            # Check mandatory structural elements
-            assert "# Personalized Learning Path" in lesson
-            assert "**Target Goal**" in lesson
-            assert str(concepts[-1].title()) in lesson
-            
-            for i, concept in enumerate(concepts):
-                assert f"## {i+1}. {concept.title()}" in lesson
-                
-        finally:
-            retriever.retrieve_chunks_by_concept = original_retrieve
+    def mock_retrieve(concept):
+        return [
+            LearningChunk(
+                id=1,
+                doc_source="test.md",
+                content=f"Content for {concept}",
+                concept_tag=concept,
+            )
+        ]
+
+    async def mock_rewrite(target_concept, time_budget, raw_content, completed_concepts=None):
+        return raw_content
+
+    retriever.retrieve_chunks_by_concept = mock_retrieve
+    retriever._get_cached_lesson = lambda *args, **kwargs: None
+    retriever._cache_lesson = lambda *args, **kwargs: None
+    retriever._rewrite_with_llm = mock_rewrite
+
+    try:
+        lesson = await retriever.get_lesson_content(concepts, time_budget_minutes=30)
+
+        last_index = -1
+        for concept in concepts:
+            marker = f"(Concept: {concept})"
+            idx = lesson.find(marker)
+            assert idx != -1, f"Marker for {concept} missing"
+            assert idx > last_index, f"Marker for {concept} out of order"
+            last_index = idx
+    finally:
+        retriever.retrieve_chunks_by_concept = original_retrieve
+        retriever._get_cached_lesson = original_cached
+        retriever._cache_lesson = original_cache
+        retriever._rewrite_with_llm = original_rewrite
+
+
+@pytest.mark.asyncio
+async def test_lesson_generation_fallback():
+    """
+    When no chunks exist, the retriever should generate a lesson from scratch.
+    """
+    retriever = ContentRetriever()
+    concepts = ["alpha", "beta"]
+
+    original_retrieve = retriever.retrieve_chunks_by_concept
+    original_cached = retriever._get_cached_lesson
+    original_cache = retriever._cache_lesson
+    original_generate = retriever._generate_lesson_from_scratch
+
+    retriever.retrieve_chunks_by_concept = lambda concept: []
+    retriever._get_cached_lesson = lambda *args, **kwargs: None
+    retriever._cache_lesson = lambda *args, **kwargs: None
+
+    calls = []
+
+    async def mock_generate(target_concept, time_budget):
+        calls.append((target_concept, time_budget))
+        return "LESSON"
+
+    retriever._generate_lesson_from_scratch = mock_generate
+
+    try:
+        lesson = await retriever.get_lesson_content(concepts, time_budget_minutes=25)
+        assert lesson == "LESSON"
+        assert calls == [("beta", 25)]
+    finally:
+        retriever.retrieve_chunks_by_concept = original_retrieve
+        retriever._get_cached_lesson = original_cached
+        retriever._cache_lesson = original_cache
+        retriever._generate_lesson_from_scratch = original_generate

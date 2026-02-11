@@ -31,8 +31,8 @@ def test_save_transcript_duplicate_handling():
     mock_db.execute_query.side_effect = [
         [], # check_query results: empty
         [{'id': 1, 'upload_date': '2023-01-01'}], # insert_query results
-        1 # update record with path
     ]
+    mock_db.execute_write = MagicMock()
     
     # We also need to mock open() but for simplicity let's just mock the db calls
     # and use a patch for the file writing if needed.
@@ -44,11 +44,9 @@ def test_save_transcript_duplicate_handling():
             # Setup mock for second call (exists)
             mock_db.execute_query.side_effect = [
                 [{'id': 1, 'upload_date': '2023-01-01'}], # check_query results: found
-                1, # update status to pending
-                1 # update record with path
             ]
             
             meta2 = store.save_transcript(video_id, "transcript")
             assert meta2.id == 1
-            assert mock_db.execute_query.call_args_list[3][0][0] == "SELECT id, upload_date FROM documents WHERE filename = %s"
-            assert mock_db.execute_query.call_args_list[4][0][0] == "UPDATE documents SET status = 'pending' WHERE id = %s"
+            assert mock_db.execute_query.call_args_list[2][0][0] == "SELECT id, upload_date FROM documents WHERE filename = %s"
+            mock_db.execute_write.assert_any_call("UPDATE documents SET status = 'pending' WHERE id = %s", (1,))
