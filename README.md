@@ -86,29 +86,49 @@ npm run dev
 ## Configuration
 All environment variables live in `.env`. See `.env.example` for defaults.
 
-**Databases**
-- `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`
-- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
-- `SURREAL_URL`, `SURREAL_USER`, `SURREAL_PASSWORD`, `SURREAL_NAMESPACE`, `SURREAL_DATABASE`
+<div align="center">
+  <h3>Interactive Dashboard</h3>
+  <img src="frontend/src/assets/dash.png" width="800" alt="Dashboard Overview">
+  <br/><br/>
+  
+  <h3>Document Management & Processing</h3>
+  <img src="frontend/src/assets/documents.png" width="800" alt="Document Ingestion">
+  <br/><br/>
+
+  <h3>Adaptive Practice Engine</h3>
+  <img src="frontend/src/assets/prac.png" width="800" alt="Practice Sessions">
+  <br/><br/>
+
+  <h3>Customizable Curriculum</h3>
+  <img src="frontend/src/assets/curri.png" width="800">
+  <br/><br/>
+
+  <h3>Personalised learning</h3>
+  <img src="frontend/src/assets/welcome.png" width="800" alt="Knowledge Graph Visualization">
+</div>
 
 **LLM and Embeddings**
 - `LLM_PROVIDER`, `LLM_MODEL`
 - `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_CONCURRENCY`
 - Optional overrides: `EXTRACTION_MODEL`, `REWRITE_MODEL`, context window limits
 
-**Voice (TTS/STT)**
-- Configure provider/model in Open Notebook speaker profiles and episode profiles
+## Architecture (High-Level)
+```
+Frontend (React + Vite)
+  ├─ Dashboard / Analytics / Practice / Docs / Knowledge Graph
+  └─ Agent UI (chat + tools + settings)
 
-**Screenshots (Agent Tools)**
-- Requires Playwright for screenshot capture
+Backend (FastAPI)
+  ├─ Documents, Flashcards, Practice, Curriculum
+  ├─ Goals, Daily Plans, Agent + Negotiation
+  ├─ Analytics, Dashboard, Fitbit integration
+  └─ Knowledge Graph + Navigation
 
-**Email service (Resend)**
-- `RESEND_API_KEY`
-- `RESEND_FROM_EMAIL`
-- `RESEND_REPLY_DOMAIN`
-Notes:
-- If Resend is not configured, email notifications and goal negotiations are disabled.
-- Use a verified sender domain for production.
+Data Layer
+  ├─ PostgreSQL + pgvector
+  ├─ Neo4j (concept graph)
+  └─ SurrealDB (Open Notebook)
+---
 
 **Fitbit integration (optional)**
 - `FITBIT_CLIENT_ID`
@@ -155,18 +175,30 @@ uv run python scripts/rq_worker.py
 uv run python -m src.database.init_db
 ```
 
-## Troubleshooting
-**Missing Python packages**
-- Run `uv sync` again to ensure dependencies are installed.
+---
 
-**Backend cannot reach Docker services**
-- Set `POSTGRES_HOST`, `NEO4J_URI`, or `DOCKER_HOST_OVERRIDE` explicitly in `.env`.
+## Key Endpoints
+- `/api/documents/*` — ingest, parse, recall prompts
+- `/api/practice/*` — practice sessions, items, history
+- `/api/dashboard/overview` — unified dashboard data
+- `/api/analytics/*` — insights and trends
+- `/api/goals/*` — goals, daily plans, agent actions
+- `/api/fitbit/*` — optional biometric inputs
+- `/api/graphs/*` — knowledge graph workflows
 
-**Open Notebook errors**
-- Confirm SurrealDB is running and credentials match `.env`.
-
-**Frontend API errors**
-- Set `VITE_BACKEND_URL` in `.env` if the backend is not on `localhost:8001`.
-
-## License
-Add your license here.
+---
+## Project Map
+```
+src/
+  routers/           # API endpoints
+  services/          # domain logic (practice, goals, analytics, agent)
+  models/            # ORM + Pydantic schemas
+  ingestion/         # document processing
+frontend/
+  pages/             # Dashboard, Analytics, Practice, Documents
+  components/        # Agent UI and shared UI pieces
+docs/
+  PROJECT_OVERVIEW.md
+  PROJECT_UPDATE_SUMMARY.md
+```
+**LearnFast** — turn goals into daily learning and measurable progress.
