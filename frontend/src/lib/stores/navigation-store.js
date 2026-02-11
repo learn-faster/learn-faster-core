@@ -77,7 +77,6 @@ export const useNavigationStore = create()(
             // Silently fail if sessionStorage is not available
           }
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }
     }
   )

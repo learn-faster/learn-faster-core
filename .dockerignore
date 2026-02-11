@@ -1,0 +1,47 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info
+.pytest_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Virtual env
+.venv
+venv
+
+# Node
+node_modules
+frontend/node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build/output
+.dist
+build
+frontend/dist
+
+# IDE
+.vscode
+.idea
+.DS_Store
+
+# Logs
+*.log
+
+# Data/artifacts
+/data
+/tmp
+
+# Git
+.git
+.gitignore
+
+# Env
+.env
+.env.*

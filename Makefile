@@ -3,6 +3,7 @@ FRONTEND_DIR = frontend
 BACKEND_PORT = 8001
 BACKEND_HOST ?= 127.0.0.1
 ENV ?= windows
+DOCKER_FILE = docker-compose.yml
 
 # Commands
 WSL = wsl
@@ -15,7 +16,10 @@ else
 	DOCKER_CMD = $(DOCKER_CMD)
 endif
 
-.PHONY: help setup db-init backend frontend both docker-up docker-down dev worker test
+DOCKER_COMPOSE = $(DOCKER_CMD) -f $(DOCKER_FILE)
+DOCKER_COMPOSE_FALLBACK = $(DOCKER_CMD_FALLBACK) -f $(DOCKER_FILE)
+
+.PHONY: help setup db-init backend frontend both docker-up docker-down docker-logs docker-ps dev worker test
 
 help:
 	@echo "Available targets:"
@@ -26,6 +30,8 @@ help:
 	@echo "  make both         - Start both frontend and backend"
 	@echo "  make docker-up    - Start Docker services (default ENV=windows, use ENV=wsl for WSL)"
 	@echo "  make docker-down  - Stop Docker services"
+	@echo "  make docker-logs  - Tail Docker service logs"
+	@echo "  make docker-ps    - Show Docker service status"
 	@echo "  make dev          - Start Docker, backend, and frontend (set ENV=wsl for WSL)"
 	@echo "  make worker       - Start the Redis ingestion worker"
 	@echo "  make test         - Run backend tests"
@@ -53,10 +59,16 @@ dev:
 	@$(MAKE) -j 2 backend frontend
 
 docker-up:
-	$(DOCKER_CMD) up -d || $(DOCKER_CMD_FALLBACK) up -d
+	$(DOCKER_COMPOSE) up -d || $(DOCKER_COMPOSE_FALLBACK) up -d
 
 docker-down:
-	$(DOCKER_CMD) down || $(DOCKER_CMD_FALLBACK) down
+	$(DOCKER_COMPOSE) down || $(DOCKER_COMPOSE_FALLBACK) down
+
+docker-logs:
+	$(DOCKER_COMPOSE) logs -f --tail=200 || $(DOCKER_COMPOSE_FALLBACK) logs -f --tail=200
+
+docker-ps:
+	$(DOCKER_COMPOSE) ps || $(DOCKER_COMPOSE_FALLBACK) ps
 
 worker:
 	uv run python scripts/rq_worker.py

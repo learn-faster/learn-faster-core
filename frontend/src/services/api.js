@@ -54,7 +54,9 @@ api.interceptors.response.use(
             if (traceId) localStorage.setItem("opik_last_trace_id", traceId);
             const project = response?.headers?.["x-opik-project"];
             if (project) localStorage.setItem("opik_project", project);
-        } catch {}
+        } catch (err) {
+            void err;
+        }
         return response.data;
     },
     (error) => {

@@ -25,6 +25,7 @@ import {
   Unlink
 } from 'lucide-react'
 import { useSourceStatus } from '@/lib/hooks/use-sources'
+import { useTranslation } from '@/lib/hooks/use-translation'
 import { cn } from '@/lib/utils'
 import { ContextToggle } from '@/components/common/ContextToggle'
 
@@ -77,7 +78,7 @@ const getStatusConfig = (t) => ({
     label: t.sources.statusFailed,
     description: t.sources.statusFailedDesc
   }
-}
+})
 
 function isSourceStatus(status) {
   return typeof status === 'string' && ['new', 'queued', 'running', 'completed', 'failed'].includes(status)
@@ -104,6 +105,7 @@ export function SourceCard({
 }) {
   const sourceWithStatus = source
   const { t } = useTranslation()
+  const statusConfigMap = getStatusConfig(t)
 
   // Track processing state to continue polling until we detect completion
   const [wasProcessing, setWasProcessing] = useState(false)

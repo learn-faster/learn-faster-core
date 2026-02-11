@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Key, Bot, Zap, Server, Check, ChevronRight, Sparkles, ExternalLink } from 'lucide-react';
+import aiSettings from '../services/aiSettings';
 
 /**
  * Inline API Key Setup Component.
@@ -13,83 +14,117 @@ import { Key, Bot, Zap, Server, Check, ChevronRight, Sparkles, ExternalLink } fr
  * @returns {JSX.Element} The rendered setup component.
  */
 const ApiKeySetup = ({ onConfigured, compact = false }) => {
-    const [provider, setProvider] = useState('groq');
+    const [provider, setProvider] = useState('openai');
     const [apiKey, setApiKey] = useState('');
-    const [model, setModel] = useState('qwen/qwen3-32b');
+    const [model, setModel] = useState('gpt-4o-mini');
     const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [registry, setRegistry] = useState([]);
 
     // Initialize from localStorage
     React.useEffect(() => {
-        const savedProvider = localStorage.getItem('llm_provider');
-        const savedKey = localStorage.getItem('llm_api_key');
-        const savedModel = localStorage.getItem('llm_model');
-        const savedUrl = localStorage.getItem('ollama_base_url');
+        const hydrate = async () => {
+            try {
+                const data = await aiSettings.get();
+                const globalConfig = data?.llm?.global || {};
+                if (globalConfig.provider) setProvider(globalConfig.provider);
+                if (globalConfig.api_key) setApiKey(globalConfig.api_key);
+                if (globalConfig.model) setModel(globalConfig.model);
+                if (globalConfig.base_url) setOllamaUrl(globalConfig.base_url);
+                if (Array.isArray(data?.providers)) setRegistry(data.providers);
+            } catch {
+                const savedProvider = localStorage.getItem('llm_provider');
+                const savedKey = localStorage.getItem('llm_api_key');
+                const savedModel = localStorage.getItem('llm_model');
+                const savedUrl = localStorage.getItem('ollama_base_url');
 
-        if (savedProvider) setProvider(savedProvider);
-        if (savedKey) setApiKey(savedKey);
-        if (savedModel) setModel(savedModel);
-        if (savedUrl) setOllamaUrl(savedUrl);
-
-        setIsInitialized(true);
+                if (savedProvider) setProvider(savedProvider);
+                if (savedKey) setApiKey(savedKey);
+                if (savedModel) setModel(savedModel);
+                if (savedUrl) setOllamaUrl(savedUrl);
+            } finally {
+                setIsInitialized(true);
+            }
+        };
+        hydrate();
     }, []);
 
-    const providers = [
-        {
-            id: 'groq',
-            name: 'Groq',
+    const providerExtras = {
+        groq: {
             icon: <Zap className="w-5 h-5" />,
             description: 'Ultra-fast inference',
             defaultModel: 'qwen/qwen3-32b',
             keyUrl: 'https://console.groq.com/keys',
             color: 'from-primary-400 to-primary-600'
         },
-        {
-            id: 'openai',
-            name: 'OpenAI',
+        openai: {
             icon: <Bot className="w-5 h-5" />,
             description: 'GPT-4 & GPT-3.5',
             defaultModel: 'gpt-4o-mini',
             keyUrl: 'https://platform.openai.com/api-keys',
             color: 'from-primary-300 to-primary-500'
         },
-        {
-            id: 'ollama',
-            name: 'Ollama',
+        ollama: {
             icon: <Server className="w-5 h-5" />,
             description: 'Run locally, free',
             defaultModel: 'llama3',
             keyUrl: null,
             color: 'from-primary-200 to-primary-400'
         },
-        {
-            id: 'google',
-            name: 'Google Gemini',
+        google: {
             icon: <Sparkles className="w-5 h-5" />,
             description: 'Flash & Pro models',
             defaultModel: 'gemini-2.0-flash-exp',
             keyUrl: 'https://aistudio.google.com/app/apikey',
             color: 'from-primary-500 to-primary-700'
         }
-    ];
+    };
+
+    const providers = (registry.length ? registry : [
+        { id: 'openai', label: 'OpenAI' },
+        { id: 'groq', label: 'Groq' },
+        { id: 'ollama', label: 'Ollama (Local)' },
+        { id: 'google', label: 'Google (Gemini)' }
+    ]).map((p) => {
+        const extras = providerExtras[p.id] || {};
+        return {
+            id: p.id,
+            name: p.label || p.name || p.id,
+            icon: extras.icon || <Bot className="w-5 h-5" />,
+            description: extras.description || 'Configure this provider',
+            defaultModel: extras.defaultModel || model,
+            keyUrl: extras.keyUrl || null,
+            color: extras.color || 'from-primary-400 to-primary-600'
+        };
+    });
 
     const selectedProvider = providers.find(p => p.id === provider);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         setSaving(true);
 
-        // Save to localStorage
-        localStorage.setItem('llm_provider', provider);
-        localStorage.setItem('llm_api_key', apiKey);
-        localStorage.setItem('llm_model', model);
-        localStorage.setItem('ollama_base_url', ollamaUrl);
-
-        setTimeout(() => {
+        try {
+            await aiSettings.update({
+                llm: {
+                    global: {
+                        provider,
+                        api_key: apiKey,
+                        model,
+                        base_url: provider === 'ollama' ? ollamaUrl : undefined
+                    }
+                }
+            });
+            localStorage.setItem('llm_provider', provider || '');
+            localStorage.setItem('llm_api_key', apiKey || '');
+            localStorage.setItem('ollama_base_url', ollamaUrl || '');
+            localStorage.setItem('llm_model', model || '');
             setSaving(false);
             if (onConfigured) onConfigured();
-        }, 500);
+        } catch {
+            setSaving(false);
+        }
     };
 
     const canProceed = provider === 'ollama' || (apiKey && apiKey.trim().length > 0);
@@ -138,6 +173,12 @@ const ApiKeySetup = ({ onConfigured, compact = false }) => {
                         className="w-full btn-primary py-2 text-xs font-bold"
                     >
                         {saving ? 'Saving...' : 'Save & Enable AI'}
+                    </button>
+                    <button
+                        onClick={() => window.location.href = '/settings'}
+                        className="w-full btn-secondary py-2 text-[10px] font-semibold"
+                    >
+                        Open AI Settings
                     </button>
                 </div>
             </div>
@@ -198,6 +239,12 @@ const ApiKeySetup = ({ onConfigured, compact = false }) => {
                     >
                         Continue with {selectedProvider?.name}
                         <ChevronRight className="w-5 h-5" />
+                    </button>
+                    <button
+                        onClick={() => window.location.href = '/settings'}
+                        className="btn-secondary w-full py-3 text-xs font-semibold mt-3"
+                    >
+                        Open AI Settings
                     </button>
                 </>
             ) : (

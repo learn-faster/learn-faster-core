@@ -6,6 +6,7 @@ import { getHealth } from '../lib/config';
 import { formatApiErrorMessage } from '../lib/utils/api-error';
 import InlineErrorBanner from '../components/common/InlineErrorBanner';
 import { getUserId, setUserId, isValidUserId } from '../lib/utils/user-id';
+import aiSettings from '../services/aiSettings';
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ const Settings = () => {
   const [userId, setUserIdState] = useState(() => getUserId());
   const [newUserId, setNewUserId] = useState('');
   const [identityMessage, setIdentityMessage] = useState('');
+  const [providerRegistry, setProviderRegistry] = useState([]);
 
   // Settings state
   const [settings, setSettings] = useState({
@@ -47,6 +49,35 @@ const Settings = () => {
     },
     resend_api_key: ''
   });
+
+  const providerOptions = (providerRegistry && providerRegistry.length ? providerRegistry : [
+    { id: 'openai', label: 'OpenAI' },
+    { id: 'groq', label: 'Groq' },
+    { id: 'openrouter', label: 'OpenRouter' },
+    { id: 'together', label: 'Together' },
+    { id: 'fireworks', label: 'Fireworks' },
+    { id: 'mistral', label: 'Mistral' },
+    { id: 'deepseek', label: 'DeepSeek' },
+    { id: 'perplexity', label: 'Perplexity' },
+    { id: 'huggingface', label: 'Hugging Face' },
+    { id: 'ollama', label: 'Ollama (Local)' },
+    { id: 'custom', label: 'OpenAI-Compatible' }
+  ]).map((p) => ({ value: p.id, label: p.label || p.name || p.id }));
+
+  const embeddingProviderOptions = (providerRegistry && providerRegistry.length ? providerRegistry : [
+    { id: 'openai', label: 'OpenAI', supports_embeddings: true },
+    { id: 'ollama', label: 'Ollama (Local)', supports_embeddings: true },
+    { id: 'openrouter', label: 'OpenRouter', supports_embeddings: true },
+    { id: 'together', label: 'Together', supports_embeddings: true },
+    { id: 'fireworks', label: 'Fireworks', supports_embeddings: true },
+    { id: 'mistral', label: 'Mistral', supports_embeddings: true },
+    { id: 'deepseek', label: 'DeepSeek', supports_embeddings: true },
+    { id: 'perplexity', label: 'Perplexity', supports_embeddings: true },
+    { id: 'huggingface', label: 'Hugging Face', supports_embeddings: true },
+    { id: 'custom', label: 'OpenAI-Compatible', supports_embeddings: true }
+  ])
+    .filter((p) => p.supports_embeddings)
+    .map((p) => ({ value: p.id, label: p.label || p.name || p.id }));
 
   useEffect(() => {
     fetchInitialData();
@@ -92,14 +123,20 @@ const Settings = () => {
       const statusData = await statusRes.json();
       setConnected(statusData.connected);
 
-      // 2. Fetch Agent Settings (which now includes use_biometrics)
-      const settingsRes = await fetch(`/api/goals/agent/settings?user_id=${encodeURIComponent(userId)}`);
+      // 2. Fetch AI Settings + Agent Settings (which now includes use_biometrics)
+      const [aiData, settingsRes] = await Promise.all([
+        aiSettings.get(),
+        fetch(`/api/goals/agent/settings?user_id=${encodeURIComponent(userId)}`)
+      ]);
       const settingsData = await settingsRes.json();
+      const globalConfig = aiData?.llm?.global || {};
+      const embeddingConfig = aiData?.embeddings || aiData?.llm?.embedding_config || {};
+      setProviderRegistry(Array.isArray(aiData?.providers) ? aiData.providers : []);
       setSettings(prev => ({
         ...prev,
         use_biometrics: settingsData.use_biometrics || false,
-        llm_config: settingsData.llm_config || prev.llm_config,
-        embedding_config: settingsData.embedding_config || prev.embedding_config,
+        llm_config: globalConfig?.provider ? globalConfig : prev.llm_config,
+        embedding_config: embeddingConfig?.provider ? embeddingConfig : prev.embedding_config,
         opik_config: settingsData.opik_config || prev.opik_config,
         resend_api_key: settingsData.resend_api_key || ''
       }));
@@ -117,22 +154,27 @@ const Settings = () => {
     setErrorMessage('');
     try {
       const userId = getUserId();
+      await aiSettings.update({
+        llm: { global: settings.llm_config },
+        embedding_config: settings.embedding_config
+      });
+      localStorage.setItem('llm_provider', settings.llm_config.provider || '');
+      localStorage.setItem('llm_api_key', settings.llm_config.api_key || '');
+      localStorage.setItem('ollama_base_url', settings.llm_config.base_url || '');
+      localStorage.setItem('llm_model', settings.llm_config.model || '');
+      localStorage.setItem('llm_base_url', settings.llm_config.base_url || '');
       const response = await fetch(`/api/goals/agent/settings?user_id=${encodeURIComponent(userId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify({
+          ...settings,
+          llm_config: settings.llm_config,
+          vision_llm_config: settings.llm_config,
+          embedding_config: settings.embedding_config
+        })
       });
 
       if (response.ok) {
-        try {
-          await fetch(`/api/config/llm?user_id=${encodeURIComponent(userId)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config: { global: settings.llm_config } })
-          });
-        } catch (err) {
-          setErrorMessage('LLM config saved, but config mirror failed. Documents readiness may be stale.');
-        }
         setSaveStatus('success');
         setTimeout(() => setSaveStatus(null), 3000);
       } else {
@@ -485,10 +527,9 @@ const Settings = () => {
                       onChange={(e) => setSettings({ ...settings, llm_config: { ...settings.llm_config, provider: e.target.value } })}
                       className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
                     >
-                      <option value="openai">OpenAI</option>
-                      <option value="groq">Groq</option>
-                      <option value="ollama">Ollama</option>
-                      <option value="openrouter">OpenRouter</option>
+                      {providerOptions.map((prov) => (
+                        <option key={prov.value} value={prov.value}>{prov.label}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -501,17 +542,19 @@ const Settings = () => {
                       placeholder="gpt-4o, llama3..."
                     />
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
-                    <input
-                      type="password"
-                      value={settings.llm_config.api_key || ''}
-                      onChange={(e) => setSettings({ ...settings, llm_config: { ...settings.llm_config, api_key: e.target.value } })}
-                      className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
-                      placeholder="sk-..."
-                    />
-                  </div>
-                  {settings.llm_config.provider === 'ollama' && (
+                  {settings.llm_config.provider !== 'ollama' && (
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
+                      <input
+                        type="password"
+                        value={settings.llm_config.api_key || ''}
+                        onChange={(e) => setSettings({ ...settings, llm_config: { ...settings.llm_config, api_key: e.target.value } })}
+                        className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
+                        placeholder="sk-..."
+                      />
+                    </div>
+                  )}
+                  {(settings.llm_config.provider === 'ollama' || ['openrouter','together','fireworks','mistral','deepseek','perplexity','huggingface','custom'].includes(settings.llm_config.provider)) && (
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-gray-500 mb-1">Base URL</label>
                       <input
@@ -519,10 +562,72 @@ const Settings = () => {
                         value={settings.llm_config.base_url || ''}
                         onChange={(e) => setSettings({ ...settings, llm_config: { ...settings.llm_config, base_url: e.target.value } })}
                         className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
-                        placeholder="http://localhost:11434"
+                        placeholder={settings.llm_config.provider === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'}
                       />
                     </div>
                   )}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-primary-300 uppercase tracking-wider">Embeddings</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Provider</label>
+                    <select
+                      value={settings.embedding_config.provider}
+                      onChange={(e) => setSettings({ ...settings, embedding_config: { ...settings.embedding_config, provider: e.target.value } })}
+                      className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
+                    >
+                      {embeddingProviderOptions.map((prov) => (
+                        <option key={prov.value} value={prov.value}>{prov.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Model</label>
+                    <input
+                      type="text"
+                      value={settings.embedding_config.model}
+                      onChange={(e) => setSettings({ ...settings, embedding_config: { ...settings.embedding_config, model: e.target.value } })}
+                      className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
+                      placeholder="text-embedding-3-large"
+                    />
+                  </div>
+                  {settings.embedding_config.provider !== 'ollama' && (
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
+                      <input
+                        type="password"
+                        value={settings.embedding_config.api_key || ''}
+                        onChange={(e) => setSettings({ ...settings, embedding_config: { ...settings.embedding_config, api_key: e.target.value } })}
+                        className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
+                        placeholder="sk-..."
+                      />
+                    </div>
+                  )}
+                  {(settings.embedding_config.provider === 'ollama' || ['openrouter','together','fireworks','mistral','deepseek','perplexity','huggingface','custom'].includes(settings.embedding_config.provider)) && (
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Base URL</label>
+                      <input
+                        type="text"
+                        value={settings.embedding_config.base_url || ''}
+                        onChange={(e) => setSettings({ ...settings, embedding_config: { ...settings.embedding_config, base_url: e.target.value } })}
+                        className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
+                        placeholder={settings.embedding_config.provider === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'}
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Dimensions</label>
+                    <input
+                      type="number"
+                      value={settings.embedding_config.dimensions}
+                      onChange={(e) => setSettings({ ...settings, embedding_config: { ...settings.embedding_config, dimensions: parseInt(e.target.value || '0', 10) || 0 } })}
+                      className="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 outline-none"
+                      placeholder="768"
+                    />
+                  </div>
                 </div>
               </div>
 

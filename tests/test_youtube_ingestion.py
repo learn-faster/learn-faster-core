@@ -25,7 +25,7 @@ def test_extract_video_id():
 
 @patch("main.document_store")
 @patch("main.ingestion_engine")
-@patch("main.fetch_transcript")
+@patch("src.routers.legacy.fetch_transcript")
 def test_ingest_youtube_success(mock_fetch, mock_ingestion, mock_store):
     """Test successful YouTube ingestion flow."""
     # Setup mocks
@@ -56,7 +56,7 @@ def test_ingest_youtube_success(mock_fetch, mock_ingestion, mock_store):
 
 @patch("main.document_store")
 @patch("main.ingestion_engine")
-@patch("main.fetch_transcript")
+@patch("src.routers.legacy.fetch_transcript")
 def test_ingest_youtube_invalid_url(mock_fetch, mock_ingestion, mock_store):
     """Test ingestion with an invalid YouTube URL."""
     response = client.post("/ingest/youtube", json={"url": "https://not-youtube.com/video"})
@@ -65,7 +65,7 @@ def test_ingest_youtube_invalid_url(mock_fetch, mock_ingestion, mock_store):
 
 @patch("main.document_store")
 @patch("main.ingestion_engine")
-@patch("main.fetch_transcript")
+@patch("src.routers.legacy.fetch_transcript")
 def test_ingest_youtube_no_transcript(mock_fetch, mock_ingestion, mock_store):
     """Test ingestion when transcript is not available."""
     mock_fetch.return_value = None

@@ -3,8 +3,8 @@ import { Settings as SettingsIcon, Save, X, Bot, Key, Bell, Mail, BrainCircuit, 
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import cognitiveService from '../services/cognitive';
+import aiSettings from '../services/aiSettings';
 import { getHealth } from '../lib/config';
-import { LLM_PROVIDERS } from '../lib/llmProviders';
 
 /**
  * Global Settings Drawer
@@ -18,15 +18,26 @@ const Settings = ({ isOpen, onClose }) => {
     const [activeTab, setActiveTab] = useState('ai');
 
     // AI State
-    const [provider, setProvider] = useState('groq');
+    const [provider, setProvider] = useState('openai');
     const [apiKey, setApiKey] = useState('');
     const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
-    const [model, setModel] = useState('qwen/qwen3-32b');
+    const [baseUrl, setBaseUrl] = useState('');
+    const [model, setModel] = useState('gpt-4o-mini');
     const [embeddingProvider, setEmbeddingProvider] = useState('ollama');
     const [embeddingModel, setEmbeddingModel] = useState('embeddinggemma:latest');
     const [embeddingApiKey, setEmbeddingApiKey] = useState('');
     const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState('http://localhost:11434');
-    const [applyGlobalSettings, setApplyGlobalSettings] = useState(true);
+    const [embeddingDimensions, setEmbeddingDimensions] = useState(768);
+    const [providerRegistry, setProviderRegistry] = useState([]);
+    const [overrides, setOverrides] = useState({
+        chat: { useGlobal: true, config: {} },
+        flashcards: { useGlobal: true, config: {} },
+        quiz: { useGlobal: true, config: {} },
+        curriculum: { useGlobal: true, config: {} },
+        extraction: { useGlobal: true, config: {} },
+        agent: { useGlobal: true, config: {} },
+        vision: { useGlobal: true, config: {} }
+    });
 
     // Notification State
     const [email, setEmail] = useState('');
@@ -54,24 +65,87 @@ const Settings = ({ isOpen, onClose }) => {
     const [llmHealth, setLlmHealth] = useState(null);
     const [llmHealthLoading, setLlmHealthLoading] = useState(false);
 
-    const EMBEDDING_PROVIDERS = [
-        { value: 'openai', label: 'OpenAI' },
-        { value: 'ollama', label: 'Ollama (Local)' },
-        { value: 'openrouter', label: 'OpenRouter' },
-        { value: 'together', label: 'Together' },
-        { value: 'fireworks', label: 'Fireworks' },
-        { value: 'mistral', label: 'Mistral' },
-        { value: 'deepseek', label: 'DeepSeek' },
-        { value: 'perplexity', label: 'Perplexity' },
-        { value: 'huggingface', label: 'Hugging Face' },
-        { value: 'custom', label: 'OpenAI-Compatible' }
-    ];
+    const embeddingProviders = useMemo(() => {
+        const fallback = [
+            { id: 'openai', label: 'OpenAI', supports_embeddings: true },
+            { id: 'ollama', label: 'Ollama (Local)', supports_embeddings: true },
+            { id: 'openrouter', label: 'OpenRouter', supports_embeddings: true },
+            { id: 'together', label: 'Together', supports_embeddings: true },
+            { id: 'fireworks', label: 'Fireworks', supports_embeddings: true },
+            { id: 'mistral', label: 'Mistral', supports_embeddings: true },
+            { id: 'deepseek', label: 'DeepSeek', supports_embeddings: true },
+            { id: 'perplexity', label: 'Perplexity', supports_embeddings: true },
+            { id: 'huggingface', label: 'Hugging Face', supports_embeddings: true },
+            { id: 'custom', label: 'OpenAI-Compatible', supports_embeddings: true }
+        ];
+        const list = Array.isArray(providerRegistry) && providerRegistry.length ? providerRegistry : fallback;
+        return list
+            .filter((p) => p.supports_embeddings)
+            .map((p) => ({ value: p.id, label: p.label || p.name || p.id }));
+    }, [providerRegistry]);
+
+    const llmProviders = useMemo(() => {
+        const fallback = [
+            { id: 'openai', label: 'OpenAI' },
+            { id: 'groq', label: 'Groq' },
+            { id: 'openrouter', label: 'OpenRouter' },
+            { id: 'together', label: 'Together' },
+            { id: 'fireworks', label: 'Fireworks' },
+            { id: 'mistral', label: 'Mistral' },
+            { id: 'deepseek', label: 'DeepSeek' },
+            { id: 'perplexity', label: 'Perplexity' },
+            { id: 'huggingface', label: 'Hugging Face' },
+            { id: 'ollama', label: 'Ollama (Local)' },
+            { id: 'custom', label: 'OpenAI-Compatible' }
+        ];
+        const list = Array.isArray(providerRegistry) && providerRegistry.length ? providerRegistry : fallback;
+        return list.map((p) => ({ value: p.id, label: p.label || p.name || p.id, meta: p }));
+    }, [providerRegistry]);
 
     const tabs = useMemo(() => ([
         { key: 'ai', label: 'AI Config', icon: Bot },
         { key: 'notifications', label: 'Notifications', icon: Bell },
         { key: 'biometrics', label: 'Biometrics', icon: BrainCircuit }
     ]), []);
+
+    const overrideKeys = useMemo(() => ([
+        'chat',
+        'flashcards',
+        'quiz',
+        'curriculum',
+        'extraction',
+        'agent',
+        'vision'
+    ]), []);
+
+    const buildOverrideState = React.useCallback((llmConfig = {}) => {
+        const globalConfig = llmConfig.global || {};
+        const next = {};
+        overrideKeys.forEach((key) => {
+            const cfg = llmConfig?.[key];
+            const useGlobal = !cfg || Object.keys(cfg).length === 0;
+            next[key] = { useGlobal, config: cfg && !useGlobal ? cfg : { ...globalConfig } };
+        });
+        return next;
+    }, [overrideKeys]);
+
+    const setOverrideField = (key, field, value) => {
+        setOverrides((prev) => {
+            const next = { ...prev };
+            const current = next[key] || { useGlobal: true, config: {} };
+            next[key] = { ...current, config: { ...(current.config || {}), [field]: value } };
+            return next;
+        });
+    };
+
+    const toggleOverride = (key) => {
+        setOverrides((prev) => {
+            const next = { ...prev };
+            const current = next[key] || { useGlobal: true, config: {} };
+            next[key] = { ...current, useGlobal: !current.useGlobal };
+            return next;
+        });
+    };
 
     const checkBackendHealth = async () => {
         setBackendHealthLoading(true);
@@ -108,44 +182,33 @@ const Settings = ({ isOpen, onClose }) => {
         setIsLoading(true);
         setLoadError('');
 
-        const savedProvider = localStorage.getItem('llm_provider') || 'openai';
-        const savedKey = localStorage.getItem('llm_api_key') || '';
-        const savedUrl = localStorage.getItem('ollama_base_url') || 'http://localhost:11434';
-        const savedModel = localStorage.getItem('llm_model') || 'qwen/qwen3-32b';
-        const savedApplyAll = localStorage.getItem('global_settings_apply_all');
-
-        setProvider(savedProvider);
-        setApiKey(savedKey);
-        setOllamaUrl(savedUrl);
-        setModel(savedModel);
-        setApplyGlobalSettings(savedApplyAll !== 'false');
-
         const fetchSettings = async () => {
             try {
-                const [settingsData, statusData, cognitiveData] = await Promise.all([
+                const [settingsData, statusData, aiData] = await Promise.all([
                     api.get('/goals/agent/settings'),
                     api.get('/fitbit/status'),
-                    cognitiveService.getSettings()
+                    aiSettings.get()
                 ]);
 
-                const llmConfig = cognitiveData?.llm_config || {};
-                const globalConfig = llmConfig.global || llmConfig;
-                if (globalConfig?.provider) {
-                    setProvider(globalConfig.provider);
-                    localStorage.setItem('llm_provider', globalConfig.provider);
-                }
-                if (globalConfig?.model) {
-                    setModel(globalConfig.model);
-                    localStorage.setItem('llm_model', globalConfig.model);
-                }
-                if (globalConfig?.api_key !== undefined) {
-                    setApiKey(globalConfig.api_key || '');
-                    localStorage.setItem('llm_api_key', globalConfig.api_key || '');
-                }
-                if (globalConfig?.base_url) {
+                const llmConfig = aiData?.llm || {};
+                const globalConfig = llmConfig.global || {};
+                setProvider(globalConfig.provider || 'openai');
+                setModel(globalConfig.model || 'gpt-4o-mini');
+                setApiKey(globalConfig.api_key || '');
+                setBaseUrl(globalConfig.base_url || '');
+                if (globalConfig.provider === 'ollama' && globalConfig.base_url) {
                     setOllamaUrl(globalConfig.base_url);
-                    localStorage.setItem('ollama_base_url', globalConfig.base_url);
                 }
+
+                setProviderRegistry(Array.isArray(aiData?.providers) ? aiData.providers : []);
+                setOverrides(buildOverrideState(llmConfig));
+
+                const embedConfig = aiData?.embeddings || llmConfig.embedding_config || {};
+                if (embedConfig.provider) setEmbeddingProvider(embedConfig.provider);
+                if (embedConfig.model) setEmbeddingModel(embedConfig.model);
+                if (embedConfig.api_key !== undefined) setEmbeddingApiKey(embedConfig.api_key || '');
+                if (embedConfig.base_url) setEmbeddingBaseUrl(embedConfig.base_url);
+                if (embedConfig.dimensions) setEmbeddingDimensions(embedConfig.dimensions);
 
                 if (settingsData.email) setEmail(settingsData.email);
                 if (settingsData.resend_api_key) setResendApiKey(settingsData.resend_api_key);
@@ -164,10 +227,6 @@ const Settings = ({ isOpen, onClose }) => {
                 if (settingsData.fitbit_client_secret) setFitbitClientSecret(settingsData.fitbit_client_secret);
                 if (settingsData.fitbit_redirect_uri) setFitbitRedirectUri(settingsData.fitbit_redirect_uri);
                 setConnected(statusData.connected || false);
-                if (cognitiveData?.embedding_provider) setEmbeddingProvider(cognitiveData.embedding_provider);
-                if (cognitiveData?.embedding_model) setEmbeddingModel(cognitiveData.embedding_model);
-                if (cognitiveData?.embedding_api_key !== undefined) setEmbeddingApiKey(cognitiveData.embedding_api_key || '');
-                if (cognitiveData?.embedding_base_url) setEmbeddingBaseUrl(cognitiveData.embedding_base_url);
                 await checkBackendHealth();
                 await checkLlmHealth();
             } catch (err) {
@@ -178,7 +237,7 @@ const Settings = ({ isOpen, onClose }) => {
         };
 
         fetchSettings();
-    }, [isOpen]);
+    }, [isOpen, buildOverrideState]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -209,24 +268,47 @@ const Settings = ({ isOpen, onClose }) => {
         const llmConfig = {
             provider,
             api_key: apiKey,
-            model
+            model,
+            base_url: provider === 'ollama' ? ollamaUrl : baseUrl
         };
 
-        if (provider === 'ollama' || provider === 'ollama_cloud') {
-            llmConfig.base_url = ollamaUrl;
-        }
-
-        localStorage.setItem('llm_provider', provider);
-        localStorage.setItem('llm_api_key', apiKey);
-        localStorage.setItem('ollama_base_url', ollamaUrl);
-        localStorage.setItem('llm_model', model);
-        localStorage.setItem('global_settings_apply_all', String(applyGlobalSettings));
+        const overridePayload = {};
+        overrideKeys.forEach((key) => {
+            const entry = overrides[key];
+            if (!entry || entry.useGlobal) {
+                overridePayload[key] = {};
+            } else {
+                overridePayload[key] = entry.config || {};
+            }
+        });
 
         const [hourStr, minuteStr] = weeklyDigestTime.split(':');
         const digestHour = Math.max(0, Math.min(23, parseInt(hourStr || '18', 10)));
         const digestMinute = Math.max(0, Math.min(59, parseInt(minuteStr || '0', 10)));
 
         try {
+            await aiSettings.update({
+                llm: {
+                    global: llmConfig,
+                    ...overridePayload
+                },
+                embedding_config: {
+                    provider: embeddingProvider,
+                    model: embeddingModel,
+                    api_key: embeddingApiKey,
+                    base_url: embeddingBaseUrl,
+                    dimensions: embeddingDimensions
+                }
+            });
+
+            localStorage.setItem('llm_provider', llmConfig.provider || '');
+            localStorage.setItem('llm_api_key', llmConfig.api_key || '');
+            localStorage.setItem('ollama_base_url', llmConfig.base_url || '');
+            localStorage.setItem('llm_model', llmConfig.model || '');
+            localStorage.setItem('llm_base_url', llmConfig.base_url || '');
+
+            const agentLlm = overrides.agent?.useGlobal ? llmConfig : overrides.agent?.config;
+            const visionLlm = overrides.vision?.useGlobal ? agentLlm : overrides.vision?.config;
             await api.post('/goals/agent/settings', {
                 email,
                 resend_api_key: resendApiKey,
@@ -241,19 +323,15 @@ const Settings = ({ isOpen, onClose }) => {
                 fitbit_client_id: fitbitClientId,
                 fitbit_client_secret: fitbitClientSecret,
                 fitbit_redirect_uri: fitbitRedirectUri,
-                ...(applyGlobalSettings ? { llm_config: llmConfig } : {})
-            });
-            await cognitiveService.updateSettings({
-                llm_config: {
-                    provider: llmConfig.provider,
-                    model: llmConfig.model,
-                    api_key: llmConfig.api_key,
-                    base_url: llmConfig.base_url
-                },
-                embedding_provider: embeddingProvider,
-                embedding_model: embeddingModel,
-                embedding_api_key: embeddingApiKey,
-                embedding_base_url: embeddingBaseUrl
+                llm_config: agentLlm || llmConfig,
+                vision_llm_config: visionLlm || agentLlm || llmConfig,
+                embedding_config: {
+                    provider: embeddingProvider,
+                    model: embeddingModel,
+                    api_key: embeddingApiKey,
+                    base_url: embeddingBaseUrl,
+                    dimensions: embeddingDimensions
+                }
             });
             await checkLlmHealth();
             onClose?.();
@@ -375,78 +453,62 @@ const Settings = ({ isOpen, onClose }) => {
                                                         </div>
                                                     </div>
                                                 </SectionCard>
-                                                <SectionCard title="Scope" description="Apply these settings across all modules.">
-                                                    <ToggleRow
-                                                        title="Use global settings everywhere"
-                                                        description="When enabled, agent and document processing use this configuration."
-                                                        enabled={applyGlobalSettings}
-                                                        onToggle={() => setApplyGlobalSettings(!applyGlobalSettings)}
-                                                    />
-                                                    {!applyGlobalSettings && (
-                                                        <p className="text-[10px] text-dark-400 mt-2">Module-specific settings will be used instead.</p>
-                                                    )}
-                                                </SectionCard>
-
-                                                <SectionCard title="Provider" description="Choose which LLM powers your experience.">
-                                                    <select
-                                                        value={provider}
-                                                        onChange={(e) => {
-                                                            const p = e.target.value;
-                                                            setProvider(p);
-                                                            if (p === 'openai') setModel('gpt-4o');
-                                                            else if (p === 'groq') setModel('qwen/qwen3-32b');
-                                                            else if (p === 'openrouter') setModel('openai/gpt-4o');
-                                                            else if (p === 'together') setModel('meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo');
-                                                            else if (p === 'fireworks') setModel('accounts/fireworks/models/llama-v3p1-70b-instruct');
-                                                            else if (p === 'mistral') setModel('mistral-large-latest');
-                                                            else if (p === 'deepseek') setModel('deepseek-chat');
-                                                            else if (p === 'perplexity') setModel('llama-3.1-sonar-small-128k-online');
-                                                            else if (p === 'huggingface') setModel('meta-llama/Meta-Llama-3-70B-Instruct');
-                                                            else if (p === 'ollama' || p === 'ollama_cloud') setModel('llama3');
-                                                        }}
-                                                        className={inputClass}
-                                                    >
-                                                        {LLM_PROVIDERS.map((prov) => (
-                                                            <option key={prov.value} value={prov.value}>{prov.label}</option>
-                                                        ))}
-                                                    </select>
-                                                </SectionCard>
-
-                                                {provider !== 'ollama' && (
-                                                    <SectionCard title="API Key" description="Used to authenticate requests.">
-                                                        <div className="relative">
-                                                            <Key className="absolute left-4 top-3.5 w-4 h-4 text-dark-500" />
+                                                <SectionCard title="Global LLM" description="Default provider settings used across the app.">
+                                                    <div className="space-y-3">
+                                                        <select
+                                                            value={provider}
+                                                            onChange={(e) => {
+                                                                const p = e.target.value;
+                                                                setProvider(p);
+                                                                if (p === 'openai') setModel('gpt-4o-mini');
+                                                                else if (p === 'groq') setModel('qwen/qwen3-32b');
+                                                                else if (p === 'openrouter') setModel('openai/gpt-4o');
+                                                                else if (p === 'together') setModel('meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo');
+                                                                else if (p === 'fireworks') setModel('accounts/fireworks/models/llama-v3p1-70b-instruct');
+                                                                else if (p === 'mistral') setModel('mistral-large-latest');
+                                                                else if (p === 'deepseek') setModel('deepseek-chat');
+                                                                else if (p === 'perplexity') setModel('llama-3.1-sonar-small-128k-online');
+                                                                else if (p === 'huggingface') setModel('meta-llama/Meta-Llama-3-70B-Instruct');
+                                                                else if (p === 'ollama') setModel('llama3');
+                                                            }}
+                                                            className={inputClass}
+                                                        >
+                                                            {llmProviders.map((prov) => (
+                                                                <option key={prov.value} value={prov.value}>{prov.label}</option>
+                                                            ))}
+                                                        </select>
+                                                        {provider !== 'ollama' && (
+                                                            <div className="relative">
+                                                                <Key className="absolute left-4 top-3.5 w-4 h-4 text-dark-500" />
+                                                                <input
+                                                                    type="password"
+                                                                    value={apiKey}
+                                                                    onChange={(e) => setApiKey(e.target.value)}
+                                                                    placeholder={`Enter ${provider} API Key`}
+                                                                    className={`${inputClass} pl-10`}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                        {(provider === 'ollama' || provider === 'custom' || ['openrouter','together','fireworks','mistral','deepseek','perplexity','huggingface'].includes(provider)) && (
                                                             <input
-                                                                type="password"
-                                                                value={apiKey}
-                                                                onChange={(e) => setApiKey(e.target.value)}
-                                                                placeholder={`Enter ${provider === 'ollama_cloud' ? 'Ollama' : provider} API Key`}
-                                                                className={`${inputClass} pl-10`}
+                                                                type="text"
+                                                                value={provider === 'ollama' ? ollamaUrl : baseUrl}
+                                                                onChange={(e) => {
+                                                                    if (provider === 'ollama') setOllamaUrl(e.target.value);
+                                                                    else setBaseUrl(e.target.value);
+                                                                }}
+                                                                placeholder={provider === 'ollama' ? "http://localhost:11434" : "https://api.openai.com/v1"}
+                                                                className={inputClass}
                                                             />
-                                                        </div>
-                                                    </SectionCard>
-                                                )}
-
-                                                {(provider === 'ollama' || provider === 'ollama_cloud' || provider === 'custom' || ['openrouter','together','fireworks','mistral','deepseek','perplexity','huggingface'].includes(provider)) && (
-                                                    <SectionCard title="Base URL" description="OpenAI-compatible base URL or local endpoint.">
+                                                        )}
                                                         <input
                                                             type="text"
-                                                            value={ollamaUrl}
-                                                            onChange={(e) => setOllamaUrl(e.target.value)}
-                                                            placeholder={provider === 'ollama' ? "http://localhost:11434" : "https://api.openai.com/v1"}
+                                                            value={model}
+                                                            onChange={(e) => setModel(e.target.value)}
+                                                            placeholder="e.g. gpt-4o, llama3"
                                                             className={inputClass}
                                                         />
-                                                    </SectionCard>
-                                                )}
-
-                                                <SectionCard title="Model Name" description="Exact model identifier.">
-                                                    <input
-                                                        type="text"
-                                                        value={model}
-                                                        onChange={(e) => setModel(e.target.value)}
-                                                        placeholder="e.g. gpt-4o, llama3"
-                                                        className={inputClass}
-                                                    />
+                                                    </div>
                                                 </SectionCard>
 
                                                 <SectionCard title="Embeddings" description="Configure the provider and model used for document ingestion.">
@@ -456,7 +518,7 @@ const Settings = ({ isOpen, onClose }) => {
                                                             onChange={(e) => setEmbeddingProvider(e.target.value)}
                                                             className={inputClass}
                                                         >
-                                                            {EMBEDDING_PROVIDERS.map((prov) => (
+                                                            {embeddingProviders.map((prov) => (
                                                                 <option key={prov.value} value={prov.value}>{prov.label}</option>
                                                             ))}
                                                         </select>
@@ -485,7 +547,69 @@ const Settings = ({ isOpen, onClose }) => {
                                                                 className={inputClass}
                                                             />
                                                         )}
-                                                        <p className="text-[10px] text-dark-400">Use an OpenAI-compatible endpoint for providers not listed.</p>
+                                                        <input
+                                                            type="number"
+                                                            value={embeddingDimensions}
+                                                            onChange={(e) => setEmbeddingDimensions(parseInt(e.target.value || '0', 10) || 0)}
+                                                            placeholder="Dimensions"
+                                                            className={inputClass}
+                                                        />
+                                                        <p className="text-[10px] text-dark-400">Dimensions should match the embedding model.</p>
+                                                    </div>
+                                                </SectionCard>
+
+                                                <SectionCard title="Overrides" description="Override global settings per feature.">
+                                                    <div className="space-y-4">
+                                                        {overrideKeys.map((key) => (
+                                                            <div key={key} className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="text-xs font-semibold uppercase tracking-wider text-dark-300">
+                                                                        {key}
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => toggleOverride(key)}
+                                                                        className={`w-12 h-6 rounded-full p-1 transition-colors ${overrides[key]?.useGlobal ? 'bg-dark-700' : 'bg-primary-500'}`}
+                                                                    >
+                                                                        <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${overrides[key]?.useGlobal ? 'translate-x-0' : 'translate-x-6'}`} />
+                                                                    </button>
+                                                                </div>
+                                                                {!overrides[key]?.useGlobal && (
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                                        <select
+                                                                            value={overrides[key]?.config?.provider || provider}
+                                                                            onChange={(e) => setOverrideField(key, 'provider', e.target.value)}
+                                                                            className={inputClass}
+                                                                        >
+                                                                            {llmProviders.map((prov) => (
+                                                                                <option key={prov.value} value={prov.value}>{prov.label}</option>
+                                                                            ))}
+                                                                        </select>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={overrides[key]?.config?.model || ''}
+                                                                            onChange={(e) => setOverrideField(key, 'model', e.target.value)}
+                                                                            placeholder="Model"
+                                                                            className={inputClass}
+                                                                        />
+                                                                        <input
+                                                                            type="password"
+                                                                            value={overrides[key]?.config?.api_key || ''}
+                                                                            onChange={(e) => setOverrideField(key, 'api_key', e.target.value)}
+                                                                            placeholder="API key"
+                                                                            className={inputClass}
+                                                                        />
+                                                                        <input
+                                                                            type="text"
+                                                                            value={overrides[key]?.config?.base_url || ''}
+                                                                            onChange={(e) => setOverrideField(key, 'base_url', e.target.value)}
+                                                                            placeholder="Base URL"
+                                                                            className={inputClass}
+                                                                        />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 </SectionCard>
                                             </div>

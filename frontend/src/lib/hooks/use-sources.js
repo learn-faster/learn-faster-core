@@ -30,7 +30,8 @@ export function useNotebookSources(notebookId) {
     queryKey: QUERY_KEYS.sourcesInfinite(notebookId),
     queryFn: async ({ pageParam = 0 }) => {
       const data = await sourcesApi.list({
-        notebook_id: notebookId, limit,
+        notebook_id: notebookId,
+        limit: NOTEBOOK_SOURCES_PAGE_SIZE,
         offset: pageParam,
         sort_by: 'updated',
         sort_order: 'desc',

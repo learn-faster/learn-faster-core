@@ -11,13 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { GeneratePodcastDialog } from '@/components/podcasts/GeneratePodcastDialog'
 import { useTranslation } from '@/lib/hooks/use-translation'
-import { TranslationKeys } from '@/lib/locales'
 
-const getSTATUS_ORDER = (t: TranslationKeys): Array<{
-  key: 'running' | 'completed' | 'failed' | 'pending'
-  title: string
-  description?: string
-}> => [
+const getSTATUS_ORDER = (t) => [
   {
     key: 'running',
     title: t.podcasts.statusRunningTitle,
@@ -40,7 +35,7 @@ const getSTATUS_ORDER = (t: TranslationKeys): Array<{
   },
 ]
 
-function SummaryBadge({ label, value }: { label: string; value: number }) {
+function SummaryBadge({ label, value }) {
   return (
     <Badge variant="outline" className="font-medium">
       <span className="text-muted-foreground mr-1.5">{label}</span>
@@ -68,7 +63,7 @@ export function EpisodesTab() {
   }, [refetch])
 
   const handleDelete = useCallback(
-    (episodeId: string) => deleteEpisode.mutateAsync(episodeId),
+    (episodeId) => deleteEpisode.mutateAsync(episodeId),
     [deleteEpisode]
   )
 

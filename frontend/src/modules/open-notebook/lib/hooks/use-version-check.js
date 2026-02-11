@@ -27,7 +27,8 @@ export function useVersionCheck() {
         if (sessionStorage.getItem(dismissKey)) return
 
         toast.info(t.advanced.updateAvailable.replace('{version}', config.latestVersion), {
-          description: t.advanced.updateAvailableDesc, duration,
+          description: t.advanced.updateAvailableDesc,
+          duration: 8000,
           closeButton: true,
           action: {
             label: t.advanced.viewOnGithub,

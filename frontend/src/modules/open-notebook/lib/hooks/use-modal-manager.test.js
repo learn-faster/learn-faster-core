@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react'
 import { renderHook, act } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'

@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
 import sys
 import os
 
@@ -13,12 +14,24 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from main import app
 from src.database.orm import Base, get_db
-from src.models.orm import Folder, Flashcard, StudySession, Document, ActivityLog, StudyReview
+from src.models.orm import Folder, Flashcard, StudySession, Document, ActivityLog, StudyReview, UserSettings
 
-# Setup test DB (using real Postgres Test DB)
-# Note: Ensure scripts/setup_test_db.py has been run or DB exists
-SQLALCHEMY_DATABASE_URL = "postgresql://learnfast:password@localhost:5433/learnfast_test"
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+# Setup test DB:
+# 1) Try Postgres test DB if available.
+# 2) Fallback to local SQLite for offline/local runs.
+POSTGRES_TEST_DB_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql://learnfast:password@localhost:5433/learnfast_test",
+)
+SQLITE_TEST_DB_URL = "sqlite:///./data/test_new_features.sqlite3"
+
+engine = create_engine(POSTGRES_TEST_DB_URL)
+try:
+    with engine.connect():
+        pass
+except SQLAlchemyError:
+    engine = create_engine(SQLITE_TEST_DB_URL)
+
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Override get_db dependency
@@ -31,10 +44,40 @@ def override_get_db():
 
 app.dependency_overrides[get_db] = override_get_db
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+# Create only required tables for this test module.
+# (Using a subset avoids backend-specific types from unrelated tables.)
+for model in (UserSettings, Folder, Document, Flashcard, StudySession, StudyReview, ActivityLog):
+    model.__table__.create(bind=engine, checkfirst=True)
 
 client = TestClient(app)
+
+
+def _create_folder():
+    response = client.post(
+        "/api/folders/",
+        json={"name": "Test Folder", "color": "#000000", "icon": "test"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Test Folder"
+    assert "id" in data
+    return data["id"]
+
+
+def _create_flashcard():
+    response = client.post(
+        "/api/flashcards/",
+        json={
+            "front": "What is Integration Testing?",
+            "back": "Testing combined parts of an application.",
+            "card_type": "basic",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["front"] == "What is Integration Testing?"
+    assert "id" in data
+    return data["id"]
 
 def test_health_check():
     """Verify app is running."""
@@ -43,36 +86,18 @@ def test_health_check():
 
 def test_create_folder():
     """Test folder creation."""
-    response = client.post(
-        "/api/folders/",
-        json={"name": "Test Folder", "color": "#000000", "icon": "test"}
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Test Folder"
-    assert "id" in data
-    return data["id"]
+    folder_id = _create_folder()
+    assert folder_id
 
 def test_create_flashcard():
     """Test flashcard creation."""
-    response = client.post(
-        "/api/flashcards/",
-        json={
-            "front": "What is Integration Testing?",
-            "back": "Testing combined parts of an application.",
-            "card_type": "basic"
-        }
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["front"] == "What is Integration Testing?"
-    assert "id" in data
-    return data["id"]
+    card_id = _create_flashcard()
+    assert card_id
 
 def test_study_session_flow():
     """Test starting a session and submitting a review."""
     # 1. Create a flashcard
-    card_id = test_create_flashcard()
+    card_id = _create_flashcard()
     
     # 2. Start session
     response = client.post("/api/study/session")
